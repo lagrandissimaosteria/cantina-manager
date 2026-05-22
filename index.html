@@ -101,7 +101,7 @@ tfoot td{padding:10px 14px;font-size:11px;border-top:2px solid var(--border2);ba
 .badge-Dolce{background:rgba(88,28,135,.3);color:#d8b4fe;border:1px solid rgba(107,33,168,.4)}
 .badge-Passito{background:rgba(124,45,18,.3);color:#fdba74;border:1px solid rgba(154,52,18,.4)}
 .badge-Liquoroso{background:rgba(113,63,18,.3);color:#fde68a;border:1px solid rgba(133,77,14,.4)}
-.badge-Macerato{background:rgba(124,45,18,.2);color:#fed7aa;border:1px solid rgba(154,52,18,.3)}
+.badge-Orange{background:rgba(124,45,18,.2);color:#fed7aa;border:1px solid rgba(154,52,18,.3)}
 .badge-default{background:var(--bg3);color:var(--txt2)}
 
 /* ── FORMS ── */
@@ -250,7 +250,7 @@ tfoot td{padding:10px 14px;font-size:11px;border-top:2px solid var(--border2);ba
 .col-fornitore{max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .col-vitigni{max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media(max-width:1350px){
-  .col-regione{display:table-cell}
+  .col-regione{display:none}
   .col-margperc{display:none}
   .col-fornitore{display:none}
   .col-vitigni{display:none}
@@ -440,6 +440,15 @@ th.cb-col,td.cb-col{width:32px;padding:6px 8px!important}
       </div>
       <div id="cfg-test-result" style="margin-top:12px;font-size:11px;min-height:18px"></div>
     </div>
+      <div class="form-row" style="margin-top:18px;padding-top:16px;border-top:1px solid var(--border)">
+        <label class="form-label">Tipologie Vino</label>
+        <p style="font-size:10px;color:var(--txt4);margin-bottom:8px">Una per riga. Modifica, aggiungi o rimuovi liberamente.</p>
+        <textarea class="form-input" id="cfg-tipologie" rows="8" style="font-size:12px;resize:vertical;line-height:1.8"></textarea>
+      </div>
+      <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn-outline btn-sm" onclick="saveTipologie()">✓ Salva Tipologie</button>
+        <button class="btn-outline btn-sm" onclick="resetTipologie()">↺ Ripristina Default</button>
+      </div>
     <div class="modal-footer">
       <button class="btn-outline" onclick="testDbConnection()">🔌 Test Connessione</button>
       <button class="btn-outline" onclick="closeDbConfig()">Annulla</button>
@@ -454,12 +463,11 @@ th.cb-col,td.cb-col{width:32px;padding:6px 8px!important}
 // Per cambiare password: in console > sha256("nuova") e aggiorna PASSWORD_HASH
 const PASSWORD_HASH = "4308b16b088ef46766393f253ec3d48d96dfc04e80712cc0c55f0491c848fbad";
 
-const TIPOLOGIE_DEFAULT = ["Rosso","Bianco","Rosato","Spumante","Macerato","Naturale","Dolce","Passito","Liquoroso"];
-try{ var TIPOLOGIE = JSON.parse(localStorage.getItem("cm_tipologie"))||TIPOLOGIE_DEFAULT; }catch(e){ var TIPOLOGIE = TIPOLOGIE_DEFAULT; }
+let TIPOLOGIE = (()=>{try{const s=localStorage.getItem("cm_tipologie");return s?JSON.parse(s):["Rosso","Bianco","Rosato","Champagne","Metodo Classico","Metodo Classico Rosato","Rifermentato","Rifermentato Rosso","Rifermentato Rosato","Col Fondo","Ancestrale","Macerato","Orange","Passito","Dolce","Liquoroso"];}catch{return ["Rosso","Bianco","Rosato","Champagne","Metodo Classico","Metodo Classico Rosato","Rifermentato","Rifermentato Rosso","Rifermentato Rosato","Col Fondo","Ancestrale","Macerato","Orange","Passito","Dolce","Liquoroso"];}})();
 function _saveTipologie(){try{localStorage.setItem("cm_tipologie",JSON.stringify(TIPOLOGIE));}catch{}}
 function _tipoOptsHtml(selected){
   return TIPOLOGIE.map(t=>`<option value="${h(t)}"${t===selected?" selected":""}>${h(t)}</option>`).join("")
-    + `<option value="__new__">+ Nuova tipologia\u2026</option>`;
+    + `<option value="__new__">+ Nuova tipologia…</option>`;
 }
 function _addTipologiaInline(sel, onNewTipo){
   if(sel.value !== "__new__") return;
@@ -469,7 +477,8 @@ function _addTipologiaInline(sel, onNewTipo){
   const newOpt = document.createElement("option");
   newOpt.value = nuova; newOpt.textContent = nuova;
   sel.insertBefore(newOpt, sel.querySelector('option[value="__new__"]'));
-  sel.value = nuova; sel.dataset.prev = nuova;
+  sel.value = nuova;
+  sel.dataset.prev = nuova;
   if(onNewTipo) onNewTipo(nuova);
 }
 const IVA_OPTIONS = [4,10,22];
@@ -621,9 +630,29 @@ function _initSupabase(){
 }
 
 // ── DB CONFIG MODAL ──────────────────────────────────────────────────────────
+function saveTipologie(){
+  const val = document.getElementById("cfg-tipologie").value;
+  const arr = val.split("\n").map(s=>s.trim()).filter(Boolean);
+  if(!arr.length) return notify("Inserisci almeno una tipologia","err");
+  TIPOLOGIE.length = 0;
+  arr.forEach(t=>TIPOLOGIE.push(t));
+  _saveTipologie();
+  notify("✓ Tipologie aggiornate");
+  render();
+}
+function resetTipologie(){
+  const def = ["Rosso","Bianco","Rosato","Champagne","Metodo Classico","Metodo Classico Rosato","Rifermentato","Rifermentato Rosso","Rifermentato Rosato","Col Fondo","Ancestrale","Macerato","Orange","Passito","Dolce","Liquoroso"];
+  TIPOLOGIE.length = 0;
+  def.forEach(t=>TIPOLOGIE.push(t));
+  _saveTipologie();
+  document.getElementById("cfg-tipologie").value = TIPOLOGIE.join("\n");
+  notify("✓ Tipologie ripristinate");
+  render();
+}
 function openDbConfig(){
   document.getElementById("cfg-url").value = localStorage.getItem("cm_sb_url")||"";
   document.getElementById("cfg-key").value = localStorage.getItem("cm_sb_key")||"";
+  document.getElementById("cfg-tipologie").value = TIPOLOGIE.join("\n");
   document.getElementById("cfg-test-result").textContent = "";
   document.getElementById("db-config-backdrop").classList.remove("hidden");
 }
@@ -692,12 +721,9 @@ async function _sbUpsert(table, payload){
 }
 async function _sbRead(table){
   if(!_sb) return null;
-  try{
-    const res = await _sb.from(table).select("data").eq("user_id", DB_USER).maybeSingle();
-    const row = res.data;
-    if(row && row.data !== undefined) return row.data;
-    return null;
-  }catch(e){ console.warn("_sbRead error", table, e.message); return null; }
+  const { data, error } = await _sb.from(table).select("data").eq("user_id", DB_USER).maybeSingle();
+  if(error) return null;
+  return data?.data ?? null;
 }
 
 // ── PUBLIC API ────────────────────────────────────────────────────────────────
@@ -728,7 +754,7 @@ async function loadData(){
   if(!_sb){
     _loadLocalBackup();
     _setDbStatus("off","Solo locale");
-    render();
+    if(_mobActive){ _renderMobList(); _renderMobLog(); } else render();
     return;
   }
   _setDbStatus("sync","Caricamento…");
@@ -1063,7 +1089,7 @@ function renderInventario(){
       <table>
         <thead><tr>
           ${selMode==='wines'?`<th class="cb-col"><input type="checkbox" id="cb-sel-all" class="cb-sel" onchange="toggleSelAll()"></th>`:''}
-          <th class="col-fornitore" style="color:var(--txt3)">Fornitore</th><th>Produttore</th><th>Nome Vino</th><th>Tipo</th><th class="col-vitigni" style="color:var(--txt3)">Vitigni</th><th class="col-regione" style="color:var(--txt3)">Regione / Nazione</th>
+          <th class="col-fornitore" style="color:var(--txt3)">Fornitore</th><th>Produttore</th><th>Nome Vino</th><th>Tipo</th><th class="col-vitigni" style="color:var(--txt3)">Vitigni</th>
           <th class="r" style="border-left:1px solid var(--border)">P.Acq</th><th class="r col-ivaincl">+IVA/bt</th><th class="r col-pcarta">P.Carta</th><th class="r col-calice">P.Calice</th><th class="r col-margperc">Marg.%</th>
           <th class="c" style="border-left:1px solid rgba(120,53,15,.4);background:rgba(120,53,15,.1);color:var(--amber3)">GIACENZA</th>
           <th class="c col-soglia" style="background:rgba(120,53,15,.07)">Soglia</th>
@@ -1083,7 +1109,7 @@ function renderInventario(){
             <td style="color:var(--txt2)">${h(w.produttore)}</td>
             <td><div style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px">${h(w.nome)}</div>${w.zona?`<div class="col-zona" style="font-size:9px;color:var(--txt4)">${h(w.zona)}</div>`:""}</td>
             <td>${badge(w.tipologia)}</td>
-            <td class="col-vitigni" style="color:var(--txt3);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px">${h(w.vitigni||"—")}</td><td class="col-regione" style="color:var(--txt3);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px">${w.regione?h(w.regione):""}${w.regione&&w.nazione?"<br>":""}<span style="color:var(--txt4)">${h(w.nazione||"—")}</span></td>
+            <td class="col-vitigni" style="color:var(--txt3);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px">${h(w.vitigni||"—")}</td>
             <td class="r" style="border-left:1px solid var(--border)">${fmt(w.prezzoAcq)}</td>
             <td class="r col-ivaincl" style="color:var(--txt3)">${fmt(calcCostoIvaBottiglia(w))}</td>
             <td class="r col-pcarta" style="${!w.prezzoCarta?'color:var(--txt4)':''}">${w.prezzoCarta?fmt(w.prezzoCarta):'—'}</td><td class="r col-calice" style="${!w.prezzoCalice?'color:var(--txt4)':''}">${w.prezzoCalice?fmt(w.prezzoCalice):'—'}</td>
@@ -1528,7 +1554,7 @@ function registraMovimento(){
     const newWine={
       id:uid(), nome:nomeTrimmed, produttore:prodTrimmed,
       distributore:fornitore||"", annata:"", vitigni:"", tipologia:movForm._newTipologia||"Rosso",
-      regione:"", nazione:"Italia", zona:"",
+      regione:"", nazione:r.nazione||"Italia", zona:r.zona||"",
       prezzoAcq:parseFloat(prezzoAcqLotto)||0, iva:22,
       prezzoCarta:parseFloat(movForm._newPrezzoCarta)||0,
       giacenza:0, lots:[]
@@ -2302,7 +2328,7 @@ function apriOrdineEvasoModal(id){
       <td style="padding:5px 8px"><input class="form-input" style="font-size:11px" value="${h(r.produttore||'')}" placeholder="Produttore"></td>
       <td style="padding:5px 8px"><input class="form-input" style="font-size:11px" value="${h(r.nomeVino||'')}" placeholder="Nome vino"></td>
       <td style="padding:5px 8px"><input class="form-input" style="font-size:11px;width:80px" value="${h(r.annata||'')}" placeholder="Anno"></td>
-      <td style="padding:5px 8px"><select class="form-select" style="font-size:11px">${TIPOLOGIE.map(t=>`<option value="${t}"${r.tipologia===t?" selected":""}>${t}</option>`).join("")}</select></td>
+      <td style="padding:5px 8px"><select class="form-select" style="font-size:11px" data-prev="${h(r.tipologia)}" onchange="_addTipologiaInline(this);if(this.value!=='__new__')this.dataset.prev=this.value">${_tipoOptsHtml(r.tipologia)}</select></td>
       <td style="padding:5px 8px;text-align:center"><input type="number" class="form-input" style="font-size:11px;width:60px;text-align:center" value="${r.qty||0}" min="0"></td>
       <td style="padding:5px 8px;text-align:center"><input type="number" class="form-input" style="font-size:11px;width:60px;text-align:center" value="${r.qtyArr??r.qty??0}" min="0"></td>
       <td style="padding:5px 8px"><input type="number" class="form-input" style="font-size:11px;width:80px" value="${r.prezzoAcq||''}" step="0.01" min="0" placeholder="0.00"></td>
@@ -2367,7 +2393,7 @@ function _addEvasoRefRow(){
       <td style="padding:5px 8px"><input class="form-input" style="font-size:11px" value="" placeholder="Produttore"></td>
       <td style="padding:5px 8px"><input class="form-input" style="font-size:11px" value="" placeholder="Nome vino"></td>
       <td style="padding:5px 8px"><input class="form-input" style="font-size:11px;width:80px" value="" placeholder="Anno"></td>
-      <td style="padding:5px 8px"><select class="form-select" style="font-size:11px">${TIPOLOGIE.map(t=>`<option value="${t}">${t}</option>`).join("")}</select></td>
+      <td style="padding:5px 8px"><select class="form-select" style="font-size:11px" data-prev="Rosso" onchange="_addTipologiaInline(this);if(this.value!=='__new__')this.dataset.prev=this.value">${_tipoOptsHtml("")}</select></td>
       <td style="padding:5px 8px;text-align:center"><input type="number" class="form-input" style="font-size:11px;width:60px;text-align:center" value="0" min="0"></td>
       <td style="padding:5px 8px;text-align:center"><input type="number" class="form-input" style="font-size:11px;width:60px;text-align:center" value="0" min="0"></td>
       <td style="padding:5px 8px"><input type="number" class="form-input" style="font-size:11px;width:80px" value="" step="0.01" min="0" placeholder="0.00"></td>
@@ -2562,7 +2588,12 @@ function _refAutofill(refId,val,field){
       // annata
       if(found.annata){r.annata=found.annata;const inpA=row.querySelectorAll("input")[3];if(inpA)inpA.value=found.annata;}
       r.tipologia=found.tipologia;const sel=row.querySelectorAll("select")[0];if(sel){for(const o of sel.options)o.selected=o.value===found.tipologia;}
-      if(!r.prezzoAcq&&found.prezzoAcq){r.prezzoAcq=found.prezzoAcq;const inp=row.querySelectorAll("input")[4];if(inp)inp.value=found.prezzoAcq;}
+      // regione, zona, nazione
+      if(found.regione){r.regione=found.regione;const inpReg=row.querySelectorAll("input")[4];if(inpReg)inpReg.value=found.regione;}
+      if(found.zona){r.zona=found.zona;const inpZona=row.querySelectorAll("input")[5];if(inpZona)inpZona.value=found.zona;}
+      if(found.nazione){r.nazione=found.nazione;const inpNaz=row.querySelectorAll("input")[6];if(inpNaz)inpNaz.value=found.nazione;}
+      if(!r.prezzoAcq&&found.prezzoAcq){r.prezzoAcq=found.prezzoAcq;const inp=row.querySelectorAll("input[type=number]")[0];if(inp)inp.value=found.prezzoAcq;}
+      if(!r.prezzoCarta&&found.prezzoCarta){r.prezzoCarta=found.prezzoCarta;const inpPC=row.querySelectorAll("input[type=number]")[1];if(inpPC)inpPC.value=found.prezzoCarta;}
       r.iva=found.iva||22;const selIva=row.querySelectorAll("select")[1];if(selIva){for(const o of selIva.options)o.selected=parseInt(o.value)===(found.iva||22);}
     }
   }
@@ -2587,6 +2618,9 @@ function _addRefRow(){
     if(dl) dl.innerHTML=allProd.map(v=>`<option value="${h(v)}">`).join("");
     const dlw=document.getElementById("omd-wine-dl");
     if(dlw) dlw.innerHTML=allNomi.map(v=>`<option value="${h(v)}">`).join("");
+    const dlr=document.getElementById("omd-reg-dl");
+    const allReg=[...new Set(wines.map(w=>w.regione).filter(Boolean))].sort();
+    if(dlr) dlr.innerHTML=allReg.map(v=>`<option value="${h(v)}">`).join("");
   }
   _updateOrdineModalTotale();
 }
@@ -2775,7 +2809,7 @@ function _addRicezioneRow(){
         oninput="_ricRefChange('${newR.id}','produttore',this.value)" onchange="_ricRefAutofill('${newR.id}',this.value,'produttore')"></td>
       <td style="padding:5px 6px"><input class="form-input" style="font-size:11px" list="ric-wine-dl" autocomplete="off" placeholder="Nome vino"
         oninput="_ricRefChange('${newR.id}','nomeVino',this.value)" onchange="_ricRefAutofill('${newR.id}',this.value,'nomeVino')"></td>
-      <td style="padding:5px 6px"><select class="form-input" style="font-size:11px" onchange="_ricRefChange('${newR.id}','tipologia',this.value)">${tipoOpts}</select></td>
+      <td style="padding:5px 6px"><select class="form-input" style="font-size:11px" data-prev="Rosso" onchange="_addTipologiaInline(this,(v)=>_ricRefChange('${newR.id}','tipologia',v));if(this.value!=='__new__'){this.dataset.prev=this.value;_ricRefChange('${newR.id}','tipologia',this.value)}">${tipoOpts}</select></td>
       <td style="padding:5px 8px;text-align:center;color:var(--txt4);font-size:11px">—</td>
       <td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:11px;text-align:center" value="0" min="0"
         oninput="_ricRefChange('${newR.id}','qtyArr',parseInt(this.value)||0);_aggiornaRicTotale()"></td>
@@ -2997,6 +3031,10 @@ function renderExport(){
       <div><div style="font-size:10px;letter-spacing:.25em;text-transform:uppercase;color:var(--txt2);margin-bottom:4px">💾 Bilancio di Magazzino</div><div style="font-family:Georgia,serif;font-weight:300;font-size:1.3rem;color:#fef3c7">Situazione al ${dateStr}</div></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
         <button class="btn-outline btn-sm" onclick="exportBackupJSON()" title="Backup completo di tutti i dati">💾 Backup JSON</button>
+        <label class="btn-outline btn-sm" style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border:1px solid var(--border);font-size:11px;letter-spacing:.04em" title="Ripristina da file JSON">
+          📥 Importa Backup
+          <input type="file" accept=".json" onchange="importBackupJSON(event)" style="display:none">
+        </label>
         <button class="btn-primary" onclick="exportBilancioCSV()">↓ Esporta Bilancio Completo</button>
       </div>
     </div>
@@ -3094,7 +3132,7 @@ function renderModalBody(wine){
         <div><label class="form-label">Distributore</label><input class="form-input" id="mf-distributore" value="${h(f.distributore)}" placeholder="es. Vini Italiani Srl"></div>
         <div><label class="form-label">Annata</label><input class="form-input" id="mf-annata" value="${h(f.annata)}" placeholder="es. 2019 o N.V."></div>
         <div><label class="form-label">Vitigni</label><input class="form-input" id="mf-vitigni" value="${h(f.vitigni)}" placeholder="es. Nebbiolo 100%"></div>
-        <div><label class="form-label">Tipologia</label><select class="form-select" id="mf-tipologia">${TIPOLOGIE.map(t=>`<option value="${t}" ${f.tipologia===t?"selected":""}>${t}</option>`).join("")+'<option value="__new__">+ Nuova tipologia…</option>'}</select></div>
+        <div><label class="form-label">Tipologia</label><select class="form-select" id="mf-tipologia" data-prev="${f.tipologia}" onchange="_addTipologiaInline(this);if(this.value!=='__new__'){this.dataset.prev=this.value}">${TIPOLOGIE.map(t=>`<option value="${t}" ${f.tipologia===t?"selected":""}>${t}</option>`).join("")+'<option value="__new__">+ Nuova tipologia…</option>'}</select></div>
       </div>
     </div>
     <div class="modal-section">
@@ -3277,7 +3315,7 @@ const _bulkFields={
     {key:"produttore",label:"Produttore",type:"text"},
     {key:"distributore",label:"Distributore",type:"text"},
     {key:"nome",label:"Nome Vino",type:"text"},
-    {key:"tipologia",label:"Tipologia",type:"select",opts:["Rosso","Bianco","Rosato","Spumante","Macerato","Naturale","Dolce","Passito","Liquoroso"]},
+    {key:"tipologia",label:"Tipologia",type:"select",opts:[...TIPOLOGIE,"__new__"],labels:{...Object.fromEntries(TIPOLOGIE.map(t=>[t,t])),__new__:"+ Nuova tipologia…"}},
     {key:"annata",label:"Annata",type:"text"},
     {key:"regione",label:"Regione",type:"text"},
     {key:"nazione",label:"Nazione",type:"text"},
@@ -3474,6 +3512,7 @@ function _renderMobList(){
   if(filtered.length === 0){
     list.innerHTML = "";
     empty.style.display = "block";
+    empty.innerHTML = `Nessun vino trovato<br><span style="font-size:10px;color:var(--txt4)">DB: ${_sb?'connesso':'locale'} · wines: ${wines.length}</span>`;
     return;
   }
   empty.style.display = "none";
@@ -3818,6 +3857,32 @@ function exportBackupJSON(){
   }).click();
   URL.revokeObjectURL(url);
   notify("💾 Backup esportato");
+}
+
+// ─── IMPORT BACKUP JSON ──────────────────────────────────────────────────────
+function importBackupJSON(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if(!data.wines || !Array.isArray(data.wines)) throw new Error("Formato non valido");
+      if(!confirm(`Importare ${data.wines.length} vini? I dati esistenti verranno sostituiti.`)) return;
+      wines = data.wines;
+      if(data.movements) movements = data.movements;
+      if(data.fallate) fallate = data.fallate;
+      if(data.orders) orders = data.orders;
+      if(data.alertSoglie) alertSoglie = data.alertSoglie;
+      scheduleSave();
+      render();
+      notify(`✅ Importati ${wines.length} vini`);
+    } catch(err) {
+      notify("❌ Errore: " + err.message, "err");
+    }
+    event.target.value = '';
+  };
+  reader.readAsText(file);
 }
 
 // ─── NOTE VELOCI ──────────────────────────────────────────────────────────────
