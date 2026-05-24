@@ -31,14 +31,15 @@ input:focus,select:focus{outline:none}
 
 /* ── SIDEBAR ── */
 #sidebar{width:216px;flex-shrink:0;background:var(--glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-right:1px solid var(--glass-border);display:flex;flex-direction:column;position:fixed;top:0;bottom:0;left:0;z-index:30;transition:width .25s cubic-bezier(.4,0,.2,1)}
-#sidebar.collapsed{width:52px}
+#sidebar.collapsed{width:52px;overflow:hidden}
 #sidebar.collapsed .sidebar-logo p,
 #sidebar.collapsed .nav-btn-label,
 #sidebar.collapsed .sidebar-stats,
 #sidebar.collapsed .sidebar-bottom-label{display:none}
-#sidebar.collapsed .sidebar-logo{padding:14px 0;justify-content:center;display:flex}
-#sidebar.collapsed .sidebar-logo h1{justify-content:center;font-size:1.1rem;padding:0}
-#sidebar.collapsed .nav-btn{padding:12px 0;justify-content:center;gap:0;border-left-width:0;border-radius:0}
+#sidebar.collapsed .sidebar-logo{padding:14px 0;justify-content:center;display:flex;overflow:hidden}
+#sidebar.collapsed .sidebar-logo h1{justify-content:center;font-size:1.1rem;padding:0;overflow:hidden;white-space:nowrap}
+#sidebar.collapsed .sidebar-logo h1 .nav-btn-label{display:none}
+#sidebar.collapsed .nav-btn{padding:12px 0;justify-content:center;gap:0;border-left-width:0;border-radius:0;overflow:hidden;white-space:nowrap}
 #sidebar.collapsed .nav-btn .nav-icon{font-size:18px}
 #sidebar.collapsed #sidebar-toggle-btn{justify-content:center;padding:10px 0;border-top:1px solid var(--glass-border)}
 #sidebar.collapsed #db-status{justify-content:center;padding:8px 0}
@@ -51,6 +52,17 @@ input:focus,select:focus{outline:none}
   padding:5px 12px;font-size:11px;font-weight:500;border-radius:var(--radius-sm);
   white-space:nowrap;z-index:100;pointer-events:none;box-shadow:0 4px 16px rgba(0,0,0,.4)
 }
+/* ── TOPBAR CONTEXT ACTIONS ── */
+#topbar-actions{display:flex;align-items:center;gap:8px;margin-left:auto;margin-right:12px}
+.topbar-action-btn{padding:6px 14px;font-size:11px;font-weight:600;border-radius:var(--radius-sm);cursor:pointer;font-family:inherit;transition:all .18s;opacity:.3;pointer-events:none;display:inline-flex;align-items:center;gap:6px}
+.topbar-action-btn.enabled{opacity:1;pointer-events:auto}
+.topbar-action-btn.edit{background:rgba(0,122,255,.12);border:1px solid rgba(0,122,255,.3);color:#007AFF}
+.topbar-action-btn.edit.enabled:hover{background:rgba(0,122,255,.22)}
+.topbar-action-btn.note{background:rgba(255,159,10,.1);border:1px solid rgba(255,159,10,.3);color:var(--amber)}
+.topbar-action-btn.note.enabled:hover{background:rgba(255,159,10,.2)}
+.topbar-action-btn.note.has-note{opacity:1;pointer-events:auto;border-color:var(--amber)}
+.topbar-action-btn.del{background:rgba(255,69,58,.1);border:1px solid rgba(255,69,58,.25);color:#FF453A}
+.topbar-action-btn.del.enabled:hover{background:rgba(255,69,58,.2)}
 #main{margin-left:216px;flex:1;min-height:100vh;display:flex;flex-direction:column;min-width:0;transition:margin-left .25s cubic-bezier(.4,0,.2,1)}
 #main.sidebar-collapsed{margin-left:52px}
 .sidebar-logo{padding:20px 16px;border-bottom:1px solid var(--glass-border)}
@@ -287,8 +299,6 @@ tfoot td{padding:10px 14px;font-size:12px;border-top:2px solid var(--border2);ba
 /* ── RESPONSIVE INVENTARIO ── */
 @media(max-width:1400px){
   .col-zona{display:none}
-  .col-valcosto{display:none}
-  .col-valcarta{display:none}
   .col-ivaincl{display:none}
 }
 .col-fornitore{max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -308,8 +318,6 @@ tfoot td{padding:10px 14px;font-size:12px;border-top:2px solid var(--border2);ba
   .col-annata{display:none}
 }
 #sidebar.collapsed ~ #main .col-ivaincl{display:table-cell}
-#sidebar.collapsed ~ #main .col-valcosto{display:table-cell}
-#sidebar.collapsed ~ #main .col-valcarta{display:table-cell}
 #sidebar.collapsed ~ #main .col-margperc{display:table-cell}
 #sidebar.collapsed ~ #main .col-fornitore{display:table-cell}
 #sidebar.collapsed ~ #main .col-vitigni{display:table-cell}
@@ -353,6 +361,18 @@ th.cb-col,td.cb-col{width:32px;padding:6px 8px!important}
 .report-toggle-label{font-size:12px;font-weight:600;color:var(--txt2);letter-spacing:.02em;display:flex;align-items:center;gap:8px}
 .report-toggle-arrow{font-size:11px;color:var(--txt4);transition:transform .2s}
 .report-toggle-arrow.open{transform:rotate(180deg)}
+
+/* ── INLINE EDIT ── */
+td[ondblclick]{cursor:cell}
+td[ondblclick]:hover{background:rgba(255,159,10,.06)!important}
+.inline-edit-input{border-color:var(--accent)!important;box-shadow:0 0 0 3px rgba(0,122,255,.2)!important}
+
+/* ── SELECTED ROW ── */
+.inv-table tr[data-wine-id].row-selected{background:rgba(0,122,255,.12)!important;outline:1px solid rgba(0,122,255,.3)}
+.inv-table tr[data-wine-id]:hover{background:rgba(255,255,255,.03)}
+.inv-table th{position:relative}
+.col-rz{position:absolute;right:0;top:0;bottom:0;width:5px;cursor:col-resize;background:transparent;z-index:5;user-select:none}
+.col-rz:hover,.col-rz.dragging{background:rgba(255,159,10,.5)}
 
 </style>
 </head>
@@ -654,6 +674,9 @@ const _num1 = new Intl.NumberFormat("it-IT",{minimumFractionDigits:1,maximumFrac
 const _num2 = new Intl.NumberFormat("it-IT",{minimumFractionDigits:2,maximumFractionDigits:2});
 function fmt(n){return _eur.format(n||0)}
 function fmtN(n,d=2){return (d===0?_num0:d===1?_num1:_num2).format(n||0)}
+// Arrotonda al €0.50 superiore (per prezzi visualizzati, non dati grezzi)
+function round50(n){return Math.ceil((n||0)*2)/2}
+function fmtRound(n){return fmt(round50(n))}
 function today(){return new Date().toISOString().split("T")[0]}
 function esc(v){return `"${String(v??'').replace(/"/g,'""')}"`}
 function h(s){return String(s??'').replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}
@@ -990,7 +1013,7 @@ function _applySidebarState(){
 const SECTION_TITLES={dashboard:"Dashboard",inventario:"Inventario Vini","scarico-serata":"🍾 Scarico Serata",movimenti:"Carico / Scarico",fallate:"Gestione Fallate",analytics:"Analytics & Trends",ordini:"Ordini Fornitore",export:"Export & Bilancio"};
 function go(s){
   section=s;
-  if(s!=="inventario"){ filterVitigno="tutti"; }
+  if(s!=="inventario"){ filterVitigno="tutti"; _hideTopbarActions(); }
   document.querySelectorAll(".nav-btn").forEach(b=>b.classList.toggle("active",b.dataset.section===s));
   document.getElementById("topbar-title").textContent=SECTION_TITLES[s]||s;
   document.getElementById("btn-add-wine").classList.add("hidden");
@@ -1017,7 +1040,124 @@ if(localStorage.getItem("cm_logged")==="1"){
   }
 }
 
-// ─── STATS ────────────────────────────────────────────────────────────────────
+// ─── TOPBAR CONTEXT ACTIONS ───────────────────────────────────────────────────
+var _selectedWineId = null;
+
+function selectWineRow(id){
+  // Deseleziona precedente
+  document.querySelectorAll(".inv-table tr.row-selected").forEach(r=>r.classList.remove("row-selected"));
+  if(_selectedWineId===id){
+    // secondo click sulla stessa riga → deseleziona
+    _selectedWineId=null; _updateTopbarActions(null); return;
+  }
+  _selectedWineId=id;
+  const row=document.querySelector(`.inv-table tr[data-wine-id="${id}"]`);
+  if(row) row.classList.add("row-selected");
+  _updateTopbarActions(id);
+}
+
+function _updateTopbarActions(id){
+  const btnEdit=document.getElementById("tba-edit");
+  const btnNote=document.getElementById("tba-note");
+  const btnDel =document.getElementById("tba-del");
+  if(!btnEdit) return;
+  if(!id){
+    [btnEdit,btnNote,btnDel].forEach(b=>b.classList.remove("enabled","has-note")); return;
+  }
+  const w=wines.find(x=>x.id===id);
+  [btnEdit,btnNote,btnDel].forEach(b=>b.classList.add("enabled"));
+  btnNote.classList.toggle("has-note", !!(w&&w.noteVeloce));
+}
+
+function _tbaEdit(){
+  if(!_selectedWineId) return;
+  openWineModal(_selectedWineId);
+}
+function _tbaNote(){
+  if(!_selectedWineId) return;
+  openNoteVeloce(_selectedWineId);
+}
+function _tbaDel(){
+  if(!_selectedWineId) return;
+  deleteWine(_selectedWineId);
+}
+
+// Nascondi bottoni topbar quando si esce dall'inventario
+function _hideTopbarActions(){
+  _selectedWineId=null;
+  document.querySelectorAll(".topbar-action-btn").forEach(b=>b.classList.remove("enabled"));
+}
+
+// ─── COLUMN RESIZE ───────────────────────────────────────────────────────────
+const _colWidths = {};
+function initColResize(){
+  document.querySelectorAll(".inv-table th").forEach(function(th){
+    // Restore saved width
+    const key = th.textContent.trim().slice(0,20);
+    if(_colWidths[key]) th.style.width = _colWidths[key];
+    // Remove old handle if present
+    const old = th.querySelector(".col-rz");
+    if(old) old.remove();
+    // Add resize handle
+    const rz = document.createElement("span");
+    rz.className = "col-rz";
+    th.appendChild(rz);
+    let startX, startW;
+    rz.addEventListener("mousedown", function(e){
+      e.preventDefault(); e.stopPropagation();
+      rz.classList.add("dragging");
+      startX = e.clientX;
+      startW = th.offsetWidth;
+      function onMove(e){
+        const w = Math.max(40, startW + e.clientX - startX);
+        th.style.width = w + "px";
+        _colWidths[key] = w + "px";
+      }
+      function onUp(){
+        rz.classList.remove("dragging");
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+      }
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
+  });
+}
+
+// ─── INLINE EDIT (doppio click su cella) ──────────────────────────────────────
+function inlineEdit(evt, field, wineId, currentVal){
+  evt.stopPropagation();
+  const td = evt.currentTarget;
+  if(td.querySelector(".inline-edit-input")) return; // già in edit
+  const isNum = ["prezzoAcq","prezzoCarta","prezzoCalice"].includes(field);
+  const orig = td.innerHTML;
+  const inp = document.createElement("input");
+  inp.className = "inline-edit-input form-input";
+  inp.type = isNum ? "number" : "text";
+  inp.step = isNum ? "0.01" : undefined;
+  inp.min = isNum ? "0" : undefined;
+  inp.value = currentVal;
+  inp.style.cssText = `width:100%;min-width:${isNum?80:120}px;font-size:12px;padding:4px 8px;font-family:inherit;text-align:${isNum?"right":"left"}`;
+  td.innerHTML = "";
+  td.appendChild(inp);
+  inp.focus(); inp.select();
+  const commit = async () => {
+    const raw = inp.value.trim();
+    const val = isNum ? (parseFloat(raw)||0) : raw;
+    if(String(val) === String(currentVal)){ td.innerHTML = orig; return; }
+    const w = wines.find(x=>x.id===wineId);
+    if(!w){ td.innerHTML = orig; return; }
+    w[field] = val;
+    scheduleSave();
+    renderInventarioOnly();
+    notify(`✏️ ${field} aggiornato`);
+  };
+  inp.addEventListener("blur", commit);
+  inp.addEventListener("keydown", e=>{
+    if(e.key==="Enter"){ e.preventDefault(); inp.blur(); }
+    if(e.key==="Escape"){ inp.removeEventListener("blur",commit); td.innerHTML=orig; }
+  });
+}
 function getStats(){
   let giacenzaTot=0,valoreTot=0,valoreCarta=0,margineLordoTot=0,scoreBasse=0,esaurite=0;
   for(const w of wines){
@@ -1062,6 +1202,15 @@ function render(){
 function afterRender(){
   if(section==="dashboard") initDashboardCharts();
   else if(section==="analytics") initAnalyticsCharts();
+  if(section==="inventario"){
+    initColResize();
+    // Ripristina riga selezionata se ancora presente
+    if(_selectedWineId){
+      const row=document.querySelector(`.inv-table tr[data-wine-id="${_selectedWineId}"]`);
+      if(row){ row.classList.add("row-selected"); _updateTopbarActions(_selectedWineId); }
+      else { _selectedWineId=null; }
+    }
+  }
   // Ripristina stato pannello report inline se era aperto
   if(section==="scarico-serata" && _reportInlineOpen){
     const body=document.getElementById("report-inline-body");
@@ -1071,15 +1220,18 @@ function afterRender(){
   }
 }
 
+let _searchDebounce=null;
 function renderInventarioOnly(){
-  // Re-render only the inventario content, then restore focus+cursor on search input
-  const c=document.getElementById("content");
-  const el=document.getElementById("inv-search");
-  const pos=el?el.selectionStart:null;
-  updateSidebar();
-  c.innerHTML=renderInventario();
-  const newEl=document.getElementById("inv-search");
-  if(newEl){newEl.focus();if(pos!==null)try{newEl.setSelectionRange(pos,pos)}catch{}}
+  clearTimeout(_searchDebounce);
+  _searchDebounce=setTimeout(()=>{
+    const c=document.getElementById("content");
+    const el=document.getElementById("inv-search");
+    const pos=el?el.selectionStart:null;
+    updateSidebar();
+    c.innerHTML=renderInventario();
+    const newEl=document.getElementById("inv-search");
+    if(newEl){newEl.focus();if(pos!==null)try{newEl.setSelectionRange(pos,pos)}catch{}}
+  },120);
 }
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
@@ -1219,8 +1371,8 @@ function renderInventario(){
     const mv=filterVitigno==="tutti"||(w.vitigni||"").toLowerCase().includes(filterVitigno.toLowerCase());
     return mq&&mt&&mv;
   });
-  let tfG=0,tfV=0,tfC=0;
-  list.forEach(w=>{tfG+=w.giacenza;tfV+=calcValore(w);tfC+=calcValoreCarta(w)});
+  let tfG=0;
+  list.forEach(w=>{tfG+=w.giacenza});
 
   let html=`<div class="kpi-grid g4" style="margin-bottom:14px">
     ${[{label:"Referenze",v:s.referenze,sub:"vini in lista",cls:"c-amber"},{label:"Giacenza Totale",v:s.giacenzaTot,sub:"bottiglie",cls:"c-amber3"},{label:"Scorte Basse",v:s.scoreBasse,sub:`${s.esaurite} esaurite`,cls:s.scoreBasse>0?"c-red":"c-green"},{label:"Fallate Totali",v:s.fallateTot,sub:"bottiglie perse",cls:"c-orange"}].map(k=>`<div class="kpi-card"><div class="kpi-label">${k.label}</div><div class="kpi-val ${k.cls}">${k.v}</div><div class="kpi-sub">${k.sub}</div></div>`).join("")}
@@ -1278,42 +1430,45 @@ function renderInventario(){
         ${filterTipo!=='tutti'||filterVitigno!=='tutti'?`<button class="btn-outline btn-sm" onclick="filterTipo='tutti';filterVitigno='tutti';renderInventarioOnly()" style="border-color:rgba(239,68,68,.4);color:#FF453A;font-size:9px">✕ Reset</button>`:''}
       </div>
       <span style="font-size:10px;color:var(--txt4);letter-spacing:.1em">${list.length} / ${wines.length} referenze</span>
+      <div style="display:flex;align-items:center;gap:6px;margin-left:auto">
+        <button class="topbar-action-btn edit" id="tba-edit" onclick="_tbaEdit()" title="Modifica vino selezionato">✏️ Modifica</button>
+        <button class="topbar-action-btn note" id="tba-note" onclick="_tbaNote()" title="Nota veloce">📝 Nota</button>
+        <button class="topbar-action-btn del"  id="tba-del"  onclick="_tbaDel()"  title="Elimina vino selezionato">🗑️</button>
+      </div>
     </div>
     <div class="tbl-wrap">
       <table class="inv-table">
         <thead><tr>
           ${selMode==='wines'?`<th class="cb-col"><input type="checkbox" id="cb-sel-all" class="cb-sel" onchange="toggleSelAll()"></th>`:''}
-          <th class="col-fornitore" style="color:var(--txt3)">Forn.</th><th>Produttore</th><th>Nome Vino</th><th>Tipo</th><th class="col-vitigni" style="color:var(--txt3)">Vitigni</th>
+          <th class="col-fornitore" style="color:var(--txt3)">Forn.</th><th>Produttore</th><th>Nome Vino</th><th class="col-annata" style="color:var(--txt3)">Annata</th><th class="col-vitigni" style="color:var(--txt3)">Vitigni</th><th>${badge('Tipo')}</th>
           <th class="col-regione" style="color:var(--txt3)">Regione / Nazione</th>
           <th class="r" style="border-left:1px solid var(--border)">P.Acq</th><th class="r col-ivaincl">+IVA/bt</th><th class="r col-pcarta">P.Carta</th><th class="r col-calice">P.Calice</th><th class="r col-margperc">Marg.%</th>
           <th class="c" style="border-left:1px solid rgba(255,159,10,.2);background:rgba(255,159,10,.06);color:var(--amber3);min-width:72px">GIACENZA</th>
-          <th class="r col-valcosto" style="border-left:1px solid var(--border)">Val.Costo</th><th class="r col-valcarta">Val.Carta</th>
-          <th class="col-annata" style="color:var(--txt3)">Annata</th>
-          <th></th>
         </tr></thead>
         <tbody>
-        ${list.length===0?`<tr><td colspan="16" style="text-align:center;padding:40px;color:var(--txt4)">Nessun vino trovato</td></tr>`:
+        ${list.length===0?`<tr><td colspan="13" style="text-align:center;padding:40px;color:var(--txt4)">Nessun vino trovato</td></tr>`:
         list.map((w,i_)=>{
           const prevTipo_=i_>0?list[i_-1].tipologia:"";
           const groupHdr_=(filterTipo==="tutti"&&w.tipologia!==prevTipo_)?
-            `<tr style="background:var(--bg)"><td colspan="16" style="padding:8px 16px 5px;border-top:2px solid rgba(255,159,10,.25);border-bottom:1px solid rgba(255,159,10,.12)"><span style="font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--amber);font-weight:700">${h(w.tipologia)}</span>&emsp;<span style="font-size:9px;color:var(--txt4)">${list.filter(x=>x.tipologia===w.tipologia).length} etich.</span></td></tr>`
+            `<tr style="background:var(--bg)"><td colspan="13" style="padding:8px 16px 5px;border-top:2px solid rgba(255,159,10,.25);border-bottom:1px solid rgba(255,159,10,.12)"><span style="font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--amber);font-weight:700">${h(w.tipologia)}</span>&emsp;<span style="font-size:9px;color:var(--txt4)">${list.filter(x=>x.tipologia===w.tipologia).length} etich.</span></td></tr>`
             : "";
           const rowStr_=(w=>{ 
-          const val=calcValore(w),mp=calcMarginePerc(w);
+          const mp=calcMarginePerc(w);
           const sg=_getSoglie(w.id), isAlert=w.giacenza<=sg.min, isEmpty=w.giacenza===0, isRiordino=!isEmpty&&!isAlert&&w.giacenza<=sg.riordino;
           const mpColor=mp===null?"var(--txt4)":mp>=50?"#30D158":mp>=30?"var(--amber)":"#FF453A";
-          return `<tr class="${isEmpty?"alert-empty":isAlert?"alert-low":isRiordino?"alert-riordino":""}" data-sel-id="${w.id}">
+          return `<tr class="${isEmpty?"alert-empty":isAlert?"alert-low":isRiordino?"alert-riordino":""}" data-sel-id="${w.id}" data-wine-id="${w.id}" onclick="selectWineRow('${w.id}')" style="cursor:pointer">
             ${selMode==='wines'?`<td class="cb-col"><input type="checkbox" class="cb-sel" data-id="${w.id}" onchange="toggleSel('${w.id}');_updateBulkBar()"></td>`:''}
             <td class="col-fornitore" style="color:var(--txt3);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:90px">${h(w.distributore||"—")}</td>
             <td style="color:var(--txt2);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(w.produttore)}</td>
-            <td><div style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px">${h(w.nome)}</div>${w.zona?`<div class="col-zona" style="font-size:9px;color:var(--txt4)">${h(w.zona)}</div>`:""}</td>
-            <td>${badge(w.tipologia)}</td>
+            <td ondblclick="inlineEdit(event,'nome','${w.id}','${h(w.nome).replace(/'/g,"\\'")}')"><div style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px">${h(w.nome)}</div>${w.zona?`<div class="col-zona" style="font-size:9px;color:var(--txt4)">${h(w.zona)}</div>`:""}</td>
+            <td class="col-annata" ondblclick="inlineEdit(event,'annata','${w.id}','${w.annata||""}')"><span style="color:var(--amber);font-family:'Montserrat',sans-serif;white-space:nowrap;font-size:11px">${w.annata||`<span style="color:var(--txt4)">N.V.</span>`}</span></td>
             <td class="col-vitigni" style="color:var(--txt3);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100px">${h(w.vitigni||"—")}</td>
+            <td>${badge(w.tipologia)}</td>
             <td class="col-regione" style="color:var(--txt3);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:110px">${w.regione?`<span>${h(w.regione)}</span>`:""}${w.nazione?`${w.regione?" · ":""}<span style="color:var(--amber3);font-weight:600">${h(w.nazione)}</span>`:""}</td>
-            <td class="r" style="border-left:1px solid var(--border);white-space:nowrap">${fmt(w.prezzoAcq)}</td>
-            <td class="r col-ivaincl" style="color:var(--txt3);white-space:nowrap">${fmt(calcCostoIvaBottiglia(w))}</td>
-            <td class="r col-pcarta" style="white-space:nowrap;${!w.prezzoCarta?'color:var(--txt4)':''}">${w.prezzoCarta?fmt(w.prezzoCarta):'—'}</td>
-            <td class="r col-calice" style="white-space:nowrap;${!w.prezzoCalice?'color:var(--txt4)':''}">${w.prezzoCalice?fmt(w.prezzoCalice):'—'}</td>
+            <td class="r" ondblclick="inlineEdit(event,'prezzoAcq','${w.id}','${w.prezzoAcq||0}')" style="border-left:1px solid var(--border);white-space:nowrap">${fmt(w.prezzoAcq)}</td>
+            <td class="r col-ivaincl" style="color:var(--txt3);white-space:nowrap">${fmtRound(calcCostoIvaBottiglia(w))}</td>
+            <td class="r col-pcarta" ondblclick="inlineEdit(event,'prezzoCarta','${w.id}','${w.prezzoCarta||0}')" style="white-space:nowrap;${!w.prezzoCarta?'color:var(--txt4)':''}">${w.prezzoCarta?fmt(w.prezzoCarta):'—'}</td>
+            <td class="r col-calice" ondblclick="inlineEdit(event,'prezzoCalice','${w.id}','${w.prezzoCalice||0}')" style="white-space:nowrap;${!w.prezzoCalice?'color:var(--txt4)':''}">${w.prezzoCalice?fmt(w.prezzoCalice):'—'}</td>
             <td class="r col-margperc"><span style="color:${mpColor}">${mp===null?"—":`${fmtN(mp,1)}%`}</span></td>
             <td class="c" style="border-left:1px solid rgba(255,159,10,.12);background:rgba(255,159,10,.04);position:relative">
               <div style="display:flex;flex-direction:column;align-items:center;gap:1px">
@@ -1321,19 +1476,9 @@ function renderInventario(){
                 ${isEmpty?`<div style="font-size:7px;color:#dc2626;text-transform:uppercase;letter-spacing:.08em">esaurito</div>`:""}
                 ${!isEmpty&&isAlert?`<div style="font-size:7px;color:#ea580c;text-transform:uppercase;letter-spacing:.08em">scorta bassa</div>`:""}
                 ${isRiordino?`<div style="font-size:7px;color:#d97706;text-transform:uppercase;letter-spacing:.08em">riordina</div>`:""}
-                <button onclick="_toggleSogliaPop('${w.id}',this)" style="font-size:9px;margin-top:2px;padding:1px 5px;border:1px solid rgba(68,64,60,.5);background:none;color:var(--txt4);cursor:pointer;font-family:inherit;line-height:1.4" title="Imposta soglie alert">
+                <button onclick="event.stopPropagation();_toggleSogliaPop('${w.id}',this)" style="font-size:9px;margin-top:2px;padding:1px 5px;border:1px solid rgba(68,64,60,.5);background:none;color:var(--txt4);cursor:pointer;font-family:inherit;line-height:1.4" title="Imposta soglie alert">
                   <span style="color:#FF453A">${sg.min}</span>·<span style="color:#fbbf24">${sg.riordino}</span>
                 </button>
-              </div>
-            </td>
-            <td class="r col-valcosto" style="color:rgba(245,158,11,.8);border-left:1px solid rgba(41,37,36,.6);white-space:nowrap">${fmt(val)}</td>
-            <td class="r col-valcarta" style="color:rgba(74,222,128,.7);white-space:nowrap">${calcValoreCarta(w)?fmt(calcValoreCarta(w)):'<span style="color:var(--txt4)">—</span>'}</td>
-            <td class="col-annata" style="color:var(--amber);font-family:'Montserrat',sans-serif;white-space:nowrap;font-size:11px">${w.annata||`<span style="color:var(--txt4)">N.V.</span>`}</td>
-            <td>
-              <div style="display:flex;gap:6px">
-                <button style="color:var(--txt3);font-size:12px" onclick="openWineModal('${w.id}')" title="Modifica">✏️</button>
-                <button style="color:\${w.noteVeloce?'var(--amber)':'var(--txt3)'};font-size:12px" onclick="openNoteVeloce('\${w.id}')" title="\${h(w.noteVeloce||'Nota...')}" >📝</button>
-                <button style="color:var(--txt3);font-size:12px" onclick="deleteWine('\${w.id}')" title="Elimina">🗑️</button>
               </div>
             </td>
           </tr>`;})(w);
@@ -1764,7 +1909,7 @@ function renderMovimenti(){
       <div class="form-row" style="margin-top:4px"><label class="form-label">Note</label><input class="form-input" value="${h(movForm.note)}" placeholder="Note aggiuntive…" oninput="movForm.note=this.value"></div>
       ${selW?`<div class="info-panel">
         <div><div style="font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:4px">P.Carta/bt</div><div style="color:${selW.prezzoCarta?"#30D158":"#fb923c"};font-family:'Montserrat',sans-serif;font-size:13px">${selW.prezzoCarta?fmt(parseFloat(selW.prezzoCarta)):'<span style="font-size:10px;letter-spacing:.1em">⚠ NON IMP.</span>'}</div></div>
-        <div><div style="font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:4px">Costo+IVA/bt</div><div style="color:var(--amber);font-family:inherit;font-size:13px">${fmt(calcCostoIvaBottiglia(selW))}</div></div>
+        <div><div style="font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:4px">Costo+IVA/bt</div><div style="color:var(--amber);font-family:inherit;font-size:13px">${fmtRound(calcCostoIvaBottiglia(selW))}</div></div>
         <div><div style="font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:4px">Marg. Lordo/bt</div><div style="color:${(calcMargineBottiglia(selW)||0)>=0?"#007AFF":"#FF453A"};font-size:13px">${calcMargineBottiglia(selW)===null?"—":fmt(calcMargineBottiglia(selW))}</div></div>
         <div><div style="font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:4px">Marg. %</div><div style="color:${(calcMarginePerc(selW)||0)>=0?"#30D158":"#FF453A"};font-size:13px">${calcMarginePerc(selW)===null?"—":`${fmtN(calcMarginePerc(selW),1)}%`}</div></div>
       </div>
@@ -3026,8 +3171,8 @@ function _refRowHtml(r,i,tipoOpts,ivaOpts,allProduttori,allNomi){
     <td style="padding:5px 6px"><input class="form-input" style="font-size:11px" value="${h(r.nazione||'Italia')}" placeholder="es. Italia" onchange="_refChange('${r.id}','nazione',this.value.trim())"></td>
     <td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:11px" value="${r.prezzoAcq||''}" step="0.01" min="0" placeholder="0.00" onchange="_refChange('${r.id}','prezzoAcq',parseFloat(this.value)||0);_updateRefIvaIncl('${r.id}')" oninput="_refChange('${r.id}','prezzoAcq',parseFloat(this.value)||0);_updateRefIvaIncl('${r.id}');_updateOrdineModalTotale()"></td>
     <td style="padding:5px 6px"><select class="form-input" style="font-size:11px" onchange="_refChange('${r.id}','iva',parseInt(this.value));_updateRefIvaIncl('${r.id}');_updateOrdineModalTotale()">${selIva}</select></td>
-    <td style="padding:5px 6px;text-align:right;font-size:12px;color:var(--amber);font-weight:600;white-space:nowrap;background:rgba(255,159,10,.06);border-left:1px solid rgba(255,159,10,.12)" id="ref-ivaincl-${r.id}">${ivaIncl?fmt(ivaIncl):"—"}</td>
-    <td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:11px" value="${r.prezzoCarta||''}" step="0.5" min="0" placeholder="0.00" onchange="_refChange('${r.id}','prezzoCarta',parseFloat(this.value)||0)"></td>
+    <td style="padding:5px 6px;text-align:right;font-size:12px;color:var(--amber);font-weight:600;white-space:nowrap;background:rgba(255,159,10,.06);border-left:1px solid rgba(255,159,10,.12)" id="ref-ivaincl-${r.id}">${ivaIncl?fmtRound(ivaIncl):"—"}</td>
+    <td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:11px;text-align:right" value="${r.prezzoCarta||''}" step="0.5" min="0" placeholder="0.00" onchange="_refChange('${r.id}','prezzoCarta',parseFloat(this.value)||0)"></td>
     <td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:12px;text-align:center;min-width:52px" value="${r.qty||6}" min="1" step="1" onchange="_refChange('${r.id}','qty',parseInt(this.value)||1)" oninput="_updateOrdineModalTotale()"></td>
     <td style="padding:5px 6px;text-align:right"><button onclick="_removeRefRow('${r.id}')" style="color:var(--txt4);font-size:13px;background:none;border:none;cursor:pointer" title="Rimuovi">✕</button></td>
   </tr>`;
@@ -3109,7 +3254,7 @@ function _updateRefIvaIncl(refId){
   const el=document.getElementById(`ref-ivaincl-${refId}`);
   if(!r||!el) return;
   const v=(parseFloat(r.prezzoAcq)||0)*(1+(parseInt(r.iva)||22)/100);
-  el.textContent=v?fmt(v):"—";
+  el.textContent=v?fmtRound(v):"—";
 }
 
 function _removeRefRow(refId){
@@ -3687,7 +3832,7 @@ function updateModalCalc(){
   const margP=carta&&costoIva?((carta-costoIva)/carta)*100:null;
   const val=pAcq*giac; // valore stimato al costo nel modal (lotti non ancora salvati)
   const el=id=>document.getElementById(id);
-  if(el("mc-costoiva")) el("mc-costoiva").textContent=fmt(costoIva);
+  if(el("mc-costoiva")) el("mc-costoiva").textContent=fmtRound(costoIva);
   if(el("mc-valore")) el("mc-valore").textContent=fmt(val);
   if(el("mc-margine")){el("mc-margine").textContent=marg===null?"—":fmt(marg);el("mc-margine").style.color=marg===null?"var(--txt4)":marg>=0?"#007AFF":"#FF453A";}
   if(el("mc-margperc")){el("mc-margperc").textContent=margP===null?"—":`${fmtN(margP,1)}%`;el("mc-margperc").style.color=margP===null?"var(--txt4)":margP>=0?"#30D158":"#FF453A";}
