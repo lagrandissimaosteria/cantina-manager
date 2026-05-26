@@ -415,7 +415,7 @@ td[ondblclick]:hover{background:rgba(255,159,10,.06)!important}
     </div>
     <nav id="sidebar-nav">
       <button class="nav-btn active" data-section="dashboard" data-label="Dashboard" onclick="go('dashboard')"><span class="nav-icon">📊</span><span class="nav-btn-label"> Dashboard</span></button>
-      <button class="nav-btn" data-section="inventario" data-label="Inventario" onclick="go('inventario')"><span class="nav-icon">🍾</span><span class="nav-btn-label"> Inventario</span></button>
+      <button class="nav-btn" data-section="inventario" data-label="Inventario" onclick="go('inventario')"><span class="nav-icon">🍷</span><span class="nav-btn-label"> Inventario</span></button>
       <button class="nav-btn" data-section="scarico-serata" data-label="Scarico Serata" onclick="go('scarico-serata')" style="color:#FF6B6B"><span class="nav-icon">🍾</span><span class="nav-btn-label"> Scarico Serata</span></button>
       <button class="nav-btn" data-section="movimenti" data-label="Movimenti" onclick="go('movimenti')"><span class="nav-icon">📦</span><span class="nav-btn-label"> Movimenti</span></button>
       <button class="nav-btn" data-section="fallate" data-label="Fallate" onclick="go('fallate')"><span class="nav-icon">⚠️</span><span class="nav-btn-label"> Fallate</span></button>
@@ -432,7 +432,7 @@ td[ondblclick]:hover{background:rgba(255,159,10,.06)!important}
     </div>
     <div style="padding:12px 20px;border-top:1px solid var(--border)">
       <button onclick="localStorage.removeItem('cm_logged');location.reload()" style="width:100%;display:flex;align-items:center;gap:8px;padding:7px 10px;font-size:9px;letter-spacing:.15em;text-transform:uppercase;font-family:inherit;color:var(--txt4);background:none;border:1px solid transparent;cursor:pointer;transition:all .15s" onmouseover="this.style.color='#FF453A';this.style.borderColor='rgba(255,69,58,.2)'" onmouseout="this.style.color='var(--txt4)';this.style.borderColor='transparent'">🔓 <span>Esci / Logout</span></button>
-      <div id="db-status"><span class="db-dot off" id="db-dot"></span><span id="db-label">Database</span></div>
+      <div id="db-status" onclick="if(document.getElementById('db-dot').classList.contains('err'))forceSave()" style="cursor:default" title="Clicca per ritentare se in errore"><span class="db-dot off" id="db-dot"></span><span id="db-label">Database</span></div>
       <button onclick="openDbConfig()" style="width:100%;display:flex;align-items:center;gap:8px;padding:5px 10px;font-size:9px;letter-spacing:.15em;text-transform:uppercase;font-family:inherit;color:var(--txt4);background:none;border:1px solid transparent;cursor:pointer;transition:all .15s" onmouseover="this.style.color='var(--amber)';this.style.borderColor='rgba(255,159,10,.2)'" onmouseout="this.style.color='var(--txt4)';this.style.borderColor='transparent'">⚙️ <span>Config DB</span></button>
     </div>
   </div>
@@ -441,7 +441,7 @@ td[ondblclick]:hover{background:rgba(255,159,10,.06)!important}
   <div id="main">
     <div id="topbar">
       <h1 id="topbar-title">Dashboard</h1>
-      <div id="topbar-sync">
+      <div id="topbar-sync" onclick="forceSave()" title="Clicca per forzare sync" style="cursor:pointer">
         <span class="db-dot off" id="topbar-dot"></span>
         <span id="topbar-sync-label">Offline</span>
       </div>
@@ -578,7 +578,8 @@ const PIE_COLORS = ["#FF9F0A","#007AFF","#30D158","#BF5AF2","#FF375F","#32ADE6",
 // ─── STATE ────────────────────────────────────────────────────────────────────
 let wines = [], movements = [], fallate = [], alertSoglie = {}, orders = [];
 let section = "dashboard";
-let search = "", filterTipo = "tutti", filterVitigno = "tutti";
+let search = "", filterTipo = "tutti", filterVitigno = "tutti", invSort = "tipologia";
+let analyticsRegione = "", analyticsTipo = "", analyticsAcquistiPeriodo = "mese";
 let movForm = {wineId:"",tipo:"carico",qty:1,data:today(),fattura:"",fornitore:"",note:"",prezzoAcqLotto:"",_wineText:"",_newProduttore:"",_newTipologia:"Rosso",_newPrezzoCarta:"",_tipologia:""};
 let fallForm = {wineId:"",qty:1,motivo:FALLATA_MOTIVI[0],data:today(),note:""};
 // ─── PRICE SUGGESTION (FASCE PREZZO CARTA) ───────────────────────────────────
@@ -672,6 +673,58 @@ const _eur = new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR"});
 const _num0 = new Intl.NumberFormat("it-IT",{minimumFractionDigits:0,maximumFractionDigits:0});
 const _num1 = new Intl.NumberFormat("it-IT",{minimumFractionDigits:1,maximumFractionDigits:1});
 const _num2 = new Intl.NumberFormat("it-IT",{minimumFractionDigits:2,maximumFractionDigits:2});
+// ── INFERISCE IL PAESE DALLA REGIONE ─────────────────────────────────────────
+const _REGIONE_TO_PAESE = {
+  "abruzzo":"Italia","alto adige":"Italia","basilicata":"Italia","calabria":"Italia",
+  "campania":"Italia","emilia romagna":"Italia","emilia-romagna":"Italia",
+  "friuli venezia giulia":"Italia","friuli":"Italia","lazio":"Italia",
+  "liguria":"Italia","lombardia":"Italia","marche":"Italia","molise":"Italia",
+  "piemonte":"Italia","puglia":"Italia","sardegna":"Italia","sicilia":"Italia",
+  "toscana":"Italia","trentino alto adige":"Italia","trentino":"Italia",
+  "umbria":"Italia","valle d'aosta":"Italia","veneto":"Italia",
+  "alsazia":"Francia","ardeche":"Francia","ardèche":"Francia",
+  "auvergne":"Francia","beaujolais":"Francia","bordeaux":"Francia",
+  "borgogna":"Francia","chablis":"Francia","champagne":"Francia",
+  "cotes catalanes":"Francia","jura":"Francia","languedoc":"Francia",
+  "languedoc – roussillon":"Francia","loira":"Francia","loire":"Francia",
+  "nuova aquitania – charente":"Francia","nuova aquitania – dordogna":"Francia",
+  "provenza":"Francia","rodano":"Francia","savoia":"Francia","sud ouest":"Francia",
+  "alsace":"Francia","bourgogne":"Francia","côtes catalanes":"Francia",
+  "baden":"Germania","franconia":"Germania","mosella":"Germania","mosel":"Germania",
+  "pfalz":"Germania","rheingau":"Germania","rheinhessen":"Germania",
+  "burgenland":"Austria","niederösterreich":"Austria","steiermark":"Austria",
+  "wagram":"Austria","wachau":"Austria","kamptal":"Austria","kremstal":"Austria",
+  "andalusia":"Spagna","bierzo":"Spagna","castilla y leon":"Spagna",
+  "catalogna":"Spagna","gran canaria":"Spagna","lanzarote":"Spagna",
+  "manchuela":"Spagna","paesi baschi":"Spagna","priorat":"Spagna",
+  "rias baixas":"Spagna","ribera del duero":"Spagna","rioja":"Spagna",
+  "tenerife":"Spagna","navarra":"Spagna","jerez":"Spagna","madrid":"Spagna",
+  "andia":"Spagna","villanueva de avila":"Spagna",
+  "alentejo":"Portogallo","bairrada":"Portogallo","douro":"Portogallo",
+  "minho":"Portogallo","serra da estrela":"Portogallo","vinho verde":"Portogallo",
+  "collio sloveno":"Slovenia","brda":"Slovenia",
+  "santorini":"Grecia","naoussa":"Grecia","nemea":"Grecia","macedonia":"Grecia",
+  "rila":"Bulgaria","serbia":"Serbia",
+  "margaret river":"Australia","victoria":"Australia","barossa":"Australia",
+  "central otago":"Nuova Zelanda","marlborough":"Nuova Zelanda","nelson":"Nuova Zelanda",
+  "maipo valley":"Cile","colchagua":"Cile",
+  "western cape":"Sudafrica","stellenbosch":"Sudafrica",
+  "sonoma":"Stati Uniti","napa":"Stati Uniti","napa valley":"Stati Uniti",
+  "aargau":"Svizzera","valais":"Svizzera","ticino":"Svizzera",
+  "valle della beeka":"Libano","bekaa":"Libano",
+};
+function inferPaese(nazione, regione, zona){
+  if(nazione) return nazione;
+  const r=(regione||zona||"").toLowerCase().trim();
+  if(!r) return "";
+  if(_REGIONE_TO_PAESE[r]) return _REGIONE_TO_PAESE[r];
+  const keys=Object.keys(_REGIONE_TO_PAESE);
+  for(let i=0;i<keys.length;i++){
+    if(r.indexOf(keys[i])>-1||keys[i].indexOf(r)>-1) return _REGIONE_TO_PAESE[keys[i]];
+  }
+  return "";
+}
+
 function fmt(n){return _eur.format(n||0)}
 function fmtN(n,d=2){return (d===0?_num0:d===1?_num1:_num2).format(n||0)}
 // Arrotonda al €0.50 superiore (per prezzi visualizzati, non dati grezzi)
@@ -753,6 +806,8 @@ function _setDbStatus(state, label){
   const lbl = document.getElementById("db-label");
   if(dot){ dot.className = "db-dot " + state; }
   if(lbl){ lbl.textContent = label; }
+  const dbDiv = document.getElementById("db-status");
+  if(dbDiv) dbDiv.style.cursor = state==="err" ? "pointer" : "default";
   // Sync mobile indicator
   const mobDot = document.getElementById("mob-db-dot");
   const mobLbl = document.getElementById("mob-db-label");
@@ -843,7 +898,7 @@ function _saveLocalBackup(){
   }catch{}
 }
 function _loadLocalBackup(){
-  try{const s=JSON.parse(localStorage.getItem("cm_wines")||"null");wines=s||[]}catch{wines=[]}
+  try{const s=JSON.parse(localStorage.getItem("cm_wines")||"null");wines=(s||[]).map(v=>({...v,nazione:inferPaese(v.nazione,v.regione,v.zona)}))}catch{wines=[]}
   try{movements=JSON.parse(localStorage.getItem("cm_movements")||"[]")}catch{movements=[]}
   try{fallate=JSON.parse(localStorage.getItem("cm_fallate")||"[]")}catch{fallate=[]}
   try{alertSoglie=JSON.parse(localStorage.getItem("cm_alert_soglie")||"{}")}catch{alertSoglie={}}
@@ -863,7 +918,7 @@ function _migrateOrders(){
 async function _sbUpsert(table, payload){
   if(!_sb) return;
   const { error } = await _sb.from(table).upsert(payload, {onConflict:"user_id"});
-  if(error) console.warn("Supabase upsert error:", table, error.message);
+  if(error){ console.warn("Supabase upsert error:", table, error.message); throw error; }
 }
 async function _sbRead(table){
   if(!_sb) return null;
@@ -896,7 +951,27 @@ function scheduleSave(){
   }, 400);
 }
 
-async function loadData(){
+async function forceSave(){
+  clearTimeout(saveTimer);
+  if(!_sb){ notify("⚠️ Nessuna connessione Supabase","err"); return; }
+  _setDbStatus("sync","Sincronizzazione…");
+  try{
+    _saveLocalBackup();
+    await Promise.all([
+      _sbUpsert("cm_wines",    { user_id:DB_USER, data:wines }),
+      _sbUpsert("cm_movements",{ user_id:DB_USER, data:movements }),
+      _sbUpsert("cm_fallate",  { user_id:DB_USER, data:fallate }),
+      _sbUpsert("cm_soglie",   { user_id:DB_USER, data:alertSoglie }),
+      _sbUpsert("cm_orders",   { user_id:DB_USER, data:orders }),
+    ]);
+    _setDbStatus("ok","Sincronizzato");
+    notify("✅ Sync forzato — dati inviati a Supabase");
+  }catch(e){
+    _setDbStatus("err","Errore sync");
+    notify("⚠️ Sync fallito: "+e.message,"err");
+  }
+}
+
   if(!_sb){
     _loadLocalBackup();
     _setDbStatus("off","Solo locale");
@@ -909,7 +984,7 @@ async function loadData(){
       _sbRead("cm_wines"), _sbRead("cm_movements"), _sbRead("cm_fallate"),
       _sbRead("cm_soglie"), _sbRead("cm_orders")
     ]);
-    wines       = w ?? [];
+    wines       = (w ?? []).map(v=>({...v, nazione: inferPaese(v.nazione, v.regione, v.zona)}));
     movements   = m ?? [];
     fallate     = f ?? [];
     alertSoglie = s ?? {};
@@ -1239,8 +1314,8 @@ function renderDashboard(){
   const s=getStats();
   const wineMap=Object.fromEntries(wines.map(w=>[w.id,w]));
   const now=new Date(), monthMap={};
-  for(let i=11;i>=0;i--){
-    const d=new Date(now.getFullYear(),now.getMonth()-i,1);
+  const startDate=new Date(2026,0,1); // Gen 2026
+  for(let d=new Date(startDate);d<=now;d.setMonth(d.getMonth()+1)){
     const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
     const label=d.toLocaleString("it-IT",{month:"short",year:"2-digit"});
     monthMap[key]={key,label,vendute:0,ricavo:0,costo:0,caricate:0};
@@ -1371,6 +1446,14 @@ function renderInventario(){
     const mv=filterVitigno==="tutti"||(w.vitigni||"").toLowerCase().includes(filterVitigno.toLowerCase());
     return mq&&mt&&mv;
   });
+  // ── sort ──
+  const _tipoIdx=t=>TIPOLOGIE.indexOf(t)<0?999:TIPOLOGIE.indexOf(t);
+  if(invSort==="nome") list.sort((a,b)=>a.nome.localeCompare(b.nome));
+  else if(invSort==="produttore") list.sort((a,b)=>(a.produttore||"").localeCompare(b.produttore||"")||a.nome.localeCompare(b.nome));
+  else if(invSort==="regione") list.sort((a,b)=>(a.regione||"").localeCompare(b.regione||"")||a.nome.localeCompare(b.nome));
+  else if(invSort==="giacenza") list.sort((a,b)=>b.giacenza-a.giacenza);
+  else if(invSort==="prezzoAcq") list.sort((a,b)=>b.prezzoAcq-a.prezzoAcq);
+  else list.sort((a,b)=>_tipoIdx(a.tipologia)-_tipoIdx(b.tipologia)||a.nome.localeCompare(b.nome));
   let tfG=0;
   list.forEach(w=>{tfG+=w.giacenza});
 
@@ -1428,6 +1511,14 @@ function renderInventario(){
           ${activeVitigni.map(v=>`<option value="${h(v)}" ${filterVitigno===v?'selected':''}>${h(v)}</option>`).join('')}
         </select>`:''}
         ${filterTipo!=='tutti'||filterVitigno!=='tutti'?`<button class="btn-outline btn-sm" onclick="filterTipo='tutti';filterVitigno='tutti';renderInventarioOnly()" style="border-color:rgba(239,68,68,.4);color:#FF453A;font-size:9px">✕ Reset</button>`:''}
+        <select class="form-select" style="width:auto;font-size:10px;padding:5px 10px;border-color:${invSort!=='tipologia'?'rgba(0,122,255,.4)':'var(--border2)'};color:${invSort!=='tipologia'?'#007AFF':'var(--txt3)'}" onchange="invSort=this.value;renderInventarioOnly()">
+          <option value="tipologia" ${invSort==='tipologia'?'selected':''}>↕ Tipologia</option>
+          <option value="nome" ${invSort==='nome'?'selected':''}>↕ Nome A–Z</option>
+          <option value="produttore" ${invSort==='produttore'?'selected':''}>↕ Produttore</option>
+          <option value="regione" ${invSort==='regione'?'selected':''}>↕ Regione</option>
+          <option value="giacenza" ${invSort==='giacenza'?'selected':''}>↕ Giacenza ↓</option>
+          <option value="prezzoAcq" ${invSort==='prezzoAcq'?'selected':''}>↕ P.Acq ↓</option>
+        </select>
       </div>
       <span style="font-size:10px;color:var(--txt4);letter-spacing:.1em">${list.length} / ${wines.length} referenze</span>
       <div style="display:flex;align-items:center;gap:6px;margin-left:auto">
@@ -1449,7 +1540,7 @@ function renderInventario(){
         ${list.length===0?`<tr><td colspan="13" style="text-align:center;padding:40px;color:var(--txt4)">Nessun vino trovato</td></tr>`:
         list.map((w,i_)=>{
           const prevTipo_=i_>0?list[i_-1].tipologia:"";
-          const groupHdr_=(filterTipo==="tutti"&&w.tipologia!==prevTipo_)?
+          const groupHdr_=(invSort==="tipologia"&&filterTipo==="tutti"&&w.tipologia!==prevTipo_)?
             `<tr style="background:var(--bg)"><td colspan="13" style="padding:8px 16px 5px;border-top:2px solid rgba(255,159,10,.25);border-bottom:1px solid rgba(255,159,10,.12)"><span style="font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--amber);font-weight:700">${h(w.tipologia)}</span>&emsp;<span style="font-size:9px;color:var(--txt4)">${list.filter(x=>x.tipologia===w.tipologia).length} etich.</span></td></tr>`
             : "";
           const rowStr_=(w=>{ 
@@ -3660,6 +3751,7 @@ function renderExport(){
           <input type="file" accept=".json" onchange="importBackupJSON(event)" style="display:none">
         </label>
         <label class="btn-outline btn-sm" style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border:1px solid rgba(59,130,246,.4);color:#93c5fd;font-size:11px;letter-spacing:.04em" title="Importa nazioni/regioni da file ODS/XLSX (match produttore+nome vino)">🌍 Aggiorna Nazioni<input type="file" accept=".ods,.xlsx,.xls" onchange="importNazioniDaFile(event)" style="display:none"></label>
+        <button class="btn-outline btn-sm" onclick="ricalcolaGiacenze()" style="border-color:rgba(48,209,88,.4);color:#30D158" title="Ricalcola giacenze e lotti FIFO da tutti i movimenti (ripristino)">🔄 Ricalcola Giacenze</button>
         <button class="btn-primary" onclick="exportBilancioCSV()">↓ Esporta Bilancio Completo</button>
       </div>
     </div>
@@ -4524,7 +4616,92 @@ function exportBackupJSON(){
   notify("💾 Backup esportato");
 }
 
+// ─── RICALCOLA GIACENZE FIFO ─────────────────────────────────────────────────
+function ricalcolaGiacenze(){
+  const nMov = movements.length;
+  if(!confirm(`Ricalcola giacenze e lotti FIFO per tutti i vini dai ${nMov} movimenti?\n\nLe giacenze correnti verranno azzerate e ricalcolate in ordine cronologico.\nOK = procedi · Annulla = abort`)) return;
+
+  // Reset tutti i vini
+  wines = wines.map(w => ({...w, giacenza:0, lots:[]}));
+
+  // Ordina movimenti per data + timestamp
+  const sorted = [...movements].sort((a,b) => {
+    const dc = a.data.localeCompare(b.data);
+    if(dc !== 0) return dc;
+    return (a.ts||0) - (b.ts||0);
+  });
+
+  let carichiFatti = 0, scarichiFatti = 0, orphans = 0;
+
+  sorted.forEach(m => {
+    const wIdx = wines.findIndex(w => w.id === m.wineId);
+    if(wIdx < 0){ orphans++; return; }
+    const w = wines[wIdx];
+    const q = parseInt(m.qty)||0;
+    if(q <= 0) return;
+
+    if(m.tipo === "carico"){
+      const pAcq = parseFloat(m.prezzoAcqLotto) || parseFloat(w.prezzoAcq) || 0;
+      const newLot = {
+        id: m.id + "_lot",
+        data: m.data,
+        fattura: m.fattura||"",
+        fornitore: m.fornitore||"",
+        prezzoAcq: pAcq,
+        iva: w.iva||22,
+        qtyCaricata: q,
+        qtyRimanente: q
+      };
+      wines[wIdx] = {...w, giacenza: w.giacenza + q, lots: [...(w.lots||[]), newLot]};
+      carichiFatti++;
+    } else {
+      // scarico + fallate: scala FIFO
+      let rem = q;
+      const updLots = (w.lots||[]).map(l => {
+        if(rem <= 0 || l.qtyRimanente <= 0) return l;
+        const c = Math.min(rem, l.qtyRimanente);
+        rem -= c;
+        return {...l, qtyRimanente: l.qtyRimanente - c};
+      });
+      wines[wIdx] = {...w, giacenza: Math.max(0, w.giacenza - q), lots: updLots};
+      scarichiFatti++;
+    }
+  });
+
+  // Applica anche fallate (sono fuori movements)
+  fallate.forEach(f => {
+    const wIdx = wines.findIndex(w => w.id === f.wineId);
+    if(wIdx < 0) return;
+    const w = wines[wIdx];
+    const q = parseInt(f.qty)||0;
+    if(q <= 0) return;
+    let rem = q;
+    const updLots = (w.lots||[]).map(l => {
+      if(rem <= 0 || l.qtyRimanente <= 0) return l;
+      const c = Math.min(rem, l.qtyRimanente);
+      rem -= c;
+      return {...l, qtyRimanente: l.qtyRimanente - c};
+    });
+    wines[wIdx] = {...w, giacenza: Math.max(0, w.giacenza - q), lots: updLots};
+  });
+
+  scheduleSave();
+  render();
+  const totGiac = wines.reduce((s,w)=>s+w.giacenza,0);
+  notify(`✅ Giacenze ricalcolate — ${carichiFatti} carichi, ${scarichiFatti} scarichi · Totale giacenza: ${totGiac} bt${orphans>0?" · ⚠️ "+orphans+" movimenti orfani (wineId non trovato)":""}`, "ok");
+}
+
 // ─── IMPORT NAZIONI DA ODS/XLSX ──────────────────────────────────────────────
+// Normalizza stringa: minuscolo, trim, rimuove accenti, collassa spazi multipli, rimuove articoli iniziali
+function _normStr(s){
+  return String(s||"")
+    .toLowerCase().trim()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g,"") // rimuove accenti
+    .replace(/\s+/g," ")                              // spazi multipli
+    .replace(/^(il |la |lo |l'|i |le |gli |the |la |le |les |les |de |di )/,"") // articoli iniziali
+    .trim();
+}
+
 function importNazioniDaFile(event){
   const file=event.target.files[0];
   if(!file) return;
@@ -4535,43 +4712,63 @@ function importNazioniDaFile(event){
       const wb=XLSX.read(e.target.result,{type:"array"});
       const ws=wb.Sheets[wb.SheetNames[0]];
       const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:""});
-      // Trova riga header (cerca "Nazione" o "nazione")
       let hdrIdx=rows.findIndex(r=>r.some(c=>String(c).toLowerCase()==="nazione"));
       if(hdrIdx<0){notify("⚠️ Colonna 'Nazione' non trovata nel file","err");return;}
       const hdr=rows[hdrIdx].map(c=>String(c).toLowerCase().trim());
       const iNaz=hdr.indexOf("nazione");
       const iReg=hdr.indexOf("regione");
+      const iDist=["distributore","distributor"].map(k=>hdr.indexOf(k)).find(i=>i>=0)??-1;
       const iProd=["produttore","producer"].map(k=>hdr.indexOf(k)).find(i=>i>=0)??-1;
       const iNome=["nome vino","nome","wine","vino"].map(k=>hdr.indexOf(k)).find(i=>i>=0)??-1;
       if(iNaz<0||iProd<0||iNome<0){notify("⚠️ Colonne richieste non trovate (Produttore, Nome vino, Nazione)","err");return;}
-      // Build lookup map: "produttore§nomevino" → {nazione, regione}
-      const lookup=new Map();
+
+      // Build lookup maps: exact + normalized
+      const lookup=new Map();       // "norm_prod§norm_nome" → entry
+      const lookupNome=new Map();   // "norm_nome" → entry (solo nome, fallback)
       for(let i=hdrIdx+1;i<rows.length;i++){
         const r=rows[i];
-        const prod=String(r[iProd]||"").toLowerCase().trim();
-        const nome=String(r[iNome]||"").toLowerCase().trim();
+        const prod=String(r[iProd]||"").trim();
+        const nome=String(r[iNome]||"").trim();
         const naz=String(r[iNaz]||"").trim();
         const reg=iReg>=0?String(r[iReg]||"").trim():"";
-        if(prod&&nome&&naz) lookup.set(prod+"§"+nome,{nazione:naz,regione:reg});
+        const dist=iDist>=0?String(r[iDist]||"").trim():"";
+        if(!naz) continue;
+        const entry={nazione:naz,regione:reg,distributore:dist,prodRaw:prod,nomeRaw:nome};
+        if(prod&&nome){
+          const k=_normStr(prod)+"§"+_normStr(nome);
+          lookup.set(k,entry);
+          // anche solo nome normalizzato (per fallback)
+          if(!lookupNome.has(_normStr(nome))) lookupNome.set(_normStr(nome),entry);
+        }
       }
-      let updated=0,notFound=[];
+
+      let updated=0,updatedFallback=0,notFound=[];
       wines=wines.map(w=>{
-        const key=w.produttore.toLowerCase().trim()+"§"+w.nome.toLowerCase().trim();
-        const match=lookup.get(key);
+        // 1) exact normalized match (prod+nome)
+        const k=_normStr(w.produttore)+"§"+_normStr(w.nome);
+        let match=lookup.get(k);
+        let source="exact";
+        // 2) fallback: solo nome normalizzato
+        if(!match){
+          match=lookupNome.get(_normStr(w.nome));
+          source="nome";
+        }
         if(match){
-          updated++;
+          if(source==="exact") updated++; else updatedFallback++;
           return{...w,
             nazione:match.nazione||w.nazione||"",
-            regione:w.regione||match.regione||w.regione  // non sovrascrivere regione se già presente
+            regione:w.regione||match.regione||"",
+            distributore:w.distributore||match.distributore||""
           };
         }
         notFound.push(w.produttore+" – "+w.nome);
         return w;
       });
       scheduleSave(); render();
-      let msg=`✅ Nazioni aggiornate: ${updated} vini`;
+      let msg=`✅ Nazioni aggiornate: ${updated} (exact) + ${updatedFallback} (solo nome)`;
       if(notFound.length) msg+=` | ⚠️ Non trovati: ${notFound.length} (${notFound.slice(0,3).join(", ")}${notFound.length>3?"…":""})`;
-      notify(msg, updated>0?"ok":"warn");
+      notify(msg, (updated+updatedFallback)>0?"ok":"warn");
+      if(notFound.length) console.log("Vini non trovati nell'import nazioni:", notFound);
     }catch(err){notify("❌ Errore lettura file: "+err.message,"err");}
   };
   reader.readAsArrayBuffer(file);
