@@ -1067,7 +1067,7 @@ function renderInventario(){
           const mp=calcMarginePerc(w);
           const sg=_getSoglie(w.id), isAlert=w.giacenza<=sg.min, isEmpty=w.giacenza===0, isRiordino=!isEmpty&&!isAlert&&w.giacenza<=sg.riordino;
           const mpColor=mp===null?"var(--txt4)":mp>=50?"#30D158":mp>=30?"var(--amber)":"#FF453A";
-          return `<tr class="${isEmpty?"alert-empty":isAlert?"alert-low":isRiordino?"alert-riordino":""}" data-sel-id="${w.id}" data-wine-id="${w.id}" onclick="selectWineRow('${w.id}')" style="cursor:pointer">
+          return `<tr class="${isEmpty?"alert-empty":isAlert?"alert-low":isRiordino?"alert-riordino":""}" data-sel-id="${w.id}" data-wine-id="${w.id}" onclick="selectWineRow('${w.id}')" ondblclick="openWineModal('${w.id}')" style="cursor:pointer">
             ${selMode==='wines'?`<td class="cb-col"><input type="checkbox" class="cb-sel" data-id="${w.id}" onchange="toggleSel('${w.id}');_updateBulkBar()"></td>`:''}
             <td class="col-fornitore" ondblclick="inlineEdit(event,'distributore','${w.id}','${(w.distributore||'').replace(/'/g,"\\'")}'" title="Doppio click: modifica fornitore" style="color:var(--txt3);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:90px;cursor:text">${h(w.distributore||"—")}</td>
             <td ondblclick="inlineEdit(event,'produttore','${w.id}','${(w.produttore||'').replace(/'/g,"\\'")}'" title="Doppio click: modifica produttore" style="color:var(--txt2);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:text">${h(w.produttore)}</td>
@@ -1192,7 +1192,67 @@ function annullaScarico(movId){
   requestAnimationFrame(() => window.scrollTo(0, sy));
 }
 
-// ─── RILEVAMENTO AUTOMATICO GRANDI FORMATI ────────────────────────────────────
+// ─── ELIMINA LOTTO FIFO ───────────────────────────────────────────────────────
+function eliminaLotto(wineId, lotId){
+  const wine = wines.find(w => w.id === wineId);
+  if(!wine) return;
+  const lot = (wine.lots||[]).find(l => l.id === lotId);
+  if(!lot){ notify("Lotto non trovato","err"); return; }
+  const msg = `Eliminare il lotto del ${lot.data}?\n• Fornitore: ${lot.fornitore||"—"}\n• Caricato: ${lot.qtyCaricata} bt · Rimanente: ${lot.qtyRimanente} bt\n\nLa giacenza verrà ridotta di ${lot.qtyRimanente} bottiglie.`;
+  if(!confirm(msg)) return;
+  wines = wines.map(w => {
+    if(w.id !== wineId) return w;
+    return {...w,
+      lots: (w.lots||[]).filter(l => l.id !== lotId),
+      giacenza: Math.max(0, w.giacenza - lot.qtyRimanente)
+    };
+  });
+  scheduleSave();
+  notify(`🗑️ Lotto eliminato — giacenza corretta di −${lot.qtyRimanente} bt`);
+  openWineModal(wineId); // riapri modal aggiornato
+}
+
+// ─── SCARICO SINGOLO IMMEDIATO (bottone ✓ per riga) ──────────────────────────
+function scaricoSingoloImmediato(wineId){
+  const qty = parseInt(scaricoSerata.qtys[wineId])||0;
+  if(qty <= 0){ notify("Inserisci una quantità > 0","err"); return; }
+  const wine = wines.find(w => w.id === wineId);
+  if(!wine){ notify("Vino non trovato","err"); return; }
+  if(qty > wine.giacenza){ notify(`Giacenza insufficiente: solo ${wine.giacenza} bt disponibili`,"err"); return; }
+
+  const data = scaricoSerata.data || (() => { const d=new Date(); d.setDate(d.getDate()-1); return d.toISOString().split("T")[0]; })();
+  const note = (scaricoSerata.note||"").trim();
+  const sottoTipo = (scaricoSerata.tipos&&scaricoSerata.tipos[wineId])||'bottiglia';
+  const ricavoMescita = sottoTipo==='mescita'
+    ? (() => { const pc=parseFloat(wine.prezzoCalice)||0; const cpb=parseInt(wine.calicePerBt)||5; return pc?qty*pc*cpb:null; })()
+    : undefined;
+
+  // FIFO lots update
+  wines = wines.map(w => {
+    if(w.id !== wineId) return w;
+    let rem = qty;
+    const updLots = (w.lots||[]).map(l => {
+      if(rem<=0||l.qtyRimanente<=0) return l;
+      const c=Math.min(rem,l.qtyRimanente); rem-=c;
+      return {...l, qtyRimanente:l.qtyRimanente-c};
+    });
+    return {...w, giacenza:w.giacenza-qty, lots:updLots};
+  });
+  movements.unshift({id:uid(), wineId, wineName:wine.nome, produttore:wine.produttore,
+    nazione:wine.nazione||"", tipo:"scarico", sottoTipo, ricavoMescita, qty, data,
+    fattura:"", fornitore:"", note:note||"Scarico serata", ts:Date.now()});
+
+  // Pulisci la riga
+  delete scaricoSerata.qtys[wineId];
+  if(scaricoSerata.tipos) delete scaricoSerata.tipos[wineId];
+
+  try{ localStorage.setItem("cm_wines",JSON.stringify(wines)); localStorage.setItem("cm_movements",JSON.stringify(movements)); }catch(e){}
+  scheduleSave();
+  notify(`✅ ${wine.nome}: −${qty} bt registrat${qty===1?"a":"e"}`);
+  const sy = window.scrollY;
+  render();
+  requestAnimationFrame(()=>window.scrollTo(0,sy));
+}
 // Mappa keyword → litri. Ordine decrescente per lunghezza (match più specifico prima).
 const _FORMATO_KEYWORDS = [
   // 18L
@@ -1383,11 +1443,12 @@ function registraScaricaSerata(){
   scaricoSerata.qtys = {};
   scaricoSerata.tipos = {};
   scaricoSerata.note = "";
-  // Save immediately (not debounced)
+  // Save — localStorage immediato + Supabase debounced
   try{
     localStorage.setItem("cm_wines", JSON.stringify(wines));
     localStorage.setItem("cm_movements", JSON.stringify(movements));
   }catch(e){ notify("⚠️ Salvataggio fallito","err"); }
+  scheduleSave(); // ← scrive su Supabase (era mancante — causava il ripristino dei dati al reload)
   notify(`🍾 ${righe.length} vin${righe.length===1?"o":"i"} scaricati — ${totBt} bottigli${totBt===1?"a":"e"} totali`);
   const sy = window.scrollY;
   render();
@@ -1712,10 +1773,17 @@ function renderScaricoSerataPage(){
               <option value="mescita" ${(scaricoSerata.tipos&&scaricoSerata.tipos[w.id]==='mescita')?'selected':''}>&#129346; Mescita</option>
             </select></td>
             <td style="text-align:center;background:rgba(255,69,58,.04)">
-              <input type="number" min="0" max="${w.giacenza}" step="1" class="form-input"
-                style="width:80px;text-align:center;font-family:'Montserrat',sans-serif;font-size:1.1rem;padding:4px 8px;${overLimit?"border-color:#ef4444;color:#FF453A":hasVal?"border-color:rgba(239,68,68,.5);color:#FF6B6B":""}"
-                value="${qVal}" placeholder="0"
-                oninput="scaricoSerata.qtys['${w.id}']=this.value;_updateScaricoCounts()">
+              <div style="display:flex;align-items:center;justify-content:center;gap:4px">
+                <input type="number" min="0" max="${w.giacenza}" step="1" class="form-input"
+                  style="width:72px;text-align:center;font-family:'Montserrat',sans-serif;font-size:1.1rem;padding:4px 8px;${overLimit?"border-color:#ef4444;color:#FF453A":hasVal?"border-color:rgba(239,68,68,.5);color:#FF6B6B":""}"
+                  value="${qVal}" placeholder="0"
+                  oninput="scaricoSerata.qtys['${w.id}']=this.value;_updateScaricoCounts()">
+                <button onclick="scaricoSingoloImmediato('${w.id}')"
+                  title="Registra subito questo scarico"
+                  style="flex-shrink:0;width:30px;height:30px;display:flex;align-items:center;justify-content:center;background:${hasVal?"rgba(48,209,88,.15)":"rgba(41,37,36,.4)"};border:1px solid ${hasVal?"rgba(48,209,88,.4)":"rgba(68,64,60,.4)"};color:${hasVal?"#30D158":"var(--txt4)"};font-size:15px;cursor:pointer;border-radius:4px;transition:all .15s;font-family:inherit;padding:0"
+                  onmouseover="if(${hasVal})this.style.background='rgba(48,209,88,.28)'"
+                  onmouseout="this.style.background='${hasVal?"rgba(48,209,88,.15)":"rgba(41,37,36,.4)"}'">✓</button>
+              </div>
             </td>
           </tr>`;
         }).join("")}
@@ -3620,13 +3688,14 @@ function renderModalBody(wine){
   const f=wine||{nome:"",produttore:"",distributore:"",annata:"",vitigni:"",tipologia:"Rosso",regione:"",nazione:"Italia",zona:"",prezzoAcq:"",iva:22,prezzoCarta:"",prezzoCalice:"",calicePerBt:5,giacenza:0};
   const lotsHtml=wine?.lots?.length?`
     <div style="margin-top:4px">
-      <div class="modal-section-label">📦 Storico Lotti (FIFO)</div>
-      <div class="lot-grid" style="color:var(--txt4);font-size:9px"><span>Data</span><span>Fattura</span><span>Fornitore</span><span style="text-align:right">P.Acq</span><span style="text-align:right">Caricato</span><span style="text-align:right">Rimanente</span></div>
-      ${[...wine.lots].reverse().map(l=>{const done=l.qtyRimanente===0;return `<div class="lot-row ${done?"lot-done":"lot-active"}" style="margin-bottom:2px">
+      <div class="modal-section-label">📦 Storico Lotti (FIFO) <span style="font-size:9px;color:var(--txt4);font-weight:400;text-transform:none;letter-spacing:0">— 🗑️ per eliminare un lotto errato</span></div>
+      <div class="lot-grid" style="color:var(--txt4);font-size:9px"><span>Data</span><span>Fattura</span><span>Fornitore</span><span style="text-align:right">P.Acq</span><span style="text-align:right">Caricato</span><span style="text-align:right">Rimanente</span><span></span></div>
+      ${[...wine.lots].reverse().map(l=>{const done=l.qtyRimanente===0;return `<div class="lot-row ${done?"lot-done":"lot-active"}" style="margin-bottom:2px;display:grid;grid-template-columns:var(--lot-grid, 1fr 1fr 1fr 80px 70px 70px 28px);gap:4px;align-items:center">
         <span>${l.data}</span><span style="overflow:hidden;text-overflow:ellipsis">${l.fattura||"—"}</span><span style="overflow:hidden;text-overflow:ellipsis;color:${done?"var(--txt4)":"var(--txt3)"}">${l.fornitore||"—"}</span>
         <span style="text-align:right;${done?"color:var(--txt4)":"color:var(--amber)"}">${fmt(l.prezzoAcq)}</span>
         <span style="text-align:right;color:var(--txt3)">${l.qtyCaricata} bt</span>
         <span style="text-align:right;${done?"color:var(--txt4);text-decoration:line-through":l.qtyRimanente<=3?"color:#fb923c":"color:#30D158"}">${l.qtyRimanente} bt</span>
+        <button onclick="eliminaLotto('${wine.id}','${l.id}')" title="Elimina questo lotto" style="background:none;border:1px solid rgba(255,69,58,.3);color:#FF453A;font-size:10px;padding:1px 4px;cursor:pointer;line-height:1.4;font-family:inherit;border-radius:3px" onmouseover="this.style.background='rgba(255,69,58,.12)'" onmouseout="this.style.background='none'">🗑️</button>
       </div>`}).join("")}
       <div style="display:flex;justify-content:space-between;padding:8px 12px;border-top:1px solid var(--border);font-size:10px;color:var(--txt3)">
         <span>Prezzo medio ponderato lotti attivi</span>
