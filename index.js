@@ -1,7 +1,7 @@
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 // Password stored as SHA-256 hash. Default: "cantina2024"
 // Per cambiare password: in console > sha256("nuova") e aggiorna PASSWORD_HASH
-const PASSWORD_HASH = "4308b16b088ef46766393f253ec3d48d96dfc04e80712cc0c55f0491c848fbad";
+const PASSWORD_HASH = "4046c085c4f0ef2fa5f409b7ba5090cc51bb7472f9e3c54564ad0ae6f9befc4b";
 
 let TIPOLOGIE = (()=>{try{const s=localStorage.getItem("cm_tipologie");return s?JSON.parse(s):["Rosso","Bianco","Rosato","Champagne","Metodo Classico","Metodo Classico Rosato","Rifermentato","Rifermentato Rosso","Rifermentato Rosato","Col Fondo","Ancestrale","Macerato","Orange","Passito","Dolce","Liquoroso"];}catch{return ["Rosso","Bianco","Rosato","Champagne","Metodo Classico","Metodo Classico Rosato","Rifermentato","Rifermentato Rosso","Rifermentato Rosato","Col Fondo","Ancestrale","Macerato","Orange","Passito","Dolce","Liquoroso"];}})();
 function _saveTipologie(){try{localStorage.setItem("cm_tipologie",JSON.stringify(TIPOLOGIE));}catch{}}
