@@ -28,7 +28,7 @@ const PIE_COLORS = ["#FF9F0A","#007AFF","#30D158","#BF5AF2","#FF375F","#32ADE6",
 // ─── STATE ────────────────────────────────────────────────────────────────────
 let wines = [], movements = [], fallate = [], alertSoglie = {}, orders = [];
 let section = "dashboard";
-let search = "", filterTipo = "tutti", filterVitigno = "tutti", invSort = "tipologia";
+let search = "", filterTipo = "tutti", filterVitigno = "tutti", filterFormato = "tutti", invSort = "tipologia";
 let analyticsRegione = "", analyticsTipo = "", analyticsAcquistiPeriodo = "mese";
 let movForm = {wineId:"",tipo:"carico",qty:1,data:today(),fattura:"",fornitore:"",note:"",prezzoAcqLotto:"",_wineText:"",_newProduttore:"",_newTipologia:"Rosso",_newPrezzoCarta:"",_tipologia:""};
 let fallForm = {wineId:"",qty:1,motivo:FALLATA_MOTIVI[0],data:today(),note:""};
@@ -41,10 +41,8 @@ let fallForm = {wineId:"",qty:1,motivo:FALLATA_MOTIVI[0],data:today(),note:""};
 // Magnum (rilevata da nome/formato) → ×2.0
 // Risultato arrotondato al mezzo euro superiore, IVA inclusa.
 function _getMolt(w){
-  const nome = (w.nome||"").toLowerCase();
-  const formato = (w.formato||"").toLowerCase();
-  const isMagnum = /magnum|1[,.]5l|1500ml|1\.5\s*l/.test(nome+formato);
-  if(isMagnum) return 2.0;
+  const fmt = parseFloat(w.formato)||0.75;
+  if(fmt > 0.75) return 2.0; // tutti i grandi formati → ×2.0
   const p = parseFloat(w.prezzoAcq)||0;
   if(p < 12)  return 3.0;
   if(p < 18)  return 2.85;
@@ -57,12 +55,11 @@ function _calcPrezzoCartaSuggerito(w){
   const iva = (parseInt(w.iva)||22)/100;
   const costoIva = p * (1 + iva);
   const molt = _getMolt(w);
-  return Math.ceil(costoIva * molt * 2) / 2; // arrotonda al €0.50 superiore
+  return Math.ceil(costoIva * molt); // arrotonda all'euro superiore
 }
 function _getMoltLabel(w){
-  const nome = (w.nome||"").toLowerCase();
-  const isMagnum = /magnum|1[,.]5l|1500ml|1\.5\s*l/.test(nome);
-  if(isMagnum) return "×2.0 (Magnum)";
+  const fmt = parseFloat(w.formato)||0.75;
+  if(fmt > 0.75) return `×2.0 (${fmt}L)`;
   const p = parseFloat(w.prezzoAcq)||0;
   if(p < 12)  return "×3.0 (< €12)";
   if(p < 18)  return "×2.85 (€12–18)";
@@ -78,6 +75,7 @@ let notifTimer = null;
 // ─── MULTI-SELECT STATE ───────────────────────────────────────────────────────
 let _mobQuery = "";
 let _mobLog = []; // [{ts, desc}]
+let _mobQty  = {}; // wineId → qty selezionata (default 1)
 let _mobUndoData = null; // {wineId, delta, movId, prevGiacenza, prevLots}
 let _mobToastTimer = null;
 let _mobToastBarTimer = null;
@@ -132,36 +130,51 @@ const _REGIONE_TO_PAESE = {
   "piemonte":"Italia","puglia":"Italia","sardegna":"Italia","sicilia":"Italia",
   "toscana":"Italia","trentino alto adige":"Italia","trentino":"Italia",
   "umbria":"Italia","valle d'aosta":"Italia","veneto":"Italia",
+  "collio":"Italia","colli euganei":"Italia","soave":"Italia","amarone":"Italia",
   "alsazia":"Francia","ardeche":"Francia","ardèche":"Francia",
   "auvergne":"Francia","beaujolais":"Francia","bordeaux":"Francia",
   "borgogna":"Francia","chablis":"Francia","champagne":"Francia",
-  "cotes catalanes":"Francia","jura":"Francia","languedoc":"Francia",
-  "languedoc – roussillon":"Francia","loira":"Francia","loire":"Francia",
+  "cotes catalanes":"Francia","côtes catalanes":"Francia",
+  "jura":"Francia","languedoc":"Francia",
+  "languedoc – roussillon":"Francia","languedoc - roussillon":"Francia",
+  "loira":"Francia","loire":"Francia",
   "nuova aquitania – charente":"Francia","nuova aquitania – dordogna":"Francia",
-  "provenza":"Francia","rodano":"Francia","savoia":"Francia","sud ouest":"Francia",
-  "alsace":"Francia","bourgogne":"Francia","côtes catalanes":"Francia",
+  "provenza":"Francia","provence":"Francia","rodano":"Francia",
+  "rhône":"Francia","rhone":"Francia","roussillon":"Francia",
+  "savoia":"Francia","sud ouest":"Francia",
+  "alsace":"Francia","bourgogne":"Francia",
   "baden":"Germania","franconia":"Germania","mosella":"Germania","mosel":"Germania",
   "pfalz":"Germania","rheingau":"Germania","rheinhessen":"Germania",
+  "ahr":"Germania","nahe":"Germania","württemberg":"Germania",
   "burgenland":"Austria","niederösterreich":"Austria","steiermark":"Austria",
   "wagram":"Austria","wachau":"Austria","kamptal":"Austria","kremstal":"Austria",
+  "vienna":"Austria","wien":"Austria","vino di vienna":"Austria",
   "andalusia":"Spagna","bierzo":"Spagna","castilla y leon":"Spagna",
-  "catalogna":"Spagna","gran canaria":"Spagna","lanzarote":"Spagna",
-  "manchuela":"Spagna","paesi baschi":"Spagna","priorat":"Spagna",
+  "catalogna":"Spagna","catalunya":"Spagna",
+  "gran canaria":"Spagna","lanzarote":"Spagna","canarias":"Spagna",
+  "manchuela":"Spagna","paesi baschi":"Spagna","pais vasco":"Spagna","priorat":"Spagna",
   "rias baixas":"Spagna","ribera del duero":"Spagna","rioja":"Spagna",
   "tenerife":"Spagna","navarra":"Spagna","jerez":"Spagna","madrid":"Spagna",
+  "la mancha":"Spagna","galicia":"Spagna",
   "andia":"Spagna","villanueva de avila":"Spagna",
   "alentejo":"Portogallo","bairrada":"Portogallo","douro":"Portogallo",
   "minho":"Portogallo","serra da estrela":"Portogallo","vinho verde":"Portogallo",
-  "collio sloveno":"Slovenia","brda":"Slovenia",
-  "santorini":"Grecia","naoussa":"Grecia","nemea":"Grecia","macedonia":"Grecia",
-  "rila":"Bulgaria","serbia":"Serbia",
+  "duriense":"Portogallo","algarve":"Portogallo","beira":"Portogallo",
+  "collio sloveno":"Slovenia","brda":"Slovenia","karst":"Slovenia",
+  "santorini":"Grecia","naoussa":"Grecia","nemea":"Grecia",
+  "macedonia":"Grecia","makedonia":"Grecia","crete":"Grecia","creta":"Grecia",
+  "rila":"Bulgaria","thrace":"Bulgaria","tracia":"Bulgaria",
+  "serbia":"Serbia","sumadija":"Serbia",
   "margaret river":"Australia","victoria":"Australia","barossa":"Australia",
-  "central otago":"Nuova Zelanda","marlborough":"Nuova Zelanda","nelson":"Nuova Zelanda",
-  "maipo valley":"Cile","colchagua":"Cile",
-  "western cape":"Sudafrica","stellenbosch":"Sudafrica",
+  "mclaren vale":"Australia","hunter valley":"Australia","tasmania":"Australia",
+  "central otago":"Nuova Zelanda","marlborough":"Nuova Zelanda",
+  "hawke's bay":"Nuova Zelanda","nelson":"Nuova Zelanda",
+  "maipo valley":"Cile","colchagua":"Cile","casablanca":"Cile","leyda":"Cile",
+  "western cape":"Sudafrica","stellenbosch":"Sudafrica","swartland":"Sudafrica",
   "sonoma":"Stati Uniti","napa":"Stati Uniti","napa valley":"Stati Uniti",
-  "aargau":"Svizzera","valais":"Svizzera","ticino":"Svizzera",
-  "valle della beeka":"Libano","bekaa":"Libano",
+  "willamette":"Stati Uniti","oregon":"Stati Uniti","finger lakes":"Stati Uniti",
+  "aargau":"Svizzera","valais":"Svizzera","vaud":"Svizzera","ticino":"Svizzera",
+  "valle della beeka":"Libano","bekaa":"Libano","beka":"Libano",
 };
 function inferPaese(nazione, regione, zona){
   if(nazione) return nazione;
@@ -178,7 +191,7 @@ function inferPaese(nazione, regione, zona){
 function fmt(n){return _eur.format(n||0)}
 function fmtN(n,d=2){return (d===0?_num0:d===1?_num1:_num2).format(n||0)}
 // Arrotonda al €0.50 superiore (per prezzi visualizzati, non dati grezzi)
-function round50(n){return Math.ceil((n||0)*2)/2}
+function round50(n){return Math.ceil(n||0)}
 function fmtRound(n){return fmt(round50(n))}
 function today(){return new Date().toISOString().split("T")[0]}
 function esc(v){return `"${String(v??'').replace(/"/g,'""')}"`}
@@ -354,6 +367,7 @@ function _loadLocalBackup(){
   try{alertSoglie=JSON.parse(localStorage.getItem("cm_alert_soglie")||"{}")}catch{alertSoglie={}}
   try{orders=JSON.parse(localStorage.getItem("cm_orders")||"[]")}catch{orders=[]}
   _migrateOrders();
+  _migrateWines();
 }
 function _migrateOrders(){
   orders=orders.map(o=>{
@@ -362,6 +376,26 @@ function _migrateOrders(){
     }
     return o;
   });
+}
+
+function _migrateWines(){
+  let changed = false;
+  wines = wines.map(w => {
+    let upd = {...w};
+    // Imposta formato 0.75 a tutti i vini senza formato
+    if(!upd.formato || upd.formato === ""){
+      upd.formato = "0.75";
+      changed = true;
+    }
+    // Arrotonda prezzoCarta all'intero se ha decimali
+    const pc = parseFloat(upd.prezzoCarta)||0;
+    if(pc > 0 && pc !== Math.round(pc)){
+      upd.prezzoCarta = Math.round(pc);
+      changed = true;
+    }
+    return upd;
+  });
+  if(changed) scheduleSave();
 }
 
 // ── SUPABASE READ/WRITE ───────────────────────────────────────────────────────
@@ -441,6 +475,7 @@ async function loadData(){
     alertSoglie = s ?? {};
     orders      = o ?? [];
     _migrateOrders();
+    _migrateWines();
     _saveLocalBackup(); // update local cache with remote data
     _setDbStatus("ok","Connesso");
     if(_mobActive){ _renderMobList(); _renderMobLog(); updateSidebar(); } else render(); // re-render after async load
@@ -539,7 +574,7 @@ function _applySidebarState(){
 const SECTION_TITLES={dashboard:"Dashboard",inventario:"Inventario Vini","scarico-serata":"🍾 Scarico Serata",movimenti:"Carico / Scarico",fallate:"Gestione Fallate",analytics:"Analytics & Trends",ordini:"Ordini Fornitore",export:"Export & Bilancio"};
 function go(s){
   section=s;
-  if(s!=="inventario"){ filterVitigno="tutti"; _hideTopbarActions(); }
+  if(s!=="inventario"){ filterVitigno="tutti"; filterFormato="tutti"; _hideTopbarActions(); }
   document.querySelectorAll(".nav-btn").forEach(b=>b.classList.toggle("active",b.dataset.section===s));
   document.getElementById("topbar-title").textContent=SECTION_TITLES[s]||s;
   document.getElementById("btn-add-wine").classList.add("hidden");
@@ -753,8 +788,10 @@ function renderInventarioOnly(){
     const c=document.getElementById("content");
     const el=document.getElementById("inv-search");
     const pos=el?el.selectionStart:null;
+    const sy=window.scrollY;
     updateSidebar();
     c.innerHTML=renderInventario();
+    window.scrollTo(0,sy);
     const newEl=document.getElementById("inv-search");
     if(newEl){newEl.focus();if(pos!==null)try{newEl.setSelectionRange(pos,pos)}catch{}}
   },120);
@@ -895,7 +932,8 @@ function renderInventario(){
     const mq=!q||[w.nome,w.produttore,w.distributore,w.regione,w.vitigni,w.annata].some(f=>(f||"").toLowerCase().includes(q));
     const mt=filterTipo==="tutti"||w.tipologia===filterTipo;
     const mv=filterVitigno==="tutti"||(w.vitigni||"").toLowerCase().includes(filterVitigno.toLowerCase());
-    return mq&&mt&&mv;
+    const mf=filterFormato==="tutti"||(parseFloat(w.formato)||0.75)===parseFloat(filterFormato);
+    return mq&&mt&&mv&&mf;
   });
   // ── sort ──
   const _tipoIdx=t=>TIPOLOGIE.indexOf(t)<0?999:TIPOLOGIE.indexOf(t);
@@ -919,50 +957,51 @@ function renderInventario(){
 
   const activeTipi=TIPOLOGIE.filter(t=>wines.some(w=>w.tipologia===t));
   const activeVitigni=[...new Set(wines.flatMap(w=>(w.vitigni||"").split(/[,;/&+]+/).map(v=>v.trim())).filter(v=>v.length>1&&v.length<30))].sort();
-  
-  // Fascia panel
+  // Tutti i formati presenti (incluso 0.75 standard) — sempre visibile
+  const activeFormati=[...new Set(wines.map(w=>parseFloat(w.formato)||0.75))].sort((a,b)=>a-b);
+
+  // Fascia panel — riga unica compatta
   const winesConCarta=wines.filter(w=>w.prezzoCarta>0).length;
   const winesSenzaCarta=wines.filter(w=>!w.prezzoCarta&&w.prezzoAcq>0).length;
-  html+=`<div class="card" style="padding:14px 20px;margin-bottom:8px">
-    <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap">
-      <span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt3);flex-shrink:0">📐 Fasce Prezzo Carta</span>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:10px;color:var(--txt3)">
-        <span style="padding:2px 8px;border:1px solid rgba(255,159,10,.12);background:rgba(255,159,10,.05)">< €12 → <strong style="color:var(--amber)">×3.0</strong></span>
-        <span style="padding:2px 8px;border:1px solid rgba(255,159,10,.12);background:rgba(255,159,10,.05)">€12–18 → <strong style="color:var(--amber)">×2.85</strong></span>
-        <span style="padding:2px 8px;border:1px solid rgba(255,159,10,.12);background:rgba(255,159,10,.05)">€18–25 → <strong style="color:var(--amber)">×2.5</strong></span>
-        <span style="padding:2px 8px;border:1px solid rgba(255,159,10,.12);background:rgba(255,159,10,.05)">> €25 → <strong style="color:var(--amber)">×2.3</strong></span>
-        <span style="padding:2px 8px;border:1px solid rgba(14,116,144,.3);background:rgba(14,116,144,.08);color:#32ADE6">Magnum → <strong>×2.0</strong></span>
-        <span style="font-size:9px;color:var(--txt4);padding:2px 4px">(su P.Acq+IVA, arr. €0.50)</span>
+  html+=`<div class="card" style="padding:8px 16px;margin-bottom:8px;overflow-x:auto">
+    <div style="display:flex;align-items:center;gap:12px;white-space:nowrap;min-width:0">
+      <span style="font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt3);flex-shrink:0">📐 Fasce P.Carta</span>
+      <div style="display:flex;gap:6px;flex-shrink:0;font-size:9px;color:var(--txt3)">
+        <span style="padding:1px 6px;border:1px solid rgba(255,159,10,.15);background:rgba(255,159,10,.05)">< €12 → <strong style="color:var(--amber)">×3.0</strong></span>
+        <span style="padding:1px 6px;border:1px solid rgba(255,159,10,.15);background:rgba(255,159,10,.05)">€12–18 → <strong style="color:var(--amber)">×2.85</strong></span>
+        <span style="padding:1px 6px;border:1px solid rgba(255,159,10,.15);background:rgba(255,159,10,.05)">€18–25 → <strong style="color:var(--amber)">×2.5</strong></span>
+        <span style="padding:1px 6px;border:1px solid rgba(255,159,10,.15);background:rgba(255,159,10,.05)">> €25 → <strong style="color:var(--amber)">×2.3</strong></span>
+        <span style="padding:1px 6px;border:1px solid rgba(14,116,144,.3);background:rgba(14,116,144,.08);color:#32ADE6">Magnum → <strong>×2.0</strong></span>
+        <span style="font-size:8px;color:var(--txt4)">(su P.Acq+IVA)</span>
       </div>
-      <div style="display:flex;gap:8px;margin-left:auto;flex-wrap:wrap">
-        <button class="btn-outline btn-sm" onclick="_applyPrezzoCartaSuggerito(false)"
-          style="border-color:rgba(74,222,128,.4);color:#30D158">
-          ⚡ Applica a vini senza P.Carta (${winesSenzaCarta})
-        </button>
-        <button class="btn-outline btn-sm" onclick="_applyPrezzoCartaSuggerito(true)"
-          style="border-color:rgba(255,159,10,.25);color:var(--amber)">
-          🔄 Ricalcola tutti (${wines.filter(w=>w.prezzoAcq>0).length})
-        </button>
+      <span style="font-size:9px;color:var(--txt4);flex-shrink:0">${winesConCarta}/${wines.length} con P.Carta</span>
+      <div style="display:flex;gap:6px;margin-left:auto;flex-shrink:0">
+        <button class="btn-outline btn-sm" onclick="_rilevaSGrandFormati()" style="font-size:10px;padding:3px 8px;border-color:rgba(50,173,230,.4);color:#32ADE6;white-space:nowrap">🔍 Rileva Grandi Formati</button>
+        <button class="btn-outline btn-sm" onclick="_applyPrezzoCartaSuggerito(false)" style="font-size:10px;padding:3px 8px;border-color:rgba(74,222,128,.4);color:#30D158;white-space:nowrap">⚡ Applica senza P.Carta (${winesSenzaCarta})</button>
+        <button class="btn-outline btn-sm" onclick="_applyPrezzoCartaSuggerito(true)" style="font-size:10px;padding:3px 8px;border-color:rgba(255,159,10,.25);color:var(--amber);white-space:nowrap">🔄 Ricalcola tutti (${wines.filter(w=>w.prezzoAcq>0).length})</button>
       </div>
     </div>
-    <div style="font-size:10px;color:var(--txt4);margin-top:8px">${winesConCarta}/${wines.length} vini con P.Carta impostata</div>
   </div>`;
   html+=`<div class="card" style="padding:0">
     ${selMode==='wines'?renderBulkBar('wines', list.map(w=>w.id)):''}
-    <div class="tbl-header">
-      <div class="search-wrap"><span class="search-icon">🔍</span><input id="inv-search" class="form-input" style="width:220px;padding-left:28px" placeholder="Cerca vino, produttore…" value="${h(search)}" oninput="search=this.value;renderInventarioOnly()"></div>
-      ${selMode!=='wines'?`<button class="btn-outline btn-sm" onclick="enterSel('wines')" style="border-color:rgba(59,130,246,.5);color:#93c5fd">☑ Selezione multipla</button>`:''}
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        <select class="form-select" style="width:auto;min-width:150px;font-size:10px;padding:5px 10px;border-color:${filterTipo!=='tutti'?'var(--amber3)':'var(--border2)'};color:${filterTipo!=='tutti'?'var(--amber)':'var(--txt2)'};background:${filterTipo!=='tutti'?'rgba(255,159,10,.1)':'var(--bg)'}" onchange="filterTipo=this.value;renderInventarioOnly()">
-          <option value="tutti" ${filterTipo==='tutti'?'selected':''}>🍷 Tutte le tipologie</option>
+    <div class="tbl-header" style="overflow-x:auto">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:nowrap;min-width:0;width:100%">
+        <div class="search-wrap" style="flex-shrink:0"><span class="search-icon">🔍</span><input id="inv-search" class="form-input" style="width:190px;padding-left:28px" placeholder="Cerca vino, produttore…" value="${h(search)}" oninput="search=this.value;renderInventarioOnly()"></div>
+        ${selMode!=='wines'?`<button class="btn-outline btn-sm" onclick="enterSel('wines')" style="flex-shrink:0;border-color:rgba(59,130,246,.5);color:#93c5fd;white-space:nowrap">☑ Sel. multipla</button>`:''}
+        <select class="form-select" style="flex-shrink:0;width:auto;min-width:130px;font-size:10px;padding:5px 8px;border-color:${filterTipo!=='tutti'?'var(--amber3)':'var(--border2)'};color:${filterTipo!=='tutti'?'var(--amber)':'var(--txt2)'};background:${filterTipo!=='tutti'?'rgba(255,159,10,.1)':'var(--bg)'}" onchange="filterTipo=this.value;renderInventarioOnly()">
+          <option value="tutti" ${filterTipo==='tutti'?'selected':''}>🍷 Tipologia</option>
           ${activeTipi.map(t=>`<option value="${h(t)}" ${filterTipo===t?'selected':''}>${h(t)}</option>`).join('')}
         </select>
-        ${activeVitigni.length>0?`<select class="form-select" style="width:auto;min-width:160px;font-size:10px;padding:5px 10px;border-color:${filterVitigno!=='tutti'?'var(--amber3)':'var(--border2)'};color:${filterVitigno!=='tutti'?'var(--amber)':'var(--txt2)'};background:${filterVitigno!=='tutti'?'rgba(255,159,10,.1)':'var(--bg)'}" onchange="filterVitigno=this.value;renderInventarioOnly()">
-          <option value="tutti" ${filterVitigno==='tutti'?'selected':''}>🍇 Tutti i vitigni</option>
+        ${activeVitigni.length>0?`<select class="form-select" style="flex-shrink:0;width:auto;min-width:130px;font-size:10px;padding:5px 8px;border-color:${filterVitigno!=='tutti'?'var(--amber3)':'var(--border2)'};color:${filterVitigno!=='tutti'?'var(--amber)':'var(--txt2)'};background:${filterVitigno!=='tutti'?'rgba(255,159,10,.1)':'var(--bg)'}" onchange="filterVitigno=this.value;renderInventarioOnly()">
+          <option value="tutti" ${filterVitigno==='tutti'?'selected':''}>🍇 Vitigno</option>
           ${activeVitigni.map(v=>`<option value="${h(v)}" ${filterVitigno===v?'selected':''}>${h(v)}</option>`).join('')}
         </select>`:''}
-        ${filterTipo!=='tutti'||filterVitigno!=='tutti'?`<button class="btn-outline btn-sm" onclick="filterTipo='tutti';filterVitigno='tutti';renderInventarioOnly()" style="border-color:rgba(239,68,68,.4);color:#FF453A;font-size:9px">✕ Reset</button>`:''}
-        <select class="form-select" style="width:auto;font-size:10px;padding:5px 10px;border-color:${invSort!=='tipologia'?'rgba(0,122,255,.4)':'var(--border2)'};color:${invSort!=='tipologia'?'#007AFF':'var(--txt3)'}" onchange="invSort=this.value;renderInventarioOnly()">
+        <select class="form-select" style="flex-shrink:0;width:auto;min-width:110px;font-size:10px;padding:5px 8px;border-color:${filterFormato!=='tutti'?'rgba(0,122,255,.4)':'var(--border2)'};color:${filterFormato!=='tutti'?'#60a5fa':'var(--txt2)'};background:${filterFormato!=='tutti'?'rgba(0,122,255,.1)':'var(--bg)'}" onchange="filterFormato=this.value;renderInventarioOnly()">
+          <option value="tutti" ${filterFormato==='tutti'?'selected':''}>📐 Formato</option>
+          ${activeFormati.map(f=>`<option value="${f}" ${parseFloat(filterFormato)===f?'selected':''}>${f}L</option>`).join('')}
+        </select>
+        ${filterTipo!=='tutti'||filterVitigno!=='tutti'||filterFormato!=='tutti'?`<button class="btn-outline btn-sm" onclick="filterTipo='tutti';filterVitigno='tutti';filterFormato='tutti';renderInventarioOnly()" style="flex-shrink:0;border-color:rgba(239,68,68,.4);color:#FF453A;font-size:9px;white-space:nowrap">✕ Reset</button>`:''}
+        <select class="form-select" style="flex-shrink:0;width:auto;font-size:10px;padding:5px 8px;border-color:${invSort!=='tipologia'?'rgba(0,122,255,.4)':'var(--border2)'};color:${invSort!=='tipologia'?'#007AFF':'var(--txt3)'}" onchange="invSort=this.value;renderInventarioOnly()">
           <option value="tipologia" ${invSort==='tipologia'?'selected':''}>↕ Tipologia</option>
           <option value="nome" ${invSort==='nome'?'selected':''}>↕ Nome A–Z</option>
           <option value="produttore" ${invSort==='produttore'?'selected':''}>↕ Produttore</option>
@@ -970,12 +1009,12 @@ function renderInventario(){
           <option value="giacenza" ${invSort==='giacenza'?'selected':''}>↕ Giacenza ↓</option>
           <option value="prezzoAcq" ${invSort==='prezzoAcq'?'selected':''}>↕ P.Acq ↓</option>
         </select>
-      </div>
-      <span style="font-size:10px;color:var(--txt4);letter-spacing:.1em">${list.length} / ${wines.length} referenze</span>
-      <div style="display:flex;align-items:center;gap:6px;margin-left:auto">
-        <button class="topbar-action-btn edit" id="tba-edit" onclick="_tbaEdit()" title="Modifica vino selezionato">✏️ Modifica</button>
-        <button class="topbar-action-btn note" id="tba-note" onclick="_tbaNote()" title="Nota veloce">📝 Nota</button>
-        <button class="topbar-action-btn del"  id="tba-del"  onclick="_tbaDel()"  title="Elimina vino selezionato">🗑️</button>
+        <span style="font-size:10px;color:var(--txt4);white-space:nowrap;flex-shrink:0">${list.length} / ${wines.length} ref.</span>
+        <div style="display:flex;align-items:center;gap:6px;margin-left:auto;flex-shrink:0">
+          <button class="topbar-action-btn edit" id="tba-edit" onclick="_tbaEdit()" title="Modifica vino selezionato">✏️ Modifica</button>
+          <button class="topbar-action-btn note" id="tba-note" onclick="_tbaNote()" title="Nota veloce">📝 Nota</button>
+          <button class="topbar-action-btn del"  id="tba-del"  onclick="_tbaDel()"  title="Elimina vino selezionato">🗑️</button>
+        </div>
       </div>
     </div>
     <div class="tbl-wrap">
@@ -1002,7 +1041,7 @@ function renderInventario(){
             ${selMode==='wines'?`<td class="cb-col"><input type="checkbox" class="cb-sel" data-id="${w.id}" onchange="toggleSel('${w.id}');_updateBulkBar()"></td>`:''}
             <td class="col-fornitore" style="color:var(--txt3);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:90px">${h(w.distributore||"—")}</td>
             <td style="color:var(--txt2);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(w.produttore)}</td>
-            <td ondblclick="inlineEdit(event,'nome','${w.id}','${h(w.nome).replace(/'/g,"\\'")}')"><div style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px">${h(w.nome)}</div>${w.zona?`<div class="col-zona" style="font-size:9px;color:var(--txt4)">${h(w.zona)}</div>`:""}</td>
+            <td ondblclick="inlineEdit(event,'nome','${w.id}','${h(w.nome).replace(/'/g,"\\'")}')"><div style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px">${h(w.nome)}${(parseFloat(w.formato)||0.75)>0.75?` <span style="font-size:8px;font-weight:600;padding:1px 5px;border:1px solid rgba(0,122,255,.35);color:#60a5fa;background:rgba(0,122,255,.1);border-radius:3px;white-space:nowrap">${w.formato}L</span>`:""}</div>${w.zona?`<div class="col-zona" style="font-size:9px;color:var(--txt4)">${h(w.zona)}</div>`:""}</td>
             <td class="col-annata" ondblclick="inlineEdit(event,'annata','${w.id}','${w.annata||""}')"><span style="color:var(--amber);font-family:'Montserrat',sans-serif;white-space:nowrap;font-size:11px">${w.annata||`<span style="color:var(--txt4)">N.V.</span>`}</span></td>
             <td class="col-vitigni" style="color:var(--txt3);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100px">${h(w.vitigni||"—")}</td>
             <td>${badge(w.tipologia)}</td>
@@ -1095,6 +1134,63 @@ function _applyCaliceGlobaleAll(){
 function setSoglia(id,delta){
   // legacy shim — delegate to new dual-threshold setter
   _setSoglia(id,'min',delta);
+}
+
+// ─── RILEVAMENTO AUTOMATICO GRANDI FORMATI ────────────────────────────────────
+// Mappa keyword → litri. Ordine decrescente per lunghezza (match più specifico prima).
+const _FORMATO_KEYWORDS = [
+  // 18L
+  {rx:/\bmelchior\b/i, l:18},
+  // 15L
+  {rx:/\bnabucodonosor\b|\bnabuchodonosor\b|\bnebuchadnezzar\b/i, l:15},
+  // 12L
+  {rx:/\bbalthazar\b|\bbalthasar\b|\bbaltasarre\b/i, l:12},
+  // 9L
+  {rx:/\bsalmanazar\b|\bsalmanasar\b/i, l:9},
+  // 6L
+  {rx:/\bimperiale\b|\bimperial\b|\bmathusalem\b|\bmethuselah\b/i, l:6},
+  // 5L
+  {rx:/\bjeroboam\b/i, l:5},
+  // 4.5L
+  {rx:/\brehoboam\b|\bréhoboam\b/i, l:4.5},
+  // 3L
+  {rx:/\bdoppio\s+magnum\b|\bdouble\s+magnum\b|\btriple\s+magnum\b/i, l:3},
+  // 1.5L — deve stare DOPO i composti con "magnum"
+  {rx:/\bmagnum\b/i, l:1.5},
+];
+
+function _rilevaSGrandFormati(){
+  let trovati = [], giàImpostati = [];
+  const candidati = wines.map(w => {
+    const nome = (w.nome||"") + " " + (w.produttore||"");
+    for(const kw of _FORMATO_KEYWORDS){
+      if(kw.rx.test(nome)){
+        const attuale = parseFloat(w.formato)||0.75;
+        if(attuale !== kw.l) return {w, nuovoFormato: kw.l, attuale};
+        giàImpostati.push(w.nome);
+        return null;
+      }
+    }
+    return null;
+  }).filter(Boolean);
+
+  if(!candidati.length){
+    const msg = giàImpostati.length
+      ? `✅ Tutti i grandi formati (${giàImpostati.length}) sono già impostati correttamente`
+      : "ℹ️ Nessun vino con nome Magnum/Jeroboam/… rilevato";
+    notify(msg); return;
+  }
+
+  // Mostra preview e chiedi conferma
+  const righe = candidati.map(c => `• ${c.w.nome} → ${c.nuovoFormato}L (era ${c.attuale}L)`).join("\n");
+  if(!confirm(`🔍 Rilevati ${candidati.length} vini grandi formati:\n\n${righe}\n\nImpostare il campo Formato?`)) return;
+
+  wines = wines.map(w => {
+    const match = candidati.find(c => c.w.id === w.id);
+    return match ? {...w, formato: String(match.nuovoFormato)} : w;
+  });
+  scheduleSave(); render();
+  notify(`✅ Formato aggiornato su ${candidati.length} vini grandi formati`);
 }
 
 function _toggleSogliaPop(wineId, btn){
@@ -2212,10 +2308,13 @@ function renderOrdini(){
       <td style="color:var(--txt3);font-size:10px">${ref.length} ref.</td>
       <td style="color:var(--amber)">${totQty} bt</td>
       <td style="color:var(--txt2)">${fmt(totVal)}</td>
+      <td><input type="date" class="form-input" style="font-size:10px;padding:3px 6px;width:130px;background:${o.dataArrivo?'rgba(48,209,88,.06)':'rgba(255,159,10,.06)'};border-color:${o.dataArrivo?'rgba(48,209,88,.25)':'rgba(255,159,10,.2)'}" value="${o.dataArrivo||''}" placeholder="—" title="Data arrivo prevista" onchange="orders.find(x=>x.id==='${o.id}').dataArrivo=this.value;scheduleSave();notify('📅 Data arrivo aggiornata')"></td>
       <td>${statoCell}</td>
       <td style="display:flex;gap:6px;align-items:center;padding:6px 14px">
         <button class="btn-outline btn-sm" onclick="apriModalRicezione('${o.id}')" title="Conferma arrivo" style="border-color:rgba(22,163,74,.4);color:#30D158">📦 Ricevi</button>
         <button class="btn-outline btn-sm" onclick="apriOrdineModal('${o.id}')" title="Modifica ordine">✏️</button>
+        <button class="btn-outline btn-sm" onclick="stampaOrdine('${o.id}')" title="Stampa / Salva PDF" style="border-color:rgba(0,122,255,.3);color:#007AFF">🖨️</button>
+        <button class="btn-outline btn-sm" onclick="emailOrdine('${o.id}')" title="Invia via email" style="border-color:rgba(255,159,10,.3);color:var(--amber)">✉️</button>
         <button class="btn-icon" onclick="deleteOrdine('${o.id}')" title="Elimina" style="color:var(--txt4);font-size:14px">🗑️</button>
       </td>
     </tr>`;
@@ -2287,6 +2386,7 @@ function renderOrdini(){
       <span>📋 Ordini Fornitore (${ordiniAttivi.length} aperti, ${ordiniAttesa.length} in attesa)</span>
       <div style="display:flex;gap:8px">
         ${selMode!=='ordini'?`<button class="btn-outline btn-sm" onclick="enterSel('ordini')" style="border-color:rgba(59,130,246,.5);color:#93c5fd">☑ Selezione multipla</button>`:''}
+        <button class="btn-outline btn-sm" onclick="_pulisciDateOrdiniImportati()" title="Rimuove date arrivo/carico errate dagli ordini importati" style="border-color:rgba(255,69,58,.3);color:#FF453A;font-size:9px">🧹 Pulisci date import</button>
         <button class="btn-primary" onclick="apriOrdineModal(null)">➕ Nuovo Ordine</button>
       </div>
     </div>
@@ -2295,8 +2395,8 @@ function renderOrdini(){
         <thead><tr>
           ${selMode==='ordini'?`<th class="cb-col"><input type="checkbox" id="cb-sel-all" class="cb-sel" onchange="toggleSelAll()"></th>`:''}
           <th style="width:36px"></th>
-          <th>Data</th><th>Fornitore</th><th>Referenze</th><th>Tot. Bottiglie</th><th>Valore stimato</th>
-          <th>Stato</th><th></th>
+          <th>Data Ordine</th><th>Fornitore</th><th>Referenze</th><th>Tot. Bottiglie</th><th>Valore stimato</th>
+          <th>Data Arrivo</th><th>Stato</th><th></th>
         </tr></thead>
         <tbody>${ordiniRows}</tbody>
       </table>
@@ -2310,7 +2410,7 @@ function renderOrdini(){
 
   <!-- Modal Nuovo/Modifica Ordine -->
   <div id="ordine-modal-backdrop" class="modal-backdrop hidden" onclick="chiudiOrdineModal(event)">
-    <div class="modal" style="max-width:1100px" onclick="event.stopPropagation()">
+    <div class="modal" style="max-width:1300px" onclick="event.stopPropagation()">
       <div class="modal-header">
         <h2 id="ordine-modal-title">➕ Nuovo Ordine</h2>
         <button style="font-size:18px;color:var(--txt3)" onclick="chiudiOrdineModal()">✕</button>
@@ -2318,6 +2418,8 @@ function renderOrdini(){
       <div class="modal-body" id="ordine-modal-body"></div>
       <div class="modal-footer">
         <button class="btn-outline" onclick="chiudiOrdineModal()">Annulla</button>
+        <button class="btn-outline" onclick="stampaOrdine(ordineModalData?.id)" title="Stampa / Salva PDF" style="border-color:rgba(0,122,255,.3);color:#007AFF">🖨️ Stampa / PDF</button>
+        <button class="btn-outline" onclick="emailOrdine(ordineModalData?.id)" title="Invia via email" style="border-color:rgba(255,159,10,.3);color:var(--amber)">✉️ Email fornitore</button>
         <button class="btn-primary" onclick="salvaOrdine()">💾 Salva Ordine</button>
       </div>
     </div>
@@ -2636,8 +2738,8 @@ function apriOrdineModal(idOrNull){
   document.getElementById("ordine-modal-backdrop").classList.remove("hidden");
 }
 
-function _newRef(produttore="",nomeVino="",annata="",tipologia="Rosso",prezzoAcq="",iva=22,qty=6,regione="",zona="",nazione="Italia",prezzoCarta=""){
-  return {id:uid(),produttore,nomeVino,annata,tipologia,prezzoAcq,iva,qty,regione,zona,nazione,prezzoCarta};
+function _newRef(produttore="",nomeVino="",annata="",tipologia="Rosso",prezzoAcq="",iva=22,qty=6,regione="",zona="",nazione="Italia",prezzoCarta="",formato=""){
+  return {id:uid(),produttore,nomeVino,annata,tipologia,prezzoAcq,iva,qty,regione,zona,nazione,prezzoCarta,formato};
 }
 
 function _renderOrdineModalBody(allFornitori, allProduttori, allNomi){
@@ -2670,24 +2772,24 @@ function _renderOrdineModalBody(allFornitori, allProduttori, allNomi){
     <!-- Referenze -->
     <div class="modal-section-label">🍾 Referenze dell'ordine</div>
     <div style="overflow-x:auto">
-      <table style="width:100%;border-collapse:collapse;min-width:1050px">
+      <table style="width:100%;border-collapse:collapse;min-width:1100px">
         <thead>
-          <tr style="font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt4)">
-            <td style="padding:6px 8px;width:11%">Produttore</td>
-            <td style="padding:6px 8px;width:11%">Nome Vino</td>
-            <td style="padding:6px 8px;width:8%">Vitigni</td>
-            <td style="padding:6px 8px;width:4%">Annata</td>
-            <td style="padding:6px 8px;width:7%">Tipologia</td>
-            <td style="padding:6px 8px;width:7%">Regione</td>
-            <td style="padding:6px 8px;width:5%">Zona</td>
-            <td style="padding:6px 8px;width:5%">Nazione</td>
-            <td style="padding:6px 8px;width:6%">Stato</td>
-            <td style="padding:6px 8px;width:8%">P.Acq ex IVA</td>
-            <td style="padding:6px 8px;width:5%">IVA</td>
-            <td style="padding:6px 8px;width:7%">P.Acq+IVA</td>
-            <td style="padding:6px 8px;width:7%">P.Carta</td>
-            <td style="padding:6px 8px;width:5%">Qty</td>
-            <td style="padding:6px 8px;width:5%"></td>
+          <tr style="font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--txt4)">
+            <td style="padding:6px 8px;min-width:120px">Produttore</td>
+            <td style="padding:6px 8px;min-width:120px">Nome Vino</td>
+            <td style="padding:6px 8px;min-width:90px">Vitigni</td>
+            <td style="padding:6px 8px;min-width:56px">Annata</td>
+            <td style="padding:6px 8px;min-width:90px">Tipologia</td>
+            <td style="padding:6px 8px;min-width:80px">Formato</td>
+            <td style="padding:6px 8px;min-width:100px">Regione</td>
+            <td style="padding:6px 8px;min-width:90px">Nazione</td>
+            <td style="padding:6px 8px;width:0;padding:0;overflow:hidden;max-width:0"></td>
+            <td style="padding:6px 8px;min-width:90px">P.Acq ex IVA</td>
+            <td style="padding:6px 8px;min-width:56px">IVA</td>
+            <td style="padding:6px 8px;min-width:90px">P.Acq+IVA</td>
+            <td style="padding:6px 8px;min-width:80px">P.Carta</td>
+            <td style="padding:6px 8px;min-width:56px">Qty</td>
+            <td style="padding:6px 8px;min-width:28px"></td>
           </tr>
         </thead>
         <tbody id="omd-refs-body">${refsHtml}</tbody>
@@ -2703,19 +2805,22 @@ function _refRowHtml(r,i,tipoOpts,ivaOpts,allProduttori,allNomi){
   const selIva=IVA_OPTIONS.map(v=>`<option value="${v}"${v===r.iva?" selected":""}>${v}%</option>`).join("");
   const ivaIncl = r.prezzoAcq ? (parseFloat(r.prezzoAcq)*(1+(parseInt(r.iva)||22)/100)) : 0;
   return `<tr data-ref-id="${r.id}" style="border-top:1px solid var(--border)">
-    <td style="padding:5px 6px"><input class="form-input" style="font-size:11px" list="omd-prod-dl" autocomplete="off" value="${h(r.produttore)}" placeholder="Produttore" onchange="_refChange('${r.id}','produttore',this.value)" oninput="_refAutofill('${r.id}',this.value,'produttore')"></td>
-    <td style="padding:5px 6px"><input class="form-input" style="font-size:11px" list="omd-wine-dl" autocomplete="off" value="${h(r.nomeVino)}" placeholder="Nome vino" onchange="_refChange('${r.id}','nomeVino',this.value)" oninput="_refAutofill('${r.id}',this.value,'nomeVino')"></td>
-    <td style="padding:5px 6px"><input class="form-input" style="font-size:11px" value="${h(r.vitigni||'')}" placeholder="es. Nebbiolo" onchange="_refChange('${r.id}','vitigni',this.value.trim())"></td>
-    <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;text-align:center" value="${h(r.annata||'')}" placeholder="es. 2021" onchange="_refChange('${r.id}','annata',this.value.trim())"></td>
-    <td style="padding:5px 6px"><select class="form-input" style="font-size:11px" data-prev="${h(r.tipologia)}" onchange="_addTipologiaInline(this,(v)=>_refChange('${r.id}','tipologia',v));if(this.value!=='__new__'){this.dataset.prev=this.value;_refChange('${r.id}','tipologia',this.value)}">${selTipo}</select></td>
-    <td style="padding:5px 6px"><input class="form-input" style="font-size:11px" list="omd-reg-dl" autocomplete="off" value="${h(r.regione||'')}" placeholder="es. Piemonte" onchange="_refChange('${r.id}','regione',this.value.trim())"></td>
-    <td style="padding:5px 6px"><input class="form-input" style="font-size:11px" value="${h(r.zona||'')}" placeholder="es. Langhe" onchange="_refChange('${r.id}','zona',this.value.trim())"></td>
-    <td style="padding:5px 6px"><input class="form-input" style="font-size:11px" value="${h(r.nazione||'Italia')}" placeholder="es. Italia" onchange="_refChange('${r.id}','nazione',this.value.trim())"></td>
-    <td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:11px" value="${r.prezzoAcq||''}" step="0.01" min="0" placeholder="0.00" onchange="_refChange('${r.id}','prezzoAcq',parseFloat(this.value)||0);_updateRefIvaIncl('${r.id}')" oninput="_refChange('${r.id}','prezzoAcq',parseFloat(this.value)||0);_updateRefIvaIncl('${r.id}');_updateOrdineModalTotale()"></td>
-    <td style="padding:5px 6px"><select class="form-input" style="font-size:11px" onchange="_refChange('${r.id}','iva',parseInt(this.value));_updateRefIvaIncl('${r.id}');_updateOrdineModalTotale()">${selIva}</select></td>
+    <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;min-width:110px;width:100%" list="omd-prod-dl" autocomplete="off" value="${h(r.produttore)}" placeholder="Produttore" onchange="_refChange('${r.id}','produttore',this.value)" oninput="_refAutofill('${r.id}',this.value,'produttore')"></td>
+    <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;min-width:110px;width:100%" list="omd-wine-dl" autocomplete="off" value="${h(r.nomeVino)}" placeholder="Nome vino" onchange="_refChange('${r.id}','nomeVino',this.value)" oninput="_refAutofill('${r.id}',this.value,'nomeVino')"></td>
+    <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;min-width:80px;width:100%" value="${h(r.vitigni||'')}" placeholder="es. Nebbiolo" onchange="_refChange('${r.id}','vitigni',this.value.trim())"></td>
+    <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;text-align:center;min-width:52px;width:100%" value="${h(r.annata||'')}" placeholder="es. 2021" onchange="_refChange('${r.id}','annata',this.value.trim())"></td>
+    <td style="padding:5px 6px"><select class="form-input" style="font-size:11px;min-width:80px;width:100%" data-prev="${h(r.tipologia)}" onchange="_addTipologiaInline(this,(v)=>_refChange('${r.id}','tipologia',v));if(this.value!=='__new__'){this.dataset.prev=this.value;_refChange('${r.id}','tipologia',this.value)}">${selTipo}</select></td>
+    <td style="padding:5px 6px"><select class="form-input" style="font-size:11px;min-width:72px;width:100%" onchange="_refChange('${r.id}','formato',parseFloat(this.value)||0.75)">
+      ${[{v:"0.75",l:"0.75L"},{v:"1.5",l:"1.5L Magnum"},{v:"2.0",l:"2.0L Jero."},{v:"3.0",l:"3.0L D.Mag."},{v:"4.5",l:"4.5L Réhob."},{v:"6.0",l:"6.0L Math."}].map(x=>`<option value="${x.v}" ${String(r.formato||"0.75")===x.v?"selected":""}>${x.l}</option>`).join("")}
+    </select></td>
+    <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;min-width:90px;width:100%" list="omd-reg-dl" autocomplete="off" value="${h(r.regione||'')}" placeholder="es. Piemonte" onchange="_refChange('${r.id}','regione',this.value.trim())"></td>
+    <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;min-width:80px;width:100%" value="${h(r.nazione||'Italia')}" placeholder="es. Italia" onchange="_refChange('${r.id}','nazione',this.value.trim())"></td>
+    <td style="padding:0;width:0;overflow:hidden;max-width:0"><input class="form-input" style="font-size:11px;width:0;border:none;padding:0;background:none" value="${h(r.zona||'')}" onchange="_refChange('${r.id}','zona',this.value.trim())"></td>
+    <td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:11px;min-width:80px;width:100%" value="${r.prezzoAcq||''}" step="0.01" min="0" placeholder="0.00" onchange="_refChange('${r.id}','prezzoAcq',parseFloat(this.value)||0);_updateRefIvaIncl('${r.id}')" oninput="_refChange('${r.id}','prezzoAcq',parseFloat(this.value)||0);_updateRefIvaIncl('${r.id}');_updateOrdineModalTotale()"></td>
+    <td style="padding:5px 6px"><select class="form-input" style="font-size:11px;min-width:52px;width:100%" onchange="_refChange('${r.id}','iva',parseInt(this.value));_updateRefIvaIncl('${r.id}');_updateOrdineModalTotale()">${selIva}</select></td>
     <td style="padding:5px 6px;text-align:right;font-size:12px;color:var(--amber);font-weight:600;white-space:nowrap;background:rgba(255,159,10,.06);border-left:1px solid rgba(255,159,10,.12)" id="ref-ivaincl-${r.id}">${ivaIncl?fmtRound(ivaIncl):"—"}</td>
-    <td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:11px;text-align:right" value="${r.prezzoCarta||''}" step="0.5" min="0" placeholder="0.00" onchange="_refChange('${r.id}','prezzoCarta',parseFloat(this.value)||0)"></td>
-    <td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:12px;text-align:center;min-width:52px" value="${r.qty||6}" min="1" step="1" onchange="_refChange('${r.id}','qty',parseInt(this.value)||1)" oninput="_updateOrdineModalTotale()"></td>
+    <td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:11px;text-align:right;min-width:72px;width:100%" value="${r.prezzoCarta||''}" step="1" min="0" placeholder="0" onchange="_refChange('${r.id}','prezzoCarta',parseFloat(this.value)||0)"></td>
+    <td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:12px;text-align:center;min-width:52px;width:100%" value="${r.qty||6}" min="1" step="1" onchange="_refChange('${r.id}','qty',parseInt(this.value)||1)" oninput="_updateOrdineModalTotale()"></td>
     <td style="padding:5px 6px;text-align:right"><button onclick="_removeRefRow('${r.id}')" style="color:var(--txt4);font-size:13px;background:none;border:none;cursor:pointer" title="Rimuovi">✕</button></td>
   </tr>`;
 }
@@ -2761,6 +2866,7 @@ function _refAutofill(refId,val,field){
       if(!r.prezzoAcq&&found.prezzoAcq){r.prezzoAcq=found.prezzoAcq;const inp=row.querySelectorAll("input[type=number]")[0];if(inp)inp.value=found.prezzoAcq;}
       if(!r.prezzoCarta&&found.prezzoCarta){r.prezzoCarta=found.prezzoCarta;const inpPC=row.querySelectorAll("input[type=number]")[1];if(inpPC)inpPC.value=found.prezzoCarta;}
       r.iva=found.iva||22;const selIva=row.querySelectorAll("select")[1];if(selIva){for(const o of selIva.options)o.selected=parseInt(o.value)===(found.iva||22);}
+      if(found.formato){r.formato=found.formato;}
     }
   }
   _updateOrdineModalTotale();
@@ -2817,9 +2923,9 @@ function _updateOrdineModalTotale(){
   tbody.querySelectorAll("tr[data-ref-id]").forEach(row=>{
     const inputs=row.querySelectorAll("input[type=number]");
     const sels=row.querySelectorAll("select");
-    const prezzo=parseFloat(inputs[0]?.value)||0;  // inps[3] = prezzoAcq (first number input)
-    const iva=parseInt(sels[1]?.value||"22")||22;
-    const qty=parseInt(inputs[1]?.value)||0;        // inps[4] = qty (second number input)
+    const prezzo=parseFloat(inputs[0]?.value)||0;  // prezzoAcq ex IVA
+    const iva=parseInt(sels[2]?.value||"22")||22;
+    const qty=parseInt(inputs[2]?.value)||0;        // qty
     totQty+=qty;
     totVal+=prezzo*(1+iva/100)*qty;
   });
@@ -2846,15 +2952,16 @@ function salvaOrdine(){
     const vitigni=(inps[2]?.value||"").trim();
     const annata=(inps[3]?.value||"").trim();
     const tipologia=sels[0]?.value||"Rosso";
+    const formato=parseFloat(sels[1]?.value)||0.75;
     const regione=(inps[4]?.value||"").trim();
     const zona=(inps[5]?.value||"").trim();
     const nazione=(inps[6]?.value||"Italia").trim();
     const prezzoAcq=parseFloat(inps[7]?.value)||0;
-    const iva=parseInt(sels[1]?.value||"22")||22;
+    const iva=parseInt(sels[2]?.value||"22")||22;
     const prezzoCarta=parseFloat(inps[8]?.value)||0;
     const qty=parseInt(inps[9]?.value)||1;
     if(!nomeVino){ok=false;return;}
-    refs.push({id:refId||uid(),produttore,nomeVino,vitigni,annata,tipologia,regione,zona,nazione,prezzoAcq,iva,prezzoCarta,qty});
+    refs.push({id:refId||uid(),produttore,nomeVino,vitigni,annata,tipologia,formato,regione,zona,nazione,prezzoAcq,iva,prezzoCarta,qty});
   });
   if(!ok){notify("⚠️ Inserisci il nome vino per tutte le referenze","err");return;}
   if(!refs.length){notify("⚠️ Aggiungi almeno una referenza","err");return;}
@@ -3165,6 +3272,181 @@ function deleteOrdine(id){
   scheduleSave(); render();
 }
 
+function _getOrdineById(id){
+  if(!id) {
+    // Se chiamato dalla modale senza id salvato (ordine nuovo non ancora salvato), usa ordineModalData
+    if(ordineModalData && ordineModalData.referenze) return {
+      id: 'preview',
+      fornitore: document.getElementById("omd-fornitore")?.value || ordineModalData.fornitore || "—",
+      dataOrdine: document.getElementById("omd-data")?.value || ordineModalData.dataOrdine || today(),
+      note: document.getElementById("omd-note")?.value || ordineModalData.note || "",
+      referenze: ordineModalData.referenze
+    };
+    return null;
+  }
+  return orders.find(o => o.id === id) || null;
+}
+
+function stampaOrdine(id) {
+  const o = _getOrdineById(id);
+  if(!o){ notify("Salva prima l'ordine per stamparlo","err"); return; }
+  const ref = o.referenze || [];
+  const totQty = ref.reduce((s,r) => s+(parseInt(r.qty)||0), 0);
+  const totVal = ref.reduce((s,r) => (parseFloat(r.prezzoAcq)||0)*(1+(parseInt(r.iva)||22)/100)*(parseInt(r.qty)||0)+s, 0);
+
+  const righe = ref.map(r => {
+    const pIva = (parseFloat(r.prezzoAcq)||0)*(1+(parseInt(r.iva)||22)/100);
+    const tot = pIva*(parseInt(r.qty)||0);
+    return `<tr>
+      <td>${h(r.produttore||'—')}</td>
+      <td>${h(r.nomeVino)}</td>
+      <td>${h(r.vitigni||'—')}</td>
+      <td style="text-align:center">${h(r.annata||'—')}</td>
+      <td>${h(r.tipologia||'—')}</td>
+      <td>${h(r.regione||'—')}</td>
+      <td>${h(r.nazione||'—')}</td>
+      <td style="text-align:right">${r.prezzoAcq ? '€ '+parseFloat(r.prezzoAcq).toFixed(2) : '—'}</td>
+      <td style="text-align:center">${r.iva||22}%</td>
+      <td style="text-align:right">${pIva ? '€ '+pIva.toFixed(2) : '—'}</td>
+      <td style="text-align:center;font-weight:600">${r.qty||0}</td>
+      <td style="text-align:right;font-weight:600">${tot ? '€ '+tot.toFixed(2) : '—'}</td>
+    </tr>`;
+  }).join("");
+
+  const html = `<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8">
+  <title>Ordine ${h(o.fornitore)} — ${h(o.dataOrdine)}</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Helvetica Neue',Arial,sans-serif;font-size:11px;color:#1a1a1a;padding:32px 40px;background:#fff}
+    .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px;padding-bottom:16px;border-bottom:2px solid #1a1a1a}
+    .brand{font-size:18px;font-weight:700;letter-spacing:.05em;text-transform:uppercase}
+    .brand-sub{font-size:9px;letter-spacing:.25em;text-transform:uppercase;color:#888;margin-top:3px}
+    .order-meta{text-align:right}
+    .order-meta h2{font-size:15px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px}
+    .meta-grid{display:grid;grid-template-columns:auto auto;gap:3px 16px;font-size:10px}
+    .meta-label{color:#888;text-align:right}
+    .meta-val{font-weight:600}
+    table{width:100%;border-collapse:collapse;margin-bottom:20px}
+    thead tr{background:#1a1a1a;color:#fff}
+    thead th{padding:7px 8px;font-size:9px;letter-spacing:.12em;text-transform:uppercase;text-align:left;white-space:nowrap}
+    thead th.r{text-align:right}
+    thead th.c{text-align:center}
+    tbody tr:nth-child(even){background:#f7f7f7}
+    tbody td{padding:6px 8px;border-bottom:1px solid #e8e8e8;vertical-align:middle}
+    tfoot tr{background:#f0f0f0;font-weight:700}
+    tfoot td{padding:8px;border-top:2px solid #1a1a1a}
+    .total-box{text-align:right;margin-top:8px;padding:14px 20px;background:#f7f7f7;border:1px solid #ddd;display:inline-block;float:right}
+    .total-label{font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:#888;margin-bottom:4px}
+    .total-val{font-size:20px;font-weight:700}
+    .note{margin-top:32px;clear:both;padding-top:16px;border-top:1px solid #ddd;font-size:10px;color:#888}
+    .footer{margin-top:40px;padding-top:12px;border-top:1px solid #ddd;font-size:9px;color:#aaa;display:flex;justify-content:space-between}
+    @media print{body{padding:16px 20px}@page{margin:1cm}}
+  </style></head><body>
+  <div class="header">
+    <div><div class="brand">🍷 La Grandissima Osteria</div><div class="brand-sub">Gestione Cantina</div></div>
+    <div class="order-meta">
+      <h2>Ordine Fornitore</h2>
+      <div class="meta-grid">
+        <span class="meta-label">Fornitore</span><span class="meta-val">${h(o.fornitore||'—')}</span>
+        <span class="meta-label">Data ordine</span><span class="meta-val">${h(o.dataOrdine)}</span>
+        <span class="meta-label">N° referenze</span><span class="meta-val">${ref.length}</span>
+        ${o.note?`<span class="meta-label">Note</span><span class="meta-val">${h(o.note)}</span>`:''}
+      </div>
+    </div>
+  </div>
+  <table>
+    <thead><tr>
+      <th>Produttore</th><th>Nome Vino</th><th>Vitigni</th>
+      <th class="c">Annata</th><th>Tipologia</th><th>Regione</th><th>Nazione</th>
+      <th class="r">P.Acq excl.</th><th class="c">IVA</th><th class="r">P.Acq+IVA</th>
+      <th class="c">Qty</th><th class="r">Totale</th>
+    </tr></thead>
+    <tbody>${righe}</tbody>
+    <tfoot><tr>
+      <td colspan="10" style="text-align:right;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#666">Totale ordine</td>
+      <td style="text-align:center">${totQty} bt</td>
+      <td style="text-align:right">€ ${totVal.toFixed(2)}</td>
+    </tr></tfoot>
+  </table>
+  <div class="total-box">
+    <div class="total-label">Totale IVA inclusa</div>
+    <div class="total-val">€ ${totVal.toFixed(2)}</div>
+    <div style="font-size:9px;color:#888;margin-top:4px">${totQty} bottiglie · ${ref.length} referenze</div>
+  </div>
+  <div class="note">
+    ${o.note ? `<strong>Note:</strong> ${h(o.note)}<br>` : ''}
+    Documento generato il ${new Date().toLocaleDateString('it-IT')} — Cantina Manager
+  </div>
+  <div class="footer">
+    <span>La Grandissima Osteria — Ordine del ${h(o.dataOrdine)}</span>
+    <span>Fornitore: ${h(o.fornitore||'—')}</span>
+  </div>
+  <script>window.onload=function(){window.print();}<\/script>
+  </body></html>`;
+
+  const win = window.open('','_blank','width=1000,height=750');
+  if(win){ win.document.write(html); win.document.close(); }
+  else notify("⚠️ Pop-up bloccato — abilita i pop-up per questo sito","err");
+}
+
+function emailOrdine(id) {
+  const o = _getOrdineById(id);
+  if(!o){ notify("Salva prima l'ordine per inviarlo","err"); return; }
+  const ref = o.referenze || [];
+  const totQty = ref.reduce((s,r) => s+(parseInt(r.qty)||0), 0);
+  const totVal = ref.reduce((s,r) => (parseFloat(r.prezzoAcq)||0)*(1+(parseInt(r.iva)||22)/100)*(parseInt(r.qty)||0)+s, 0);
+
+  const righeText = ref.map((r,i) => {
+    const pIva = (parseFloat(r.prezzoAcq)||0)*(1+(parseInt(r.iva)||22)/100);
+    return `${i+1}. ${r.produttore||'—'} — ${r.nomeVino}${r.annata?' ('+r.annata+')':''}`
+      + `\n   Tipologia: ${r.tipologia||'—'} | Regione: ${r.regione||'—'} | Nazione: ${r.nazione||'—'}`
+      + `\n   P.Acq: € ${parseFloat(r.prezzoAcq||0).toFixed(2)} + IVA ${r.iva||22}% = € ${pIva.toFixed(2)}/bt`
+      + `\n   Quantità: ${r.qty||0} bottiglie — Totale: € ${(pIva*(r.qty||0)).toFixed(2)}`
+      + (r.note ? `\n   Note: ${r.note}` : '');
+  }).join('\n\n');
+
+  const subject = encodeURIComponent(`Ordine del ${o.dataOrdine} — La Grandissima Osteria`);
+  const body = encodeURIComponent(
+    `Gentili ${o.fornitore||'Fornitori'},\n\n` +
+    `Vi inviamo il nostro ordine del ${o.dataOrdine}:\n\n` +
+    `══════════════════════════════════\n` +
+    `ORDINE FORNITORE — ${o.dataOrdine}\n` +
+    `══════════════════════════════════\n\n` +
+    righeText +
+    `\n\n──────────────────────────────────\n` +
+    `RIEPILOGO: ${ref.length} referenze · ${totQty} bottiglie\n` +
+    `TOTALE IVA INCLUSA: € ${totVal.toFixed(2)}\n` +
+    `──────────────────────────────────\n` +
+    (o.note ? `\nNote: ${o.note}\n` : '') +
+    `\nCordiali saluti,\nLa Grandissima Osteria`
+  );
+
+  window.location.href = `mailto:?subject=${subject}&body=${body}`;
+}
+
+function _pulisciDateOrdiniImportati(){
+  const SOGLIA = "2026-05-06"; // date <= 5 maggio erano dall'import iniziale
+  let n = 0;
+  orders = orders.map(o => {
+    const updated = {...o};
+    let changed = false;
+    // Se dataArrivo è la data di import (≤ soglia) e l'ordine NON è stato ricevuto tramite ricezione reale → pulisci
+    if(o.dataArrivo && o.dataArrivo < SOGLIA && o.stato !== "caricato") {
+      updated.dataArrivo = "";
+      changed = true;
+    }
+    // Se dataCarico è la data di import su ordini non caricati → pulisci
+    if(o.dataCarico && o.dataCarico < SOGLIA && o.stato !== "caricato") {
+      updated.dataCarico = "";
+      changed = true;
+    }
+    if(changed) n++;
+    return updated;
+  });
+  if(n > 0){ scheduleSave(); render(); notify(`✅ Corrette le date su ${n} ordin${n===1?"e":"i"} importati`); }
+  else notify("Nessuna data da correggere trovata");
+}
+
 function exportStoricoOrdiniCSV(){
   const evasi=orders.filter(o=>o.stato==="caricato");
   if(!evasi.length){notify("Nessun ordine evaso","err");return;}
@@ -3291,6 +3573,11 @@ function renderModalBody(wine){
       </div>
     </div>`:"";
 
+  const FORMATI_OPTS = [
+    {v:"0.375",l:"0.375 L (Mezza)"},{v:"0.75",l:"0.75 L (Standard)"},{v:"1.5",l:"1.5 L (Magnum)"},
+    {v:"2.0",l:"2.0 L (Jeroboam)"},{v:"3.0",l:"3.0 L (Double Magnum)"},{v:"4.5",l:"4.5 L (Réhoboam)"},
+    {v:"6.0",l:"6.0 L (Mathusalem)"},{v:"altro",l:"Altro formato"}
+  ].map(x=>`<option value="${x.v}" ${(String(f.formato||"0.75"))===x.v?"selected":""}>${x.l}</option>`).join("");
   return `
     <div class="modal-section">
       <div class="modal-section-label">🍷 Identità del Vino</div>
@@ -3301,6 +3588,7 @@ function renderModalBody(wine){
         <div><label class="form-label">Annata</label><input class="form-input" id="mf-annata" value="${h(f.annata)}" placeholder="es. 2019 o N.V."></div>
         <div><label class="form-label">Vitigni</label><input class="form-input" id="mf-vitigni" value="${h(f.vitigni)}" placeholder="es. Nebbiolo 100%"></div>
         <div><label class="form-label">Tipologia</label><select class="form-select" id="mf-tipologia" data-prev="${f.tipologia}" onchange="_addTipologiaInline(this);if(this.value!=='__new__'){this.dataset.prev=this.value}">${TIPOLOGIE.map(t=>`<option value="${t}" ${f.tipologia===t?"selected":""}>${t}</option>`).join("")+'<option value="__new__">+ Nuova tipologia…</option>'}</select></div>
+        <div><label class="form-label">Formato <span style="color:var(--txt4);font-size:9px;text-transform:none;letter-spacing:0">— lascia vuoto per 750ml standard</span></label><select class="form-select" id="mf-formato" onchange="updateModalCalc()">${FORMATI_OPTS}</select></div>
       </div>
     </div>
     <div class="modal-section">
@@ -3369,7 +3657,7 @@ function updateModalCalc(){
   // formula suggerita: fascia su prezzoAcq con IVA inclusa
   const _wTmp = {prezzoAcq: pAcq, iva, nome: document.getElementById("mf-nome")?.value||"", formato: document.getElementById("mf-formato")?.value||""};
   const molt = _getMolt(_wTmp);
-  const cartaSuggerita = pAcq>0 ? Math.ceil(costoIva * molt * 2) / 2 : null;
+  const cartaSuggerita = pAcq>0 ? Math.ceil(costoIva * molt) : null;
   const cartaSuggeritaLabel = pAcq>0 ? _getMoltLabel(_wTmp) : "";
   const marg=carta&&costoIva?carta-costoIva:null;
   const margP=carta&&costoIva?((carta-costoIva)/carta)*100:null;
@@ -3415,7 +3703,7 @@ function saveWine(){
   let wine={
     id:modalWine?.id||uid(),
     nome:get("mf-nome").trim(),produttore:get("mf-produttore").trim(),distributore:get("mf-distributore"),
-    annata:get("mf-annata"),vitigni:get("mf-vitigni"),tipologia:get("mf-tipologia"),
+    annata:get("mf-annata"),vitigni:get("mf-vitigni"),tipologia:get("mf-tipologia"),formato:parseFloat(get("mf-formato"))||0.75,
     regione:get("mf-regione"),nazione:get("mf-nazione"),zona:get("mf-zona"),
     prezzoAcq:parseFloat(get("mf-prezzoAcq"))||0,iva:parseInt(get("mf-iva"))||22,
     prezzoCarta:parseFloat(get("mf-prezzoCarta"))||0,prezzoCalice:parseFloat(get("mf-prezzoCalice"))||0,calicePerBt:parseInt(get("mf-calicePerBt"))||5,giacenza:parseInt(get("mf-giacenza"))||0,
@@ -3429,8 +3717,10 @@ function saveWine(){
     wines=wines.map(w=>w.id===wine.id?wine:w);notify("✅ Vino aggiornato");
   }
   else{wines=[...wines,wine];notify("✅ Vino aggiunto in cantina");}
+  const _scrollY = window.scrollY;
   closeWineModal();
   scheduleSave(); render();
+  requestAnimationFrame(()=>window.scrollTo(0,_scrollY));
 }
 
 // ─── BULK DELETE ──────────────────────────────────────────────────────────────
@@ -3697,6 +3987,7 @@ function _renderMobList(){
     const giac = parseInt(w.giacenza)||0;
     const gClass = giac === 0 ? "zero" : giac <= (alertSoglie[w.id]??3) ? "low" : "";
     const bMinus = giac === 0;
+    const qty = Math.min(_mobQty[w.id]||1, giac||1);
     return `<div class="mob-wine-row">
       <div class="mob-wine-info">
         <div class="mob-wine-name">${h(w.nome)}</div>
@@ -3708,10 +3999,15 @@ function _renderMobList(){
       </div>
       <div class="mob-wine-right">
         <button class="mob-btn mob-btn-minus" onclick="registraMovimentoMobile('${w.id}',-1)" ${bMinus?"disabled":""}
-          aria-label="Scarica 1 bottiglia">−</button>
-        <span class="mob-giacenza ${gClass}">${giac}</span>
+          aria-label="Scarica bottiglie">−</button>
+        <input type="number" class="mob-qty-inp" value="${qty}" min="1" max="${giac||1}"
+          style="width:38px;text-align:center;font-size:15px;font-weight:700;font-family:inherit;background:rgba(255,255,255,.07);border:1px solid rgba(255,159,10,.3);color:var(--amber);border-radius:6px;padding:4px 2px;-moz-appearance:textfield;"
+          oninput="_mobQty['${w.id}']=Math.max(1,Math.min(parseInt(this.value)||1,${giac||1}));this.value=_mobQty['${w.id}']"
+          onclick="this.select()"
+          aria-label="Quantità">
+        <span class="mob-giacenza ${gClass}" style="min-width:28px;text-align:center">${giac}</span>
         <button class="mob-btn mob-btn-plus" onclick="registraMovimentoMobile('${w.id}',1)"
-          aria-label="Carica 1 bottiglia">+</button>
+          aria-label="Carica bottiglie">+</button>
       </div>
     </div>`;
   }).join("");
@@ -3726,21 +4022,36 @@ function _renderMobLog(){
   ).join("");
 }
 
-async function registraMovimentoMobile(wineId, delta){
+async function registraMovimentoMobile(wineId, direction){
   _hideMobToast();
 
   const wine = wines.find(w => w.id === wineId);
   if(!wine){ return; }
-  if(delta < 0 && wine.giacenza < 1){ return; }
+  if(direction < 0 && wine.giacenza < 1){ return; }
+
+  // Leggi qty dal campo o dal default
+  const qty = Math.max(1, _mobQty[wineId]||1);
+  const delta = direction * qty;
+
+  if(direction < 0 && wine.giacenza < qty){
+    // Se qty > giacenza, scarica tutto quello che c'è
+    const available = wine.giacenza;
+    if(available < 1) return;
+    _mobQty[wineId] = available;
+    // Aggiorna visivamente l'input senza re-render completo
+    const inp = document.querySelector(`.mob-qty-inp[oninput*="'${wineId}'"]`);
+    if(inp) inp.value = available;
+    // Riesegui con la qty corretta
+    return registraMovimentoMobile(wineId, direction);
+  }
+
+  const tipo = delta > 0 ? "carico" : "scarico";
+  const dateStr = today();
+  const fattura = `MOB-${dateStr}`;
 
   // Save undo snapshot
   const prevGiacenza = wine.giacenza;
   const prevLots = JSON.parse(JSON.stringify(wine.lots||[]));
-
-  const tipo = delta > 0 ? "carico" : "scarico";
-  const qty = Math.abs(delta);
-  const dateStr = today();
-  const fattura = `MOB-${dateStr}`;
 
   // Update wine in memory
   wines = wines.map(w => {
@@ -3810,8 +4121,8 @@ async function registraMovimentoMobile(wineId, delta){
   // Log entry
   const ts = new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"});
   const desc = delta < 0
-    ? `Scaricato 1× ${wine.nome}${wine.annata?" "+wine.annata:""}`
-    : `Caricato 1× ${wine.nome}${wine.annata?" "+wine.annata:""}`;
+    ? `Scaricato ${qty}× ${wine.nome}${wine.annata?" "+wine.annata:""}`
+    : `Caricato ${qty}× ${wine.nome}${wine.annata?" "+wine.annata:""}`;
   _mobLog = [{ts, desc}, ..._mobLog].slice(0,4);
   _renderMobLog();
 
