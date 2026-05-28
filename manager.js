@@ -76,6 +76,7 @@ let notifTimer = null;
 let _mobQuery = "";
 let _mobLog = []; // [{ts, desc}]
 let _mobQty  = {}; // wineId → qty selezionata (default 1)
+let _mobTipo = {}; // wineId → 'bottiglia' | 'mescita' (default bottiglia)
 let _mobUndoData = null; // {wineId, delta, movId, prevGiacenza, prevLots}
 let _mobToastTimer = null;
 let _mobToastBarTimer = null;
@@ -689,8 +690,37 @@ function initColResize(){
 function inlineEdit(evt, field, wineId, currentVal){
   evt.stopPropagation();
   const td = evt.currentTarget;
-  if(td.querySelector(".inline-edit-input")) return; // già in edit
-  const isNum = ["prezzoAcq","prezzoCarta","prezzoCalice"].includes(field);
+  if(td.querySelector(".inline-edit-input,.inline-edit-select")) return; // già in edit
+
+  // Campi select
+  const SELECT_FIELDS = {
+    tipologia: () => TIPOLOGIE,
+    iva: () => IVA_OPTIONS.map(String),
+  };
+  if(SELECT_FIELDS[field]){
+    const orig = td.innerHTML;
+    const sel = document.createElement("select");
+    sel.className = "form-select inline-edit-select";
+    sel.style.cssText = "width:100%;min-width:120px;font-size:11px;padding:3px 6px;font-family:inherit";
+    const opts = SELECT_FIELDS[field]();
+    opts.forEach(o => { const op=document.createElement("option"); op.value=o; op.textContent=o; if(String(o)===String(currentVal)) op.selected=true; sel.appendChild(op); });
+    // "Altro/Nuova" per tipologia
+    if(field==="tipologia"){ const op=document.createElement("option"); op.value="__new__"; op.textContent="+ Nuova…"; sel.appendChild(op); }
+    td.innerHTML = ""; td.appendChild(sel); sel.focus();
+    const commitSel = () => {
+      if(sel.value==="__new__"){ _addTipologiaInline(sel, v=>{ wines=wines.map(w=>w.id===wineId?{...w,tipologia:v}:w); scheduleSave(); renderInventarioOnly(); notify(`✏️ tipologia → ${v}`); }); return; }
+      const val = sel.value;
+      if(val===String(currentVal)){ td.innerHTML=orig; return; }
+      wines=wines.map(w=>w.id===wineId?{...w,[field]:field==="iva"?parseInt(val):val}:w);
+      scheduleSave(); renderInventarioOnly(); notify(`✏️ ${field} → ${val}`);
+    };
+    sel.addEventListener("change", commitSel);
+    sel.addEventListener("blur", ()=>{ setTimeout(()=>{ if(document.activeElement!==sel) td.innerHTML=orig; },150); });
+    sel.addEventListener("keydown", e=>{ if(e.key==="Enter"){ e.preventDefault(); commitSel(); } if(e.key==="Escape"){ td.innerHTML=orig; } });
+    return;
+  }
+
+  const isNum = ["prezzoAcq","prezzoCarta","prezzoCalice","formato"].includes(field);
   const orig = td.innerHTML;
   const inp = document.createElement("input");
   inp.className = "inline-edit-input form-input";
@@ -1039,17 +1069,17 @@ function renderInventario(){
           const mpColor=mp===null?"var(--txt4)":mp>=50?"#30D158":mp>=30?"var(--amber)":"#FF453A";
           return `<tr class="${isEmpty?"alert-empty":isAlert?"alert-low":isRiordino?"alert-riordino":""}" data-sel-id="${w.id}" data-wine-id="${w.id}" onclick="selectWineRow('${w.id}')" style="cursor:pointer">
             ${selMode==='wines'?`<td class="cb-col"><input type="checkbox" class="cb-sel" data-id="${w.id}" onchange="toggleSel('${w.id}');_updateBulkBar()"></td>`:''}
-            <td class="col-fornitore" style="color:var(--txt3);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:90px">${h(w.distributore||"—")}</td>
-            <td style="color:var(--txt2);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(w.produttore)}</td>
-            <td ondblclick="inlineEdit(event,'nome','${w.id}','${h(w.nome).replace(/'/g,"\\'")}')"><div style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px">${h(w.nome)}${(parseFloat(w.formato)||0.75)>0.75?` <span style="font-size:8px;font-weight:600;padding:1px 5px;border:1px solid rgba(0,122,255,.35);color:#60a5fa;background:rgba(0,122,255,.1);border-radius:3px;white-space:nowrap">${w.formato}L</span>`:""}</div>${w.zona?`<div class="col-zona" style="font-size:9px;color:var(--txt4)">${h(w.zona)}</div>`:""}</td>
-            <td class="col-annata" ondblclick="inlineEdit(event,'annata','${w.id}','${w.annata||""}')"><span style="color:var(--amber);font-family:'Montserrat',sans-serif;white-space:nowrap;font-size:11px">${w.annata||`<span style="color:var(--txt4)">N.V.</span>`}</span></td>
-            <td class="col-vitigni" style="color:var(--txt3);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100px">${h(w.vitigni||"—")}</td>
-            <td>${badge(w.tipologia)}</td>
-            <td class="col-regione" style="color:var(--txt3);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:110px">${w.regione?`<span>${h(w.regione)}</span>`:""}${w.nazione?`${w.regione?" · ":""}<span style="color:var(--amber3);font-weight:600">${h(w.nazione)}</span>`:""}</td>
-            <td class="r" ondblclick="inlineEdit(event,'prezzoAcq','${w.id}','${w.prezzoAcq||0}')" style="border-left:1px solid var(--border);white-space:nowrap">${fmt(w.prezzoAcq)}</td>
-            <td class="r col-ivaincl" style="color:var(--txt3);white-space:nowrap">${fmtRound(calcCostoIvaBottiglia(w))}</td>
-            <td class="r col-pcarta" ondblclick="inlineEdit(event,'prezzoCarta','${w.id}','${w.prezzoCarta||0}')" style="white-space:nowrap;${!w.prezzoCarta?'color:var(--txt4)':''}">${w.prezzoCarta?fmt(w.prezzoCarta):'—'}</td>
-            <td class="r col-calice" ondblclick="inlineEdit(event,'prezzoCalice','${w.id}','${w.prezzoCalice||0}')" style="white-space:nowrap;${!w.prezzoCalice?'color:var(--txt4)':''}">${w.prezzoCalice?fmt(w.prezzoCalice):'—'}</td>
+            <td class="col-fornitore" ondblclick="inlineEdit(event,'distributore','${w.id}','${(w.distributore||'').replace(/'/g,"\\'")}'" title="Doppio click: modifica fornitore" style="color:var(--txt3);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:90px;cursor:text">${h(w.distributore||"—")}</td>
+            <td ondblclick="inlineEdit(event,'produttore','${w.id}','${(w.produttore||'').replace(/'/g,"\\'")}'" title="Doppio click: modifica produttore" style="color:var(--txt2);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:text">${h(w.produttore)}</td>
+            <td ondblclick="inlineEdit(event,'nome','${w.id}','${h(w.nome).replace(/'/g,"\\'")}'" title="Doppio click: modifica nome"><div style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px">${h(w.nome)}${(parseFloat(w.formato)||0.75)>0.75?` <span style="font-size:8px;font-weight:600;padding:1px 5px;border:1px solid rgba(0,122,255,.35);color:#60a5fa;background:rgba(0,122,255,.1);border-radius:3px;white-space:nowrap">${w.formato}L</span>`:""}</div>${w.zona?`<div class="col-zona" ondblclick="event.stopPropagation();inlineEdit(event,'zona','${w.id}','${(w.zona||'').replace(/'/g,"\\'")}'" title="Doppio click: modifica zona" style="font-size:9px;color:var(--txt4);cursor:text">${h(w.zona)}</div>`:""}</td>
+            <td class="col-annata" ondblclick="inlineEdit(event,'annata','${w.id}','${w.annata||""}')" title="Doppio click: modifica annata"><span style="color:var(--amber);font-family:'Montserrat',sans-serif;white-space:nowrap;font-size:11px">${w.annata||`<span style="color:var(--txt4)">N.V.</span>`}</span></td>
+            <td class="col-vitigni" ondblclick="inlineEdit(event,'vitigni','${w.id}','${(w.vitigni||'').replace(/'/g,"\\'")}'" title="Doppio click: modifica vitigni" style="color:var(--txt3);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100px;cursor:text">${h(w.vitigni||"—")}</td>
+            <td ondblclick="inlineEdit(event,'tipologia','${w.id}','${w.tipologia||''}')" title="Doppio click: modifica tipologia" style="cursor:pointer">${badge(w.tipologia)}</td>
+            <td class="col-regione" title="Doppio click: modifica regione/nazione" style="color:var(--txt3);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:110px">${w.regione?`<span ondblclick="inlineEdit(event,'regione','${w.id}','${(w.regione||'').replace(/'/g,"\\'")}'" style="cursor:text" title="Doppio click: modifica regione">${h(w.regione)}</span>`:""}${w.nazione?`${w.regione?" · ":""}<span ondblclick="inlineEdit(event,'nazione','${w.id}','${(w.nazione||'').replace(/'/g,"\\'")}'" style="color:var(--amber3);font-weight:600;cursor:text" title="Doppio click: modifica nazione">${h(w.nazione)}</span>`:""}</td>
+            <td class="r" ondblclick="inlineEdit(event,'prezzoAcq','${w.id}','${w.prezzoAcq||0}')" style="border-left:1px solid var(--border);white-space:nowrap;cursor:text" title="Doppio click: modifica P.Acq">${fmt(w.prezzoAcq)}</td>
+            <td class="r col-ivaincl" ondblclick="inlineEdit(event,'iva','${w.id}','${w.iva||22}')" style="color:var(--txt3);white-space:nowrap;cursor:pointer" title="Doppio click: modifica IVA%">${fmtRound(calcCostoIvaBottiglia(w))}</td>
+            <td class="r col-pcarta" ondblclick="inlineEdit(event,'prezzoCarta','${w.id}','${w.prezzoCarta||0}')" style="white-space:nowrap;cursor:text;${!w.prezzoCarta?'color:var(--txt4)':''}" title="Doppio click: modifica P.Carta">${w.prezzoCarta?fmt(w.prezzoCarta):'—'}</td>
+            <td class="r col-calice" ondblclick="inlineEdit(event,'prezzoCalice','${w.id}','${w.prezzoCalice||0}')" style="white-space:nowrap;cursor:text;${!w.prezzoCalice?'color:var(--txt4)':''}" title="Doppio click: modifica P.Calice">${w.prezzoCalice?fmt(w.prezzoCalice):'—'}</td>
             <td class="r col-margperc"><span style="color:${mpColor}">${mp===null?"—":`${fmtN(mp,1)}%`}</span></td>
             <td class="c" style="border-left:1px solid rgba(255,159,10,.12);background:rgba(255,159,10,.04);position:relative">
               <div style="display:flex;flex-direction:column;align-items:center;gap:1px">
@@ -1134,6 +1164,32 @@ function _applyCaliceGlobaleAll(){
 function setSoglia(id,delta){
   // legacy shim — delegate to new dual-threshold setter
   _setSoglia(id,'min',delta);
+}
+
+// ─── ANNULLA SCARICO ──────────────────────────────────────────────────────────
+function annullaScarico(movId){
+  const m = movements.find(x => x.id === movId);
+  if(!m || m.tipo !== "scarico"){ notify("Movimento non trovato","err"); return; }
+  if(!confirm(`Annullare lo scarico di ${m.qty}× "${m.wineName}" del ${m.data}?\nLa giacenza verrà ripristinata.`)) return;
+  // Reverse-FIFO: reintegra nei lotti a partire dall'ultimo consumato
+  wines = wines.map(w => {
+    if(w.id !== m.wineId) return w;
+    let rem = m.qty;
+    const updLots = [...(w.lots||[])].reverse().map(l => {
+      if(rem <= 0) return l;
+      const consumed = l.qtyCaricata - l.qtyRimanente; // quanto era stato tolto da questo lotto
+      const addBack = Math.min(rem, consumed);
+      rem -= addBack;
+      return {...l, qtyRimanente: l.qtyRimanente + addBack};
+    }).reverse();
+    return {...w, giacenza: w.giacenza + m.qty, lots: updLots};
+  });
+  movements = movements.filter(x => x.id !== movId);
+  scheduleSave();
+  notify(`↩ Scarico annullato — ${m.qty}× ${m.wineName} ripristinato`);
+  const sy = window.scrollY;
+  render();
+  requestAnimationFrame(() => window.scrollTo(0, sy));
 }
 
 // ─── RILEVAMENTO AUTOMATICO GRANDI FORMATI ────────────────────────────────────
@@ -1333,7 +1389,9 @@ function registraScaricaSerata(){
     localStorage.setItem("cm_movements", JSON.stringify(movements));
   }catch(e){ notify("⚠️ Salvataggio fallito","err"); }
   notify(`🍾 ${righe.length} vin${righe.length===1?"o":"i"} scaricati — ${totBt} bottigli${totBt===1?"a":"e"} totali`);
+  const sy = window.scrollY;
   render();
+  requestAnimationFrame(() => window.scrollTo(0, sy));
 }
 
 // ─── MOVIMENTI ────────────────────────────────────────────────────────────────
@@ -1583,7 +1641,7 @@ function renderMovimenti(){
         <thead><tr>${selMode==='movimenti'?`<th class="cb-col"><input type="checkbox" id="cb-sel-all" class="cb-sel" onchange="toggleSelAll()"></th>`:''}<th>Data</th><th>Tipo</th><th>Vino</th><th>Vitigni</th><th>Annata</th><th>Produttore</th><th>Nazione</th><th>N° Fattura</th><th>Fornitore</th><th class="r">Qtà</th><th class="r">P.Acq+IVA</th><th class="r">P.Carta/Ricavo</th><th>Note</th><th class="c"></th></tr></thead>
         <tbody>
           ${movements.length===0?`<tr><td colspan="10" style="text-align:center;padding:28px;color:var(--txt4)">Nessun movimento registrato</td></tr>`:
-          (()=>{ const wMap=Object.fromEntries(wines.map(w=>[w.id,w])); return movements.map(m=>{const wObj=wMap[m.wineId]; const wAnn=wObj?.annata||""; const costoIva=wObj?calcCostoIvaBottiglia(wObj):0; return `<tr data-sel-id="${m.id}">${selMode==='movimenti'?`<td class="cb-col"><input type="checkbox" class="cb-sel" data-id="${m.id}" onchange="toggleSel('${m.id}');_updateBulkBar()"></td>`:''}<td style="color:var(--txt2)">${m.data}</td><td><span style="font-size:9px;padding:2px 8px;border:1px solid;${m.tipo==="carico"?"background:rgba(20,83,45,.3);color:#30D158;border-color:#166534":m.sottoTipo==="mescita"?"background:rgba(14,116,144,.3);color:#32ADE6;border-color:#0e7490":"background:rgba(255,69,58,.12);color:#FF6B6B;border-color:#CC3025"}">${m.sottoTipo==="mescita"?"MESCITA":m.tipo.toUpperCase()}</span></td><td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(m.wineName)}</td><td style="color:var(--txt3);font-size:10px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(wObj?.vitigni||"—")}</td><td style="color:var(--amber);font-family:'Montserrat',sans-serif;white-space:nowrap">${wAnn||'<span style="color:var(--txt4)">N.V.</span>'}</td><td style="color:var(--txt2);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(m.produttore||"—")}</td><td style="color:var(--amber3);font-size:10px;white-space:nowrap">${h(m.nazione||wObj?.nazione||"—")}</td><td style="color:var(--txt3)">${m.fattura||"—"}</td><td style="color:var(--txt3)">${m.fornitore||"—"}</td><td class="r" style="font-family:'Montserrat',sans-serif;color:${m.tipo==="carico"?"#30D158":"#FF453A"};font-size:1rem">${m.tipo==="carico"?"+":"-"}${m.qty}</td><td class="r" style="color:var(--txt3);white-space:nowrap">${costoIva?fmt(costoIva):"—"}</td><td class="r" style="color:var(--amber);white-space:nowrap">${m.sottoTipo==="mescita"?(m.ricavoMescita!=null?'<span style="color:#32ADE6" title="Ricavo mescita totale">'+fmt(m.ricavoMescita)+'</span>':(wObj?.prezzoCalice?'<span style="color:#32ADE6" title="Stima mescita">'+fmt(m.qty*(parseFloat(wObj.prezzoCalice)||0)*(parseInt(wObj.calicePerBt)||5))+'</span>':"—")):(wObj?.prezzoCarta?fmt(parseFloat(wObj.prezzoCarta)):"—")}</td><td style="color:var(--txt4);font-size:10px">${m.note||"—"}</td><td class="c"><button onclick="openMovModal('${m.id}')" style="background:none;border:1px solid var(--border2);color:var(--txt3);font-size:11px;padding:3px 8px;cursor:pointer;font-family:inherit;transition:all .15s" onmouseover="this.style.borderColor='var(--amber3)';this.style.color='var(--amber)'" onmouseout="this.style.borderColor='var(--border2)';this.style.color='var(--txt3)'">✏️</button></td></tr>`; }).join(""); })() }
+          (()=>{ const wMap=Object.fromEntries(wines.map(w=>[w.id,w])); return movements.map(m=>{const wObj=wMap[m.wineId]; const wAnn=wObj?.annata||""; const costoIva=wObj?calcCostoIvaBottiglia(wObj):0; return `<tr data-sel-id="${m.id}">${selMode==='movimenti'?`<td class="cb-col"><input type="checkbox" class="cb-sel" data-id="${m.id}" onchange="toggleSel('${m.id}');_updateBulkBar()"></td>`:''}<td style="color:var(--txt2)">${m.data}</td><td><span style="font-size:9px;padding:2px 8px;border:1px solid;${m.tipo==="carico"?"background:rgba(20,83,45,.3);color:#30D158;border-color:#166534":m.sottoTipo==="mescita"?"background:rgba(14,116,144,.3);color:#32ADE6;border-color:#0e7490":"background:rgba(255,69,58,.12);color:#FF6B6B;border-color:#CC3025"}">${m.sottoTipo==="mescita"?"MESCITA":m.tipo.toUpperCase()}</span></td><td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(m.wineName)}</td><td style="color:var(--txt3);font-size:10px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(wObj?.vitigni||"—")}</td><td style="color:var(--amber);font-family:'Montserrat',sans-serif;white-space:nowrap">${wAnn||'<span style="color:var(--txt4)">N.V.</span>'}</td><td style="color:var(--txt2);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(m.produttore||"—")}</td><td style="color:var(--amber3);font-size:10px;white-space:nowrap">${h(m.nazione||wObj?.nazione||"—")}</td><td style="color:var(--txt3)">${m.fattura||"—"}</td><td style="color:var(--txt3)">${m.fornitore||"—"}</td><td class="r" style="font-family:'Montserrat',sans-serif;color:${m.tipo==="carico"?"#30D158":"#FF453A"};font-size:1rem">${m.tipo==="carico"?"+":"-"}${m.qty}</td><td class="r" style="color:var(--txt3);white-space:nowrap">${costoIva?fmt(costoIva):"—"}</td><td class="r" style="color:var(--amber);white-space:nowrap">${m.sottoTipo==="mescita"?(m.ricavoMescita!=null?'<span style="color:#32ADE6" title="Ricavo mescita totale">'+fmt(m.ricavoMescita)+'</span>':(wObj?.prezzoCalice?'<span style="color:#32ADE6" title="Stima mescita">'+fmt(m.qty*(parseFloat(wObj.prezzoCalice)||0)*(parseInt(wObj.calicePerBt)||5))+'</span>':"—")):(wObj?.prezzoCarta?fmt(parseFloat(wObj.prezzoCarta)):"—")}</td><td style="color:var(--txt4);font-size:10px">${m.note||"—"}</td><td class="c" style="white-space:nowrap"><button onclick="openMovModal('${m.id}')" style="background:none;border:1px solid var(--border2);color:var(--txt3);font-size:11px;padding:3px 8px;cursor:pointer;font-family:inherit;transition:all .15s" onmouseover="this.style.borderColor='var(--amber3)';this.style.color='var(--amber)'" onmouseout="this.style.borderColor='var(--border2)';this.style.color='var(--txt3)'">✏️</button>${m.tipo==="scarico"?` <button onclick="annullaScarico('${m.id}')" style="background:none;border:1px solid rgba(255,69,58,.3);color:#FF453A;font-size:11px;padding:3px 8px;cursor:pointer;font-family:inherit;transition:all .15s" onmouseover="this.style.background='rgba(255,69,58,.1)'" onmouseout="this.style.background='none'" title="Annulla scarico e ripristina giacenza">↩</button>`:''}</td></tr>`; }).join(""); })() }
         </tbody>
       </table>
     </div>
@@ -1672,7 +1730,7 @@ function renderScaricoSerataPage(){
       <button class="btn-primary"
         style="background:${righeValide>0?"var(--amber3)":"rgba(58,58,60,.5)"};color:${righeValide>0?"#000":"var(--txt4)"};cursor:${righeValide>0?"pointer":"not-allowed"};padding:10px 24px;font-size:11px"
         ${righeValide===0?"disabled":""}
-        onclick="registraScaricaSerata();_reportInlineOpen=true;setTimeout(()=>{const b=document.getElementById('report-inline-body');const a=document.getElementById('report-inline-arrow');if(b){b.style.display='block';b.innerHTML=_renderReportBody(reportSerataData);}if(a){a.className='report-toggle-arrow open';}b&&b.scrollIntoView({behavior:'smooth',block:'start'})},200)">
+        onclick="registraScaricaSerata()">
         Registra ${righeValide>0?righeValide+" scarichi":"scarichi"}
       </button>
     </div>
@@ -1842,7 +1900,10 @@ function registraMovimento(){
   });
   movements=[{id:uid(),wineId,wineName:wine.nome,produttore:wine.produttore,nazione:wine.nazione||"",tipo,sottoTipo:tipo==='scarico'?(movForm.sottoTipo||'bottiglia'):undefined,ricavoMescita:tipo==='scarico'&&(movForm.sottoTipo||'bottiglia')==='mescita'?(()=>{const pc=parseFloat(movForm._overrideCalice)||parseFloat(wine.prezzoCalice)||0;const cpb=parseInt(movForm._overrideCalicePerBt)||parseInt(wine.calicePerBt)||5;return pc?q*pc*cpb:null;})():undefined,qty:q,data,fattura,fornitore,note,ts:Date.now()},...movements];
   movForm={...movForm,wineId:"",_wineText:"",_newProduttore:"",_newTipologia:"Rosso",_newPrezzoCarta:"",_tipologia:"",qty:1,fattura:"",fornitore:"",note:"",prezzoAcqLotto:"",sottoTipo:"bottiglia",_overrideCalice:"",_overrideCalicePerBt:""};
-  scheduleSave(); notify(tipo==="carico"?"📦 Carico registrato":"🍾 Scarico registrato"); render();
+  const sy = window.scrollY;
+  scheduleSave(); notify(tipo==="carico"?"📦 Carico registrato":"🍾 Scarico registrato");
+  render();
+  requestAnimationFrame(() => window.scrollTo(0, sy));
 }
 
 // ─── FALLATE ─────────────────────────────────────────────────────────────────
@@ -3988,6 +4049,12 @@ function _renderMobList(){
     const gClass = giac === 0 ? "zero" : giac <= (alertSoglie[w.id]??3) ? "low" : "";
     const bMinus = giac === 0;
     const qty = Math.min(_mobQty[w.id]||1, giac||1);
+    const isMescita = _mobTipo[w.id] === 'mescita';
+    const hasCalice = parseFloat(w.prezzoCalice) > 0;
+    // Calice hint: ricavo stimato se mescita
+    const caliceHint = isMescita && hasCalice
+      ? `<span style="font-size:9px;color:#32ADE6;margin-top:2px;display:block">🥂 ${fmt((parseFloat(w.prezzoCalice)||0)*(parseInt(w.calicePerBt)||5)*(qty))}</span>`
+      : '';
     return `<div class="mob-wine-row">
       <div class="mob-wine-info">
         <div class="mob-wine-name">${h(w.nome)}</div>
@@ -3996,8 +4063,12 @@ function _renderMobList(){
           <span class="badge badge-${w.tipologia||"default"}">${h(w.tipologia||"")}</span>
           <span style="font-size:9px;color:var(--txt4)">${h(w.produttore)}</span>
         </div>
+        ${caliceHint}
       </div>
       <div class="mob-wine-right">
+        <button onclick="_mobTipo['${w.id}']=(_mobTipo['${w.id}']||'bottiglia')==='bottiglia'?'mescita':'bottiglia';_renderMobList()"
+          style="font-size:9px;padding:2px 6px;border:1px solid ${isMescita?'rgba(50,173,230,.5)':'rgba(255,255,255,.12)'};background:${isMescita?'rgba(50,173,230,.15)':'none'};color:${isMescita?'#32ADE6':'var(--txt4)'};border-radius:4px;cursor:pointer;font-family:inherit;white-space:nowrap"
+          title="${isMescita?'Mescita — tocca per Bottiglia':'Bottiglia — tocca per Mescita'}">${isMescita?'🥂':'🍾'}</button>
         <button class="mob-btn mob-btn-minus" onclick="registraMovimentoMobile('${w.id}',-1)" ${bMinus?"disabled":""}
           aria-label="Scarica bottiglie">−</button>
         <input type="number" class="mob-qty-inp" value="${qty}" min="1" max="${giac||1}"
@@ -4046,6 +4117,10 @@ async function registraMovimentoMobile(wineId, direction){
   }
 
   const tipo = delta > 0 ? "carico" : "scarico";
+  const sottoTipo = (direction < 0 && _mobTipo[wineId] === 'mescita') ? 'mescita' : 'bottiglia';
+  const ricavoMescita = sottoTipo === 'mescita'
+    ? (() => { const pc = parseFloat(wine.prezzoCalice)||0; const cpb = parseInt(wine.calicePerBt)||5; return pc ? qty*pc*cpb : null; })()
+    : undefined;
   const dateStr = today();
   const fattura = `MOB-${dateStr}`;
 
@@ -4073,7 +4148,7 @@ async function registraMovimentoMobile(wineId, direction){
 
   const movId = uid();
   const newMov = {id:movId, wineId, wineName:wine.nome, produttore:wine.produttore,
-    tipo, qty, data:dateStr, fattura, fornitore:"", note:"[mobile]", ts:Date.now()};
+    tipo, sottoTipo, ricavoMescita, qty, data:dateStr, fattura, fornitore:"", note:"[mobile]", ts:Date.now()};
   movements = [newMov, ...movements];
 
   // Read-before-write: rileggi dati freschi prima di scrivere (protezione multi-utente)
@@ -4121,7 +4196,7 @@ async function registraMovimentoMobile(wineId, direction){
   // Log entry
   const ts = new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"});
   const desc = delta < 0
-    ? `Scaricato ${qty}× ${wine.nome}${wine.annata?" "+wine.annata:""}`
+    ? `Scaricato ${qty}× ${wine.nome}${wine.annata?" "+wine.annata:""}${sottoTipo==='mescita'?' 🥂':''}`
     : `Caricato ${qty}× ${wine.nome}${wine.annata?" "+wine.annata:""}`;
   _mobLog = [{ts, desc}, ..._mobLog].slice(0,4);
   _renderMobLog();
