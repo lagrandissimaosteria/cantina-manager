@@ -621,6 +621,9 @@ async function forceSave(){
       _sbUpsert("cm_soglie",   { user_id:DB_USER, data:snapshot.soglie }),
       _sbUpsert("cm_orders",   { user_id:DB_USER, data:snapshot.orders }),
     ]);
+    const newVer = (_localVersion||0) + 1;
+    await _sbWriteVersion(newVer);
+    _localVersion = newVer;
     _setDbStatus("ok","Sincronizzato");
     notify("✅ Sync forzato — dati inviati a Supabase");
   }catch(e){
@@ -757,6 +760,7 @@ function _applySidebarState(){
 const SECTION_TITLES={dashboard:"Dashboard",inventario:"Inventario Vini","scarico-serata":"🍾 Scarico Serata",movimenti:"Carico / Scarico",fallate:"Gestione Fallate",analytics:"Analytics & Trends",ordini:"Ordini Fornitore",export:"Export & Bilancio",impostazioni:"⚙️ Impostazioni"};
 function go(s){
   section=s;
+  if(selMode) exitSel(); // NAV-03: resetta selezione multipla al cambio sezione
   if(s!=="inventario"){ filterVitigno="tutti"; filterFormato="tutti"; _hideTopbarActions(); }
   document.querySelectorAll(".nav-btn").forEach(b=>b.classList.toggle("active",b.dataset.section===s));
   document.getElementById("topbar-title").textContent=SECTION_TITLES[s]||s;
@@ -950,7 +954,7 @@ function render(){
   if(section==="dashboard") c.innerHTML=renderDashboard();
   else if(section==="inventario") c.innerHTML=renderInventario();
   else if(section==="scarico-serata") c.innerHTML=renderScaricoSerataPage();
-  else if(section==="report-serata"){ section="scarico-serata"; c.innerHTML=renderScaricoSerataPage(); }
+  else if(section==="report-serata"){ go("scarico-serata"); return; }
   else if(section==="movimenti"){movForm.data=today();fallForm.data=today();c.innerHTML=renderMovimenti();}
   else if(section==="fallate") c.innerHTML=renderFallate();
   else if(section==="analytics") c.innerHTML=renderAnalytics();
@@ -999,6 +1003,7 @@ function _buildInventarioList(){
   else if(invSort==="regione") list.sort((a,b)=>(a.regione||"").localeCompare(b.regione||"")||a.nome.localeCompare(b.nome));
   else if(invSort==="giacenza") list.sort((a,b)=>b.giacenza-a.giacenza);
   else if(invSort==="prezzoAcq") list.sort((a,b)=>b.prezzoAcq-a.prezzoAcq);
+  else if(invSort==="distributore") list.sort((a,b)=>(a.distributore||"").localeCompare(b.distributore||"")||a.nome.localeCompare(b.nome));
   else list.sort((a,b)=>tipoIdx(a.tipologia)-tipoIdx(b.tipologia)||a.nome.localeCompare(b.nome));
   return list;
 }
@@ -1276,7 +1281,7 @@ function renderInventario(){
   
   html+=`<div class="card" style="padding:0">
     ${selMode==='wines'?renderBulkBar('wines', list.map(w=>w.id)):''}
-    <div class="tbl-header" style="flex-wrap:nowrap;gap:6px;align-items:center;position:sticky;top:57px;z-index:18;background:var(--bg2);border-bottom:1px solid var(--border)">
+    <div class="tbl-header" style="flex-wrap:nowrap;gap:6px;align-items:center;position:sticky;top:57px;z-index:18;background:var(--bg2);border-bottom:1px solid var(--border);box-shadow:0 4px 16px rgba(0,0,0,.35)">
       <div class="search-wrap" style="flex-shrink:0"><span class="search-icon">🔍</span><input id="inv-search" class="form-input" style="width:180px;padding-left:28px" placeholder="Cerca vino…" value="${h(search)}" oninput="search=this.value;renderInventarioOnly()"></div>
       ${selMode!=='wines'?`<button class="btn-outline btn-sm" onclick="enterSel('wines')" style="border-color:rgba(59,130,246,.5);color:#93c5fd;flex-shrink:0;white-space:nowrap">☑ Multipla</button>`:''}
       <div style="display:flex;align-items:center;gap:5px;flex:1;min-width:0;overflow:hidden">
@@ -1300,6 +1305,7 @@ function renderInventario(){
           <option value="regione" ${invSort==='regione'?'selected':''}>↕ Regione</option>
           <option value="giacenza" ${invSort==='giacenza'?'selected':''}>↕ Giacenza</option>
           <option value="prezzoAcq" ${invSort==='prezzoAcq'?'selected':''}>↕ P.Acq</option>
+          <option value="distributore" ${invSort==='distributore'?'selected':''}>↕ Fornitore</option>
         </select>
       </div>
       <span style="font-size:10px;color:var(--txt4);letter-spacing:.05em;flex-shrink:0;white-space:nowrap">${list.length}/${wines.length}</span>
@@ -2164,6 +2170,7 @@ function registraFallata(){
   const {wineId,qty,motivo,data,note}=fallForm;
   const q=parseInt(qty)||0;
   if(!wineId||q<=0){notify("Seleziona un vino e inserisci la quantità","err");return}
+  if(data > today()){notify("⚠️ La data non può essere nel futuro","err");return}
   const wine=wines.find(w=>w.id===wineId);
   if(!wine){notify("⚠️ Vino non trovato","err");return;}
   if(wine.giacenza<q){notify(`Giacenza insufficiente (${wine.giacenza} disponibili)`,"err");return}
@@ -4276,7 +4283,7 @@ function saveWine(){
     prezzoCarta:parseFloat(get("mf-prezzoCarta"))||0,giacenza:parseInt(get("mf-giacenza"))||0,
     lots:modalWine?.lots||[]
   };
-  if(!wine.nome||!wine.produttore) return;
+  if(!wine.nome||!wine.produttore){ notify("⚠️ Nome e Produttore sono obbligatori","err"); return; }
   // Auto-inferisce la nazione dalla regione se non compilata
   if(!wine.nazione && wine.regione){
     wine.nazione = inferPaese("", wine.regione, wine.zona);

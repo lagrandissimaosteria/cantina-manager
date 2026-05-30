@@ -422,9 +422,7 @@ td[ondblclick]:hover{background:rgba(255,159,10,.06)!important}
       <button class="nav-btn" data-section="analytics" data-label="Analytics" onclick="go('analytics')"><span class="nav-icon">📈</span><span class="nav-btn-label"> Analytics</span></button>
       <button class="nav-btn" data-section="ordini" data-label="Ordini" onclick="go('ordini')"><span class="nav-icon">🛒</span><span class="nav-btn-label"> Ordini</span></button>
       <button class="nav-btn" data-section="export" data-label="Export" onclick="go('export')"><span class="nav-icon">💾</span><span class="nav-btn-label"> Export</span></button>
-      <button class="nav-btn" data-section="impostazioni" data-label="Impostazioni" onclick="go('impostazioni')"><span class="nav-icon">⚙️</span><span class="nav-btn-label"> Impostazioni</span></button>
       <button id="sidebar-toggle-btn" onclick="toggleSidebar()" style="width:100%;display:flex;align-items:center;gap:10px;padding:10px 20px;font-size:10px;letter-spacing:.12em;text-transform:uppercase;font-family:inherit;text-align:left;color:var(--txt4);background:none;border:none;border-top:1px solid var(--border);margin-top:4px;cursor:pointer;transition:all .15s" onmouseover="this.style.color='var(--txt2)'" onmouseout="this.style.color='var(--txt4)'"><span class="nav-icon" id="sidebar-toggle-icon">◀</span><span class="nav-btn-label"> Riduci</span></button>
-      <button onclick="enterMobileMode()" style="width:100%;display:flex;align-items:center;gap:10px;padding:8px 20px;font-size:10px;letter-spacing:.12em;text-transform:uppercase;font-family:inherit;text-align:left;color:var(--txt4);background:none;border:none;cursor:pointer;transition:all .15s" onmouseover="this.style.color='var(--txt2)'" onmouseout="this.style.color='var(--txt4)'"><span class="nav-icon">📱</span><span class="nav-btn-label"> Modalità Mobile</span></button>
     </nav>
     <div class="sidebar-stats">
       <div class="ss-row"><span class="ss-label">Referenze</span><span class="ss-val" id="ss-ref">—</span></div>
@@ -433,7 +431,7 @@ td[ondblclick]:hover{background:rgba(255,159,10,.06)!important}
       <div class="ss-row"><span class="ss-label">Potenziale</span><span class="ss-val" id="ss-pot" style="color:#30D158">—</span></div>
     </div>
     <div style="padding:12px 20px;border-top:1px solid var(--border)">
-      <button onclick="localStorage.removeItem('cm_logged');location.reload()" style="width:100%;display:flex;align-items:center;gap:8px;padding:7px 10px;font-size:9px;letter-spacing:.15em;text-transform:uppercase;font-family:inherit;color:var(--txt4);background:none;border:1px solid transparent;cursor:pointer;transition:all .15s" onmouseover="this.style.color='#FF453A';this.style.borderColor='rgba(255,69,58,.2)'" onmouseout="this.style.color='var(--txt4)';this.style.borderColor='transparent'">🔓 <span>Esci / Logout</span></button>
+      <button onclick="sessionStorage.removeItem('cm_logged');location.reload()" style="width:100%;display:flex;align-items:center;gap:8px;padding:7px 10px;font-size:9px;letter-spacing:.15em;text-transform:uppercase;font-family:inherit;color:var(--txt4);background:none;border:1px solid transparent;cursor:pointer;transition:all .15s" onmouseover="this.style.color='#FF453A';this.style.borderColor='rgba(255,69,58,.2)'" onmouseout="this.style.color='var(--txt4)';this.style.borderColor='transparent'">🔓 <span>Esci / Logout</span></button>
       <div id="db-status" onclick="if(document.getElementById('db-dot').classList.contains('err'))forceSave()" style="cursor:default" title="Clicca per ritentare se in errore"><span class="db-dot off" id="db-dot"></span><span id="db-label">Database</span></div>
       <button onclick="openDbConfig()" style="width:100%;display:flex;align-items:center;gap:8px;padding:5px 10px;font-size:9px;letter-spacing:.15em;text-transform:uppercase;font-family:inherit;color:var(--txt4);background:none;border:1px solid transparent;cursor:pointer;transition:all .15s" onmouseover="this.style.color='var(--amber)';this.style.borderColor='rgba(255,159,10,.2)'" onmouseout="this.style.color='var(--txt4)';this.style.borderColor='transparent'">⚙️ <span>Config DB</span></button>
     </div>
@@ -510,21 +508,6 @@ td[ondblclick]:hover{background:rgba(255,159,10,.06)!important}
     <span id="mob-toast-msg"></span>
     <button id="mob-toast-undo" onclick="mobUndo()">Annulla</button>
     <div id="mob-toast-bar"></div>
-  </div>
-</div>
-
-<!-- WINE DETAIL MODAL (sola lettura) -->
-<div class="modal-backdrop hidden" id="wine-detail-backdrop" onclick="closeWineDetail(event)">
-  <div class="modal" style="max-width:720px" onclick="event.stopPropagation()">
-    <div class="modal-header">
-      <h2>🍷 Scheda Vino</h2>
-      <button style="font-size:18px;color:var(--txt3)" onclick="closeWineDetail()">✕</button>
-    </div>
-    <div class="modal-body" id="wine-detail-body" style="max-height:78vh;overflow-y:auto"></div>
-    <div class="modal-footer">
-      <button class="btn-outline" onclick="closeWineDetail()">Chiudi</button>
-      <button class="btn-primary" id="wine-detail-edit-btn" onclick="(function(){const id=document.getElementById('wine-detail-backdrop').dataset.wineId;closeWineDetail();if(id)openWineModal(id);})()">✏️ Modifica</button>
-    </div>
   </div>
 </div>
 
