@@ -4522,8 +4522,10 @@ function enterMobileMode(){
   document.getElementById("mob-screen").style.display = "flex";
   document.getElementById("app").style.display = "none";
   _renderMobLog();
-  const list = document.getElementById("mob-list");
-  if(list) list.innerHTML = `<div style="text-align:center;padding:48px 24px;color:var(--txt4);font-size:12px">⏳ Caricamento…</div>`;
+  // Carica subito il backup locale così la lista appare immediatamente,
+  // anche se Supabase non ha ancora risposto (o non è configurato).
+  _loadLocalBackup();
+  _renderMobList();
 }
 
 function exitMobileMode(){
