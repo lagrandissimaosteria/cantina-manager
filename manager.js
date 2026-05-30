@@ -703,7 +703,8 @@ async function doLogin(){
     _applySidebarState();
     _initSupabase();
     if(_isMobile()){
-      loadData().then(()=>enterMobileMode());
+      enterMobileMode();
+      loadData();
     } else {
       const app=document.getElementById("app");
       app.classList.remove("hidden"); app.style.display="flex";
@@ -762,7 +763,8 @@ if(sessionStorage.getItem("cm_logged")==="1"){
   _applySidebarState();
   _initSupabase();
   if(_isMobile()){
-    loadData().then(()=>enterMobileMode());
+    enterMobileMode();
+    loadData();
   } else {
     const app=document.getElementById("app");
     app.classList.remove("hidden"); app.style.display="flex";
@@ -4520,7 +4522,8 @@ function enterMobileMode(){
   document.getElementById("mob-screen").style.display = "flex";
   document.getElementById("app").style.display = "none";
   _renderMobLog();
-  _renderMobList();
+  const list = document.getElementById("mob-list");
+  if(list) list.innerHTML = `<div style="text-align:center;padding:48px 24px;color:var(--txt4);font-size:12px">⏳ Caricamento…</div>`;
 }
 
 function exitMobileMode(){
