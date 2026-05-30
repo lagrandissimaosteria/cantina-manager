@@ -415,8 +415,9 @@ function closeDbConfig(e){
   document.getElementById("db-config-backdrop").classList.add("hidden");
 }
 async function testDbConnection(){
-  const url = document.getElementById("cfg-url").value.trim();
+  const url = _sanitizeSupabaseUrl(document.getElementById("cfg-url").value);
   const key = document.getElementById("cfg-key").value.trim();
+  document.getElementById("cfg-url").value = url;
   const el = document.getElementById("cfg-test-result");
   if(!url||!key){ el.innerHTML='<span style="color:#FF453A">Inserisci URL e Anon Key</span>'; return; }
   el.innerHTML='<span style="color:var(--amber)">⏳ Test in corso…</span>';
@@ -429,9 +430,14 @@ async function testDbConnection(){
     el.innerHTML=`<span style="color:#FF453A">❌ ${e.message||"Connessione fallita"}</span>`;
   }
 }
+function _sanitizeSupabaseUrl(url){
+  // Rimuove automaticamente path aggiunti per errore (/rest/v1/, /auth/v1/, ecc.)
+  return url.trim().replace(/\/(rest|auth|storage|realtime)\/v\d+\/?$/, '').replace(/\/$/, '');
+}
 function saveDbConfig(){
-  const url = document.getElementById("cfg-url").value.trim();
+  const url = _sanitizeSupabaseUrl(document.getElementById("cfg-url").value);
   const key = document.getElementById("cfg-key").value.trim();
+  document.getElementById("cfg-url").value = url;
   localStorage.setItem("cm_sb_url", url);
   localStorage.setItem("cm_sb_key", key);
   document.getElementById("db-config-backdrop").classList.add("hidden");
@@ -503,7 +509,7 @@ async function _sbUpsert(table, payload){
 async function _sbRead(table){
   if(!_sb) return null;
   const { data, error } = await _sb.from(table).select("data").eq("user_id", DB_USER);
-  if(error) return null;
+  if(error){ console.error(`_sbRead(${table}) error:`, error.message, error.code, error.details); return null; }
   if(!data || data.length === 0) return null;
   // Se c'è una sola riga (caso normale) restituisce direttamente
   if(data.length === 1) return data[0].data ?? null;
@@ -560,15 +566,13 @@ async function _flushSave(){
   };
 
   try{
-    // VERSION CHECK: leggi la versione remota prima di scrivere.
-    // Se è cambiata rispetto all'ultimo caricamento, un altro dispositivo ha
-    // modificato i dati — avvisa invece di sovrascrivere silenziosamente.
+    // VERSION CHECK: leggi versione remota prima di scrivere.
+    // Se un altro dispositivo ha salvato nel frattempo, allineiamo _localVersion
+    // e procediamo comunque: l'azione dell'utente (cancellazione, scarico, ecc.)
+    // va sempre rispettata. Non blocchiamo mai operazioni intenzionali.
     const remoteVersion = await _sbReadVersion();
     if(remoteVersion !== null && remoteVersion > _localVersion){
-      _setDbStatus("err","Conflitto versione");
-      notify("⚠️ Dati modificati da un altro dispositivo — ricarica la pagina per sincronizzare","err");
-      _saveInFlight = false;
-      return;
+      _localVersion = remoteVersion; // allinea prima di scrivere
     }
     const newVersion = (_localVersion||0) + 1;
     await Promise.all([
@@ -648,7 +652,15 @@ async function loadData(){
     _migrateWines();
     _saveLocalBackup(); // update local cache with remote data
     _setDbStatus("ok","Connesso");
-    if(_mobActive){ _renderMobList(); _renderMobLog(); updateSidebar(); } else render(); // re-render after async load
+    if(_mobActive){
+      _renderMobList();
+      // Se la lista è ancora vuota dopo il caricamento, potrebbe essere un problema di RLS/user_id
+      if(wines.length === 0){
+        const list = document.getElementById("mob-list");
+        if(list && list.innerHTML === "") list.innerHTML = `<div style="text-align:center;padding:32px 24px;color:var(--txt4);font-size:11px;line-height:1.8">⚠️ Supabase connesso ma nessun dato trovato.<br><span style="font-size:10px;opacity:.7">Verifica l'USER_ID nella config e le policy RLS.<br>Apri la console (F12) per i dettagli.</span></div>`;
+      }
+      _renderMobLog(); updateSidebar();
+    } else render(); // re-render after async load
   }catch(e){
     _setDbStatus("err","Errore lettura");
     notify("⚠️ DB non raggiungibile — carico backup locale","err");
@@ -4522,10 +4534,15 @@ function enterMobileMode(){
   document.getElementById("mob-screen").style.display = "flex";
   document.getElementById("app").style.display = "none";
   _renderMobLog();
-  // Carica subito il backup locale così la lista appare immediatamente,
-  // anche se Supabase non ha ancora risposto (o non è configurato).
+  // Carica subito il backup locale (se esiste) così la lista appare immediatamente.
   _loadLocalBackup();
-  _renderMobList();
+  if(wines.length > 0){
+    _renderMobList();
+  } else {
+    // Nessun dato locale: mostra messaggio di attesa esplicito
+    const list = document.getElementById("mob-list");
+    if(list) list.innerHTML = `<div style="text-align:center;padding:48px 24px;color:var(--txt4);font-size:12px;line-height:2">⏳ Connessione a Supabase…<br><span style="font-size:10px;color:var(--txt4);opacity:.6">Attendere qualche secondo</span></div>`;
+  }
 }
 
 function exitMobileMode(){
