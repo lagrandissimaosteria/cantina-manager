@@ -502,9 +502,20 @@ async function _sbUpsert(table, payload){
 }
 async function _sbRead(table){
   if(!_sb) return null;
-  const { data, error } = await _sb.from(table).select("data").eq("user_id", DB_USER).maybeSingle();
+  const { data, error } = await _sb.from(table).select("data").eq("user_id", DB_USER);
   if(error) return null;
-  return data?.data ?? null;
+  if(!data || data.length === 0) return null;
+  // Se c'è una sola riga (caso normale) restituisce direttamente
+  if(data.length === 1) return data[0].data ?? null;
+  // Se ci sono più righe (struttura legacy divisa in attive/terminate), le unisce
+  const merged = data.flatMap(row => {
+    const d = row.data;
+    if(Array.isArray(d)) return d;
+    if(d && typeof d === 'object') return [d];
+    return [];
+  });
+  console.warn(`_sbRead(${table}): trovate ${data.length} righe — unisco in un unico array di ${merged.length} elementi`);
+  return merged.length > 0 ? merged : null;
 }
 async function _sbReadVersion(){
   if(!_sb) return null;
@@ -692,8 +703,7 @@ async function doLogin(){
     _applySidebarState();
     _initSupabase();
     if(_isMobile()){
-      enterMobileMode();
-      loadData();
+      loadData().then(()=>enterMobileMode());
     } else {
       const app=document.getElementById("app");
       app.classList.remove("hidden"); app.style.display="flex";
@@ -752,8 +762,7 @@ if(sessionStorage.getItem("cm_logged")==="1"){
   _applySidebarState();
   _initSupabase();
   if(_isMobile()){
-    enterMobileMode();
-    loadData();
+    loadData().then(()=>enterMobileMode());
   } else {
     const app=document.getElementById("app");
     app.classList.remove("hidden"); app.style.display="flex";
@@ -4499,16 +4508,19 @@ function exportMovimentiCSV(){
 }
 // ─── MODALITÀ MOBILE ─────────────────────────────────────────────────────────
 
-function _isMobile(){ return window.innerWidth < 600; }
+function _isMobile(){
+  // Considera mobile se larghezza < 768px OPPURE se è un dispositivo touch con schermo piccolo
+  const w = window.innerWidth || document.documentElement.clientWidth;
+  const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+  return w < 768 || (isTouch && w < 1024);
+}
 
 function enterMobileMode(){
   _mobActive = true;
   document.getElementById("mob-screen").style.display = "flex";
   document.getElementById("app").style.display = "none";
   _renderMobLog();
-  // Mostra subito uno stato di attesa — i dati arrivano da loadData() in modo asincrono
-  const list = document.getElementById("mob-list");
-  if(list) list.innerHTML = `<div style="text-align:center;padding:48px 24px;color:var(--txt4);font-size:12px">⏳ Caricamento dati…</div>`;
+  _renderMobList();
 }
 
 function exitMobileMode(){
