@@ -642,6 +642,7 @@ async function loadData(){
     _setDbStatus("err","Errore lettura");
     notify("⚠️ DB non raggiungibile — carico backup locale","err");
     _loadLocalBackup();
+    if(_mobActive){ _renderMobList(); _renderMobLog(); updateSidebar(); } else render();
   }
 }
 
@@ -1443,6 +1444,7 @@ let scaricoSerata = {
   get data(){ return this._data || _ieriStr(); },
   set data(v){ this._data = v; },
   note: "",
+  sort: "nome",  // 'nome' | 'tipo' | 'giacenza'
   qtys: {} // wineId → qty string
 };
 
@@ -1830,9 +1832,19 @@ function renderMovimenti(){
 
 // ─── SCARICO SERATA STANDALONE PAGE ──────────────────────────────────────────
 function renderScaricoSerataPage(){
-  const winiDisponibili = wines.filter(w => w.giacenza > 0).sort((a,b)=>a.nome.localeCompare(b.nome));
+  const sortKey = scaricoSerata.sort || 'nome';
+  const winiBase = wines.filter(w => w.giacenza > 0);
+  const winiDisponibili = winiBase.slice().sort((a,b) => {
+    if(sortKey === 'giacenza') return b.giacenza - a.giacenza || a.nome.localeCompare(b.nome);
+    if(sortKey === 'tipo') return a.tipologia.localeCompare(b.tipologia) || a.nome.localeCompare(b.nome);
+    return a.nome.localeCompare(b.nome);
+  });
   const righeValide = winiDisponibili.filter(w=>(parseInt(scaricoSerata.qtys[w.id])||0)>0).length;
   const totDaScarico = winiDisponibili.reduce((s,w)=>s+(parseInt(scaricoSerata.qtys[w.id])||0),0);
+  const sortBtn = (key, label) => {
+    const active = sortKey === key;
+    return `<button onclick="scaricoSerata.sort='${key}';render()" style="font-size:10px;font-weight:${active?'700':'500'};padding:4px 12px;border:1px solid ${active?'rgba(255,159,10,.5)':'var(--border2)'};color:${active?'var(--amber)':'var(--txt3)'};background:${active?'rgba(255,159,10,.1)':'none'};cursor:pointer;font-family:inherit;border-radius:6px;transition:all .15s">${label}</button>`;
+  };
   return `<div class="card" style="margin-bottom:16px">
     <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:16px">
       <div style="flex:1;min-width:200px">
@@ -1846,17 +1858,23 @@ function renderScaricoSerataPage(){
           oninput="scaricoSerata.note=this.value">
       </div>
     </div>
-    <div style="margin-bottom:10px;position:relative">
-      <span style="position:absolute;left:9px;top:50%;transform:translateY(-50%);color:var(--txt3);pointer-events:none;font-size:12px">&#128269;</span>
-      <input type="text" class="form-input" style="padding-left:28px" placeholder="Cerca vino, produttore, annata..."
-        oninput="(function(v){document.querySelectorAll('#ssp-table tbody tr').forEach(tr=>{const txt=tr.textContent.toLowerCase();tr.style.display=txt.includes(v.toLowerCase())?'':'none'})})(this.value)">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+      <span style="font-size:10px;color:var(--txt4);letter-spacing:.1em;text-transform:uppercase">Ordina:</span>
+      ${sortBtn('nome','↕ Nome')}
+      ${sortBtn('tipo','↕ Tipo')}
+      ${sortBtn('giacenza','↕ Giacenza ↓')}
+      <div style="flex:1;min-width:160px;position:relative;margin-left:8px">
+        <span style="position:absolute;left:9px;top:50%;transform:translateY(-50%);color:var(--txt3);pointer-events:none;font-size:12px">&#128269;</span>
+        <input type="text" class="form-input" style="padding-left:28px" placeholder="Cerca vino, produttore, annata..."
+          oninput="(function(v){document.querySelectorAll('#ssp-table tbody tr').forEach(tr=>{const txt=tr.textContent.toLowerCase();tr.style.display=txt.includes(v.toLowerCase())?'':'none'})})(this.value)">
+      </div>
     </div>
     <div style="overflow-x:auto"><table id="ssp-table" style="width:100%;border-collapse:collapse">
       <thead><tr>
         <th style="text-align:left">Vino</th>
         <th style="text-align:left">Produttore</th>
         <th style="text-align:center">${badge('Tipo')}</th>
-        <th style="text-align:center;color:var(--amber3);background:rgba(255,159,10,.08)">Giacenza</th>
+        <th style="text-align:center;color:var(--amber3);background:rgba(255,159,10,.08);cursor:pointer" onclick="scaricoSerata.sort='giacenza';render()" title="Ordina per giacenza">Giacenza${sortKey==='giacenza'?' ↓':''}</th>
         <th style="text-align:center;color:var(--txt);background:rgba(255,69,58,.08);min-width:110px">Scarico</th>
         <th style="text-align:right;color:#30D158;background:rgba(48,209,88,.06);min-width:80px">Ricavo</th>
         <th style="width:52px;background:rgba(255,69,58,.08)"></th>
@@ -4508,10 +4526,12 @@ function mobFilter(q){
 function _renderMobList(){
   const q = _mobQuery;
   const filtered = wines.filter(w => {
+    const giac = parseInt(w.giacenza)||0;
+    if(giac <= 0) return false; // mobile: mostra solo vini scaricabili
     if(!q) return true;
     const hay = (w.nome+" "+w.produttore+" "+(w.annata||"")+" "+w.tipologia).toLowerCase();
     return hay.includes(q);
-  }).sort((a,b) => a.nome.localeCompare(b.nome));
+  }).sort((a,b) => a.tipologia.localeCompare(b.tipologia) || a.nome.localeCompare(b.nome));
 
   const list = document.getElementById("mob-list");
   const empty = document.getElementById("mob-empty");
@@ -4520,14 +4540,15 @@ function _renderMobList(){
   if(filtered.length === 0){
     list.innerHTML = "";
     empty.style.display = "block";
+    empty.textContent = q ? "Nessun vino trovato" : "Nessun vino disponibile in cantina";
     return;
   }
   empty.style.display = "none";
 
   list.innerHTML = filtered.map(w => {
     const giac = parseInt(w.giacenza)||0;
-    const gClass = giac === 0 ? "zero" : giac <= (alertSoglie[w.id]??3) ? "low" : "";
-    const bMinus = giac === 0;
+    const sg = _getSoglie(w.id);
+    const gClass = giac <= sg.min ? "low" : "";
     return `<div class="mob-wine-row">
       <div class="mob-wine-info">
         <div class="mob-wine-name">${h(w.nome)}</div>
@@ -4538,7 +4559,7 @@ function _renderMobList(){
         </div>
       </div>
       <div class="mob-wine-right">
-        <button class="mob-btn mob-btn-minus" onclick="registraMovimentoMobile('${w.id}',-1)" ${bMinus?"disabled":""}
+        <button class="mob-btn mob-btn-minus" onclick="registraMovimentoMobile('${w.id}',-1)"
           aria-label="Scarica 1 bottiglia">−</button>
         <span class="mob-giacenza ${gClass}">${giac}</span>
         <button class="mob-btn mob-btn-plus" onclick="registraMovimentoMobile('${w.id}',1)"
