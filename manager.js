@@ -618,7 +618,7 @@ async function loadData(){
   if(!_sb){
     _loadLocalBackup();
     _setDbStatus("off","Solo locale");
-    render();
+    if(_mobActive){ _renderMobList(); _renderMobLog(); updateSidebar(); } else render();
     return;
   }
   _setDbStatus("sync","Caricamento…");
@@ -4506,7 +4506,9 @@ function enterMobileMode(){
   document.getElementById("mob-screen").style.display = "flex";
   document.getElementById("app").style.display = "none";
   _renderMobLog();
-  mobFilter("");
+  // Mostra subito uno stato di attesa — i dati arrivano da loadData() in modo asincrono
+  const list = document.getElementById("mob-list");
+  if(list) list.innerHTML = `<div style="text-align:center;padding:48px 24px;color:var(--txt4);font-size:12px">⏳ Caricamento dati…</div>`;
 }
 
 function exitMobileMode(){
