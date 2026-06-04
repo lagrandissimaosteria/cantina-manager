@@ -35,10 +35,11 @@ const PIE_COLORS = ["#FF9F0A","#007AFF","#30D158","#BF5AF2","#FF375F","#32ADE6",
 
 // ─── STATE ────────────────────────────────────────────────────────────────────
 let wines = [], movements = [], fallate = [], alertSoglie = {}, orders = [];
+let _bozzeSb = []; // bozze da ordini_testata+righe, caricate in background
 let section = "dashboard";
 let search = "", filterTipo = "tutti", filterVitigno = "tutti", filterFormato = "tutti", invSort = "tipologia";
 let analyticsRegione = "", analyticsTipo = "", analyticsAcquistiPeriodo = "mese";
-let movForm = {wineId:"",tipo:"carico",qty:1,data:today(),fattura:"",fornitore:"",note:"",prezzoAcqLotto:"",_wineText:"",_newProduttore:"",_newTipologia:"Rosso",_newPrezzoCarta:"",_tipologia:""};
+let movForm = {wineId:"",tipo:"carico",qty:1,data:today(),fattura:"",fornitore:"",note:"",prezzoAcqLotto:"",_wineText:"",_newProduttore:"",_newTipologia:"Rosso",_newPrezzoCarta:"",_newVitigni:"",_newZona:"",_newAnnata:"",_newRegione:"",_newNazione:"Italia",_newIva:22,_newDistributore:"",_tipologia:"",_newMode:false};
 let fallForm = {wineId:"",qty:1,motivo:FALLATA_MOTIVI[0],data:today(),note:""};
 // ─── PRICE SUGGESTION (FASCE PREZZO CARTA) ───────────────────────────────────
 // Fascia su prezzoAcq (ex IVA):
@@ -84,6 +85,8 @@ let _mobLog = []; // [{ts, desc}]
 let _mobUndoData = null; // {wineId, delta, movId, prevGiacenza, prevLots}
 let _mobToastTimer = null;
 let _mobToastBarTimer = null;
+let _mobAccordionOpen = {}; // { tipologia: true/false }
+let _mobSteppers = {};      // { wineId: qty }
 let selMode = null; // 'wines' | 'movimenti' | 'ordini'
 let selIds  = new Set();
 let _selAllIds = []; // IDs di tutte le righe visibili, aggiornato dal render
@@ -99,7 +102,7 @@ function _updateBulkBar(){
   const countEl=document.getElementById("bulk-count");
   if(countEl) countEl.textContent=`${n} selezionat${n===1?"o":"i"}`;
   // abilita/disabilita bottoni action
-  ["bulk-btn-delete","bulk-btn-edit"].forEach(id=>{
+  ["bulk-btn-delete","bulk-btn-edit","bulk-btn-ordine"].forEach(id=>{
     const btn=document.getElementById(id);
     if(!btn) return;
     btn.disabled=(n===0);
@@ -327,6 +330,12 @@ function calcMarginePerc(w){
 function calcValoreCarta(w){return (parseFloat(w.prezzoCarta)||0)*(parseInt(w.giacenza)||0)}
 function calcRicavoMovimento(m,w){
   return m.qty*(parseFloat(w?.prezzoCarta)||0);
+}
+// M7: usa costoUnitarioIva salvato al momento dello scarico se presente,
+// altrimenti fallback alla media ponderata lotti corrente (movimenti storici pre-fix).
+function calcCostoMovimento(m,w){
+  if(m.costoUnitarioIva) return m.qty * m.costoUnitarioIva;
+  return m.qty * calcCostoIvaBottiglia(w||{});
 }
 function calcMargin(w){
   const a=parseFloat(w.prezzoAcq)||0, c=parseFloat(w.prezzoCarta)||0;
@@ -689,6 +698,7 @@ function renderBulkBar(mode, allIds){
     <div class="bulk-bar-actions" id="bulk-bar-actions">
       <button class="btn-danger${n===0?' bulk-btn-disabled':''}" id="bulk-btn-delete" onclick="${deleteFn}" ${n===0?'disabled':''}>🗑️ ${deleteLabel}</button>
       <button class="btn-bulk-edit${n===0?' bulk-btn-disabled':''}" id="bulk-btn-edit" onclick="${editFn}" ${n===0?'disabled':''}>✏️ Modifica campi</button>
+      ${mode==='wines'?`<button class="btn-bulk-edit${n===0?' bulk-btn-disabled':''}" id="bulk-btn-ordine" onclick="creaBasiOrdineDatiSelezionati()" ${n===0?'disabled':''} style="background:rgba(48,209,88,.12);border-color:rgba(48,209,88,.3);color:#30D158">🛒 Crea Basi Ordine</button>`:''}
     </div>
     <button class="btn-cancel-sel" onclick="exitSel()">✕ Annulla selezione</button>
   </div>`;
@@ -773,6 +783,9 @@ function destroyCharts(){
   activeCharts={};
 }
 
+// Ricalcola altezza tabella inventario al resize finestra
+window.addEventListener("resize", ()=>{ if(section==="inventario") _setInvScrollHeight(); });
+
 // Auto-login se sessione ancora valida
 if(sessionStorage.getItem("cm_logged")==="1"){
   document.getElementById("login-screen").style.display="none";
@@ -807,13 +820,14 @@ function selectWineRow(id){
 function _updateTopbarActions(id){
   const btnEdit=document.getElementById("tba-edit");
   const btnNote=document.getElementById("tba-note");
+  const btnRett=document.getElementById("tba-rett");
   const btnDel =document.getElementById("tba-del");
   if(!btnEdit) return;
   if(!id){
-    [btnEdit,btnNote,btnDel].forEach(b=>b.classList.remove("enabled","has-note")); return;
+    [btnEdit,btnNote,btnRett,btnDel].forEach(b=>b.classList.remove("enabled","has-note")); return;
   }
   const w=wines.find(x=>x.id===id);
-  [btnEdit,btnNote,btnDel].forEach(b=>b.classList.add("enabled"));
+  [btnEdit,btnNote,btnRett,btnDel].forEach(b=>b.classList.add("enabled"));
   btnNote.classList.toggle("has-note", !!(w&&w.noteVeloce));
 }
 
@@ -828,6 +842,91 @@ function _tbaNote(){
 function _tbaDel(){
   if(!_selectedWineId) return;
   deleteWine(_selectedWineId);
+}
+function _tbaRett(){
+  if(!_selectedWineId) return;
+  openRettificaGiacenza(_selectedWineId);
+}
+
+function openRettificaGiacenza(id){
+  const w=wines.find(x=>x.id===id);
+  if(!w) return;
+  const giacAttuale=parseInt(w.giacenza)||0;
+  const bd=document.createElement("div");
+  bd.className="modal-backdrop";
+  bd.id="rett-backdrop";
+  bd.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);z-index:40;display:flex;align-items:center;justify-content:center;padding:16px";
+  bd.innerHTML=`
+    <div class="modal" style="max-width:380px" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h2>⚖️ Rettifica Giacenza</h2>
+        <button style="font-size:18px;color:var(--txt3)" onclick="document.getElementById('rett-backdrop').remove()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div style="font-size:13px;font-weight:500;color:var(--txt);margin-bottom:4px">${h(w.nome)}</div>
+        <div style="font-size:11px;color:var(--txt4);margin-bottom:20px">${h(w.produttore||'')}${w.annata?' · '+h(w.annata):''}</div>
+        <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;padding:14px;background:var(--bg3);border-radius:var(--radius-sm)">
+          <div style="text-align:center;flex:1">
+            <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--txt4);margin-bottom:4px">Giacenza attuale</div>
+            <div style="font-family:'Montserrat',sans-serif;font-size:2rem;font-weight:300;color:var(--amber)">${giacAttuale}</div>
+          </div>
+          <div style="font-size:20px;color:var(--txt4)">→</div>
+          <div style="text-align:center;flex:1">
+            <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--txt4);margin-bottom:4px">Giacenza reale</div>
+            <input id="rett-qty" type="number" min="0" step="1" value="${giacAttuale}"
+              class="form-input" style="text-align:center;font-family:'Montserrat',sans-serif;font-size:1.6rem;font-weight:300;color:#30D158;width:100%;padding:6px"
+              oninput="document.getElementById('rett-delta').textContent=_rettDelta(this.value,${giacAttuale})">
+          </div>
+        </div>
+        <div id="rett-delta" style="text-align:center;font-size:12px;color:var(--txt3);margin-bottom:16px">${_rettDelta(giacAttuale,giacAttuale)}</div>
+        <div class="form-row">
+          <label class="form-label">Nota (opzionale)</label>
+          <input id="rett-note" class="form-input" placeholder="es. Inventario fisico 04/06/2026">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-outline" onclick="document.getElementById('rett-backdrop').remove()">Annulla</button>
+        <button class="btn-primary" onclick="_confirmRettifica('${id}',${giacAttuale})">✓ Conferma rettifica</button>
+      </div>
+    </div>`;
+  bd.addEventListener("click", function(e){ if(e.target===bd) bd.remove(); });
+  document.body.appendChild(bd);
+  setTimeout(()=>document.getElementById("rett-qty")?.focus(),80);
+}
+
+function _rettDelta(newVal, attuale){
+  const n=parseInt(newVal)||0, diff=n-attuale;
+  if(diff===0) return "Nessuna variazione";
+  const sign=diff>0?"+":"";
+  const col=diff>0?"#30D158":"#FF453A";
+  return `<span style="color:${col};font-weight:600">${sign}${diff} bt</span> — verrà registrato un movimento di ${diff>0?"<b>carico</b>":"<b>scarico</b>"}`;
+}
+
+function _confirmRettifica(id, giacAttuale){
+  const newQty=parseInt(document.getElementById("rett-qty").value);
+  const nota=document.getElementById("rett-note").value.trim();
+  if(isNaN(newQty)||newQty<0){ notify("Quantità non valida","err"); return; }
+  const diff=newQty-giacAttuale;
+  if(diff===0){ document.getElementById("rett-backdrop")?.remove(); return; }
+  const w=wines.find(x=>x.id===id);
+  if(!w) return;
+  // Crea movimento
+  const mov={
+    id: uid(), wineId: id, wineName: w.nome, produttore: w.produttore||"",
+    nazione: w.nazione||"", annata: w.annata||"",
+    tipo: diff>0?"carico":"scarico",
+    qty: Math.abs(diff),
+    data: new Date().toISOString().slice(0,10),
+    note: nota || "Rettifica giacenza inventario",
+    fornitore:"", fattura:""
+  };
+  movements.push(mov);
+  // Aggiorna giacenza
+  wines=wines.map(x=>x.id===id?{...x,giacenza:newQty}:x);
+  scheduleSave();
+  document.getElementById("rett-backdrop")?.remove();
+  notify(`⚖️ Rettifica registrata: ${w.nome} → ${newQty} bt (${diff>0?"+":""}${diff})`);
+  render();
 }
 
 // Nascondi bottoni topbar quando si esce dall'inventario
@@ -958,16 +1057,33 @@ function render(){
   else if(section==="movimenti"){movForm.data=today();fallForm.data=today();c.innerHTML=renderMovimenti();}
   else if(section==="fallate") c.innerHTML=renderFallate();
   else if(section==="analytics") c.innerHTML=renderAnalytics();
-  else if(section==="ordini") c.innerHTML=renderOrdini();
+  else if(section==="ordini"){
+    c.innerHTML=renderOrdini();
+    _loadBozzeSb(); // carica bozze remote in background e aggiorna se ci sono
+  }
   else if(section==="export") c.innerHTML=renderExport();
   else if(section==="impostazioni") c.innerHTML=renderImpostazioni();
   afterRender();
 }
 
+function _setInvScrollHeight(){
+  // Nessun calcolo JS — lo scroll è della pagina, altezza automatica
+}
+
 function afterRender(){
   if(section==="dashboard") initDashboardCharts();
   else if(section==="analytics") initAnalyticsCharts();
+  // Shortcut tooltip hints su bottoni topbar
+  _applyShortcutTitles();
+  // Auto-focus campo vino su Movimenti (evita clic manuale al cambio sezione)
+  if(section==="movimenti"){
+    requestAnimationFrame(()=>{
+      const wineInput = document.getElementById('mov-wine-input');
+      if(wineInput && !movForm.wineId) wineInput.focus();
+    });
+  }
   if(section==="inventario"){
+    _setInvScrollHeight();
     initColResize();
     // Ripristina riga selezionata se ancora presente
     if(_selectedWineId){
@@ -982,6 +1098,25 @@ function afterRender(){
     const arrow=document.getElementById("report-inline-arrow");
     if(body){ body.style.display="block"; body.innerHTML=_renderReportBody(reportSerataData); }
     if(arrow){ arrow.className="report-toggle-arrow open"; }
+  }
+}
+
+// Aggiorna i title dei bottoni topbar con hint shortcut da tastiera
+function _applyShortcutTitles(){
+  const map = {
+    "btn-add-wine": "Aggiungi Vino  [N]",
+    "tba-edit":     "Modifica vino selezionato  [E]",
+    "tba-note":     "Nota veloce  [P]",
+    "tba-del":      "Elimina vino selezionato  [Canc]",
+  };
+  Object.entries(map).forEach(([id, title]) => {
+    const el = document.getElementById(id);
+    if(el) el.title = title;
+  });
+  // Aggiorna anche il placeholder della barra di ricerca inventario con hint "/"
+  const invSearch = document.getElementById("inv-search");
+  if(invSearch && !invSearch.placeholder.includes("[/]")){
+    invSearch.placeholder = "Cerca vino…  [/]";
   }
 }
 
@@ -1044,6 +1179,9 @@ function renderInventarioOnly(){
         }).join("");
       }
 
+      // B6: aggiorna _selAllIds con la lista filtrata corrente
+      if(selMode==='wines') _selAllIds = list.map(w=>w.id);
+
       // Ripristina selezione, resize handles, scroll e focus
       if(_selectedWineId){
         const row=tbody.querySelector(`tr[data-wine-id="${_selectedWineId}"]`);
@@ -1051,6 +1189,7 @@ function renderInventarioOnly(){
         else{_selectedWineId=null;}
       }
       _updateBulkBar();
+      _setInvScrollHeight();
       initColResize();
       window.scrollTo(0,sy);
       try{invSearch.focus();if(pos!==null)invSearch.setSelectionRange(pos,pos);}catch{}
@@ -1093,13 +1232,15 @@ function renderDashboard(){
     if(!m.data) return;
     const key=m.data.slice(0,7), w=wineMap[m.wineId];
     if(monthMap[key]){
-      if(m.tipo==="scarico"){monthMap[key].vendute+=m.qty;monthMap[key].ricavo+=calcRicavoMovimento(m,w);monthMap[key].costo+=m.qty*calcCostoIvaBottiglia(w||{});}
+      if(m.tipo==="scarico"){monthMap[key].vendute+=m.qty;monthMap[key].ricavo+=calcRicavoMovimento(m,w);monthMap[key].costo+=calcCostoMovimento(m,w);}
       else monthMap[key].caricate+=m.qty;
     }
     if(m.tipo==="scarico"&&w){
-      const mb=calcMargineBottiglia(w)||0;
+      // M8: usa margine reale al momento dello scarico (ricavo − costo snapshot M7)
+      // invece del margine corrente — più accurato in presenza di variazioni di prezzo.
+      const mbStorico = calcRicavoMovimento(m,w) - calcCostoMovimento(m,w);
       if(!wineMarginMap[m.wineId]) wineMarginMap[m.wineId]={name:w.nome,margine:0,qty:0};
-      wineMarginMap[m.wineId].margine+=mb*m.qty; wineMarginMap[m.wineId].qty+=m.qty;
+      wineMarginMap[m.wineId].margine+=mbStorico; wineMarginMap[m.wineId].qty+=m.qty;
     }
   });
   const trendData=Object.values(monthMap).map(d=>({...d,margine:d.ricavo-d.costo}));
@@ -1281,7 +1422,7 @@ function renderInventario(){
   
   html+=`<div class="card" style="padding:0">
     ${selMode==='wines'?renderBulkBar('wines', list.map(w=>w.id)):''}
-    <div class="tbl-header" style="flex-wrap:nowrap;gap:6px;align-items:center;position:sticky;top:57px;z-index:18;background:var(--bg2);border-bottom:1px solid var(--border);box-shadow:0 4px 16px rgba(0,0,0,.35)">
+    <div class="tbl-header" id="inv-filter-bar" style="flex-wrap:nowrap;gap:6px;align-items:center;position:sticky;top:${selMode==='wines'?'110px':'57px'};z-index:18;background:var(--bg2);border-bottom:1px solid var(--border)">
       <div class="search-wrap" style="flex-shrink:0"><span class="search-icon">🔍</span><input id="inv-search" class="form-input" style="width:180px;padding-left:28px" placeholder="Cerca vino…" value="${h(search)}" oninput="search=this.value;renderInventarioOnly()"></div>
       ${selMode!=='wines'?`<button class="btn-outline btn-sm" onclick="enterSel('wines')" style="border-color:rgba(59,130,246,.5);color:#93c5fd;flex-shrink:0;white-space:nowrap">☑ Multipla</button>`:''}
       <div style="display:flex;align-items:center;gap:5px;flex:1;min-width:0;overflow:hidden">
@@ -1312,6 +1453,7 @@ function renderInventario(){
       <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
         <button class="topbar-action-btn edit" id="tba-edit" onclick="_tbaEdit()" title="Modifica vino selezionato">✏️ Modifica</button>
         <button class="topbar-action-btn note" id="tba-note" onclick="_tbaNote()" title="Nota veloce">📝 Nota</button>
+        <button class="topbar-action-btn" id="tba-rett" onclick="_tbaRett()" title="Rettifica giacenza" style="background:rgba(48,209,88,.1);border:1px solid rgba(48,209,88,.25);color:#30D158">⚖️ Rettifica</button>
         <button class="topbar-action-btn del"  id="tba-del"  onclick="_tbaDel()"  title="Elimina vino selezionato">🗑️</button>
       </div>
     </div>
@@ -1357,18 +1499,30 @@ function _setSoglia(wineId, field, delta){
 
 
 function _applyPrezzoCartaSuggerito(overwriteAll){
-  if(overwriteAll && !confirm(`Ricalcola P.Carta per tutti i ${wines.filter(w=>w.prezzoAcq>0).length} vini con le fasce standard?\nI prezzi già impostati verranno sovrascritti.`)) return;
-  let count = 0;
-  wines = wines.map(w => {
-    if(!w.prezzoAcq) return w;
-    if(!overwriteAll && w.prezzoCarta) return w; // skip if already has price
-    const suggerito = _calcPrezzoCartaSuggerito(w);
-    if(!suggerito) return w;
-    count++;
-    return {...w, prezzoCarta: suggerito};
-  });
-  scheduleSave(); render();
-  notify(`✅ P.Carta aggiornato su ${count} vini`);
+  const _doApply = () => {
+    let count = 0;
+    wines = wines.map(w => {
+      if(!w.prezzoAcq) return w;
+      if(!overwriteAll && w.prezzoCarta) return w;
+      const suggerito = _calcPrezzoCartaSuggerito(w);
+      if(!suggerito) return w;
+      count++;
+      return {...w, prezzoCarta: suggerito};
+    });
+    scheduleSave(); render();
+    notify(`✅ P.Carta aggiornato su ${count} vini`);
+  };
+  if(overwriteAll){
+    const n = wines.filter(w=>w.prezzoAcq>0).length;
+    _confirmModal(
+      `Ricalcola P.Carta per <strong>${n} vini</strong> con le fasce standard?<br><span style="font-size:11px;color:var(--txt4)">I prezzi già impostati verranno sovrascritti.</span>`,
+      "✅ Ricalcola",
+      _doApply,
+      'warn'
+    );
+  } else {
+    _doApply();
+  }
 }
 
 
@@ -1519,6 +1673,7 @@ function registraScaricaSerata(){
   const newMovs = righe.map(r => ({
     id: uid(), wineId: r.wine.id, wineName: r.wine.nome, produttore: r.wine.produttore, nazione: r.wine.nazione||"",
     tipo: "scarico", qty: r.qty, data, fattura: "", fornitore: "",
+    costoUnitarioIva: calcCostoIvaBottiglia(r.wine),
     note: note || "Scarico serata", ts: Date.now()
   }));
   movements = [...newMovs, ...movements];
@@ -1557,6 +1712,7 @@ function registraScaricaSingoloVino(wineId){
   movements = [{
     id:uid(), wineId, wineName:wine.nome, produttore:wine.produttore, nazione:wine.nazione||"",
     tipo:"scarico", qty, data, fattura:"", fornitore:"",
+    costoUnitarioIva: calcCostoIvaBottiglia(wine),
     note:note||"Scarico serata", ts:Date.now()
   }, ...movements];
 
@@ -1659,7 +1815,7 @@ function renderMovimenti(){
                 <td style="padding:8px 12px;text-align:center;border-bottom:1px solid rgba(41,37,36,.4)">${badge(w.tipologia)}</td>
                 <td style="padding:8px 12px;text-align:center;font-family:'Montserrat',sans-serif;font-size:1.1rem;color:var(--amber3);border-bottom:1px solid rgba(41,37,36,.4);background:rgba(255,159,10,.05)">${w.giacenza}</td>
                 <td style="padding:6px 12px;text-align:center;border-bottom:1px solid rgba(41,37,36,.4);background:rgba(255,69,58,.04)">
-                  <input type="number" min="0" max="${w.giacenza}" step="1"
+                  <input type="number" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" min="0" max="${w.giacenza}" step="1"
                     class="form-input"
                     style="width:72px;text-align:center;font-family:'Montserrat',sans-serif;font-size:1rem;padding:4px 6px;${overLimit?"border-color:#ef4444;color:#FF453A":hasVal?"border-color:rgba(239,68,68,.5);color:#FF6B6B":""}"
                     value="${qVal}"
@@ -1708,73 +1864,124 @@ function renderMovimenti(){
           <label class="form-label">Fornitore <span style="color:var(--txt4);font-size:9px;text-transform:none;letter-spacing:0">— opzionale</span></label>
           <input class="form-input" value="${h(movForm.fornitore)}" placeholder="es. Vini Italiani Srl" oninput="movForm.fornitore=this.value">
         </div>
-        <div>
-          <label class="form-label">Produttore ${!selW&&movForm._wineText&&!movForm.wineId?'<span style="color:var(--amber3)">*</span>':''}</label>
-          <datalist id="mov-prod-dl">
-            ${[...new Set(wines.map(w=>w.produttore).filter(Boolean))].sort().map(p=>`<option value="${h(p)}">`).join("")}
-          </datalist>
+        ${!selW?`<div>
+          <label class="form-label">Produttore <span style="color:var(--amber3)">*</span></label>
+          <datalist id="mov-prod-dl">${[...new Set(wines.map(w=>w.produttore).filter(Boolean))].sort().map(p=>`<option value="${h(p)}">`).join("")}</datalist>
           <input id="mov-prod-input" class="form-input" list="mov-prod-dl" autocomplete="off"
-            placeholder="${selW?h(selW.produttore):'es. Giacomo Conterno'}"
-            value="${selW?h(selW.produttore):(movForm._newProduttore||'')}"
-            ${selW?'disabled':''}
+            placeholder="es. Giacomo Conterno" value="${movForm._newProduttore||''}"
             oninput="movForm._newProduttore=this.value">
-        </div>
-      </div>`:`
+        </div>`:'<div></div>'}
+      </div>`:``}
       <div class="form-row" style="margin-bottom:8px">
-        <label class="form-label">Produttore ${!selW&&movForm._wineText&&!movForm.wineId?'<span style="color:var(--amber3)">*</span>':''}</label>
-        <datalist id="mov-prod-dl">
-          ${[...new Set(wines.map(w=>w.produttore).filter(Boolean))].sort().map(p=>`<option value="${h(p)}">`).join("")}
-        </datalist>
-        <input id="mov-prod-input" class="form-input" list="mov-prod-dl" autocomplete="off"
-          placeholder="${selW?h(selW.produttore):'es. Giacomo Conterno'}"
-          value="${selW?h(selW.produttore):(movForm._newProduttore||'')}"
-          ${selW?'disabled':''}
-          oninput="movForm._newProduttore=this.value">
-      </div>`}
-      <div class="form-row" style="margin-bottom:8px"><label class="form-label">Vino <span style="color:var(--txt4);font-size:9px;text-transform:none;letter-spacing:0">— cerca esistente o scrivi nome nuovo</span></label>
+        <label class="form-label">Vino <span style="color:var(--txt4);font-size:9px;text-transform:none;letter-spacing:0">— cerca per nome, produttore o annata</span></label>
         <datalist id="mov-wine-dl">
-          ${wines.map(w=>`<option value="${h(w.nome+' — '+w.produttore+(w.annata?' ('+w.annata+')':''))}">`).join("")}
+          ${wines.map(w=>`<option value="${h(w.nome+' \u2014 '+w.produttore+(w.annata?' ('+w.annata+')':'')+' ['+w.tipologia+']')}">`).join("")}
         </datalist>
-        <input id="mov-wine-input" class="form-input" list="mov-wine-dl" autocomplete="off"
-          placeholder="Cerca o scrivi nome vino…"
-          value="${selW?h(selW.nome+' — '+selW.produttore+(selW.annata?' ('+selW.annata+')':'')):(movForm._wineText||'')}"
-          oninput="_movWineMatchSilent(this.value)"
-          onchange="_movWineMatch(this.value);render()">
-        ${(!selW&&movForm._wineText&&!movForm.wineId)
-          ? `<div style="font-size:10px;color:var(--amber);margin-top:4px">✦ Vino non trovato — verrà creato come nuova referenza</div>`
-          : ''}
-      </div>
-      ${movForm.tipo==="carico"?`
-      <div class="form-grid g2" style="margin-bottom:8px">
-        <div>
-          <label class="form-label">Vitigni <span style="color:var(--txt4);font-size:9px;text-transform:none;letter-spacing:0">— opzionale</span></label>
-          <input class="form-input" placeholder="es. Nebbiolo 100%"
-            value="${selW?h(selW.vitigni||''):''}"
-            ${selW?'disabled':''}
-            oninput="if(!${!!selW}) movForm._newVitigni=this.value">
+        <div style="display:flex;gap:6px">
+          <input id="mov-wine-input" class="form-input" list="mov-wine-dl" autocomplete="off"
+            placeholder="es. Petricore \u2014 Valentini (2025) [Bianco]"
+            value="${selW?(h(selW.nome)+' \u2014 '+h(selW.produttore)+(selW.annata?' ('+h(selW.annata)+')':'')):(movForm._wineText||'')}"
+            style="flex:1"
+            oninput="_movWineMatchSilent(this.value.trim())"
+            onchange="_movWineMatch(this.value.trim());_movWineUpdatePanel()">
+          ${selW?'<button onclick="movForm.wineId=\'\';movForm._wineText=\'\';movForm._newMode=false;render()" style="flex-shrink:0;padding:0 10px;border:1px solid var(--border2);color:var(--txt3);background:none;cursor:pointer;font-size:13px;border-radius:var(--radius-sm)" title="Cambia vino">\u2715</button>':''}
         </div>
-        <div>
-          <label class="form-label">Zona / Cru <span style="color:var(--txt4);font-size:9px;text-transform:none;letter-spacing:0">— opzionale</span></label>
-          <input class="form-input" placeholder="es. Cannubi"
-            value="${selW?h(selW.zona||''):''}"
-            ${selW?'disabled':''}
-            oninput="if(!${!!selW}) movForm._newZona=this.value">
+        ${selW?`<div style="margin-top:6px;display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(255,159,10,.06);border:1px solid rgba(255,159,10,.15);border-radius:var(--radius-sm);flex-wrap:wrap">
+            ${badge(selW.tipologia)}
+            <span style="color:var(--txt2);font-size:12px;font-weight:500">${h(selW.nome)}</span>
+            <span style="color:var(--txt3);font-size:11px">${h(selW.produttore)}</span>
+            <span style="color:var(--amber);font-family:'Montserrat',sans-serif">${selW.annata?h(selW.annata):'N.V.'}</span>
+            ${selW.vitigni?('<span style="color:var(--txt4);font-size:10px">\ud83c\udf47 '+h(selW.vitigni)+'</span>'):''}
+            <span style="margin-left:auto;color:var(--amber);font-family:'Montserrat',sans-serif;font-size:1.1rem">${selW.giacenza} bt</span>
+          </div>
+          ${movForm.tipo==="carico"?('<div style="margin-top:6px"><button onclick="movForm._newMode=true;movForm.wineId=\'\';movForm._newProduttore=\''+h(selW.produttore)+'\';movForm._newTipologia=\''+selW.tipologia+'\';movForm._newVitigni=\''+h(selW.vitigni||'')+'\';movForm._newRegione=\''+h(selW.regione||'')+'\';movForm._newNazione=\''+h(selW.nazione||'Italia')+'\';movForm._newZona=\''+h(selW.zona||'')+'\';movForm._wineText=\'\';render()" style="font-size:10px;font-weight:600;padding:4px 12px;border:1px solid rgba(255,159,10,.4);color:var(--amber);background:rgba(255,159,10,.1);cursor:pointer;font-family:inherit;border-radius:6px">\u2746 Nuova annata / variante di questo vino</button></div>'):''}`:''
+        }
+        ${(!selW&&movForm._wineText&&!movForm.wineId&&!movForm._newMode)?
+          ('<div style="margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-size:10px;color:var(--txt3)">Vino non trovato in cantina.</span>'
+          +(movForm.tipo==="carico"?'<button onclick="movForm._newMode=true;render()" style="font-size:10px;font-weight:600;padding:4px 12px;border:1px solid rgba(48,209,88,.35);color:#30D158;background:rgba(48,209,88,.08);cursor:pointer;font-family:inherit;border-radius:6px">\u2746 Crea nuova referenza</button>':'<span style="color:#FF453A;font-size:10px">Impossibile scaricare \u2014 vino non in cantina</span>')
+          +'</div>')
+          :''}
+      </div>
+
+      ${(movForm.tipo==="carico"&&movForm._newMode&&!movForm.wineId)?`
+      <div style="background:rgba(48,209,88,.04);border:1px solid rgba(48,209,88,.2);padding:14px;margin-bottom:8px;border-radius:var(--radius-sm)">
+        <div style="font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:#30D158;margin-bottom:12px">\u2746 Nuova Referenza &mdash; dati completi per la carta vini</div>
+        <div class="form-grid g2" style="margin-bottom:8px">
+          <div><label class="form-label">Nome Vino *</label>
+            <input class="form-input" placeholder="es. Petricore" value="${h(movForm._wineText||'')}"
+              oninput="movForm._wineText=this.value;movForm.wineId='';_movUpdateCartaPreview()">
+          </div>
+          <div><label class="form-label">Produttore *</label>
+            <datalist id="mov-prod-dl2">${[...new Set(wines.map(w=>w.produttore).filter(Boolean))].sort().map(p=>`<option value="${h(p)}">`).join("")}</datalist>
+            <input class="form-input" list="mov-prod-dl2" autocomplete="off" placeholder="es. Valentini"
+              value="${h(movForm._newProduttore||'')}" oninput="movForm._newProduttore=this.value;_movUpdateCartaPreview()">
+          </div>
+          <div><label class="form-label">Annata</label>
+            <input class="form-input" placeholder="es. 2025 o N.V." value="${h(movForm._newAnnata||'')}"
+              oninput="movForm._newAnnata=this.value;_movUpdateCartaPreview()">
+          </div>
+          <div><label class="form-label">Tipologia *</label>
+            <select class="form-select" data-prev="Rosso" onchange="_addTipologiaInline(this,(v)=>_movTipologiaChange(v));if(this.value!=='__new__'){this.dataset.prev=this.value;_movTipologiaChange(this.value)}">
+              ${_tipoOptsHtml(movForm._newTipologia||'Rosso')}
+            </select>
+          </div>
+          <div><label class="form-label">Vitigni</label>
+            <input class="form-input" placeholder="es. Trebbiano 100%" value="${h(movForm._newVitigni||'')}"
+              oninput="movForm._newVitigni=this.value;_movUpdateCartaPreview()">
+          </div>
+          <div><label class="form-label">Zona / Cru</label>
+            <input class="form-input" placeholder="es. Vigna Gamberale" value="${h(movForm._newZona||'')}"
+              oninput="movForm._newZona=this.value">
+          </div>
+          <div><label class="form-label">Regione</label>
+            <input class="form-input" placeholder="es. Abruzzo" value="${h(movForm._newRegione||'')}"
+              oninput="movForm._newRegione=this.value">
+          </div>
+          <div><label class="form-label">Nazione</label>
+            <input class="form-input" placeholder="es. Italia" value="${h(movForm._newNazione||'Italia')}"
+              oninput="movForm._newNazione=this.value">
+          </div>
+          <div><label class="form-label">Prezzo in Carta \u20ac</label>
+            <input class="form-input" type="number" step="0.5" min="0" placeholder="0.00"
+              value="${movForm._newPrezzoCarta||''}" oninput="movForm._newPrezzoCarta=this.value;_movUpdateCartaPreview()">
+          </div>
+          <div><label class="form-label">Distributore</label>
+            <input class="form-input" placeholder="es. Vini Italiani Srl"
+              value="${h(movForm._newDistributore||'')}" oninput="movForm._newDistributore=this.value">
+          </div>
+          <div><label class="form-label">IVA %</label>
+            <select class="form-select" onchange="movForm._newIva=parseInt(this.value)">
+              ${[4,10,22].map(v=>`<option value="${v}" ${(movForm._newIva||22)===v?"selected":""}>${v}%</option>`).join("")}
+            </select>
+          </div>
+          <div><label class="form-label">Prezzo Acquisto (escl. IVA) €</label>
+            <input class="form-input" type="number" step="0.01" min="0" placeholder="0.00"
+              value="${movForm.prezzoAcqLotto||''}" oninput="movForm.prezzoAcqLotto=this.value;_movUpdateCartaPreview()">
+          </div>
+          <div style="grid-column:span 2">
+            <div id="mov-new-preview" style="display:none;padding:10px 14px;background:rgba(0,122,255,.06);border:1px solid rgba(0,122,255,.2);border-radius:var(--radius-sm);font-size:11px">
+              <span style="font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:#007AFF">📋 Anteprima carta vini</span>
+              <div id="mov-new-preview-body" style="margin-top:6px;color:var(--txt2)"></div>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+          <button onclick="movForm._newMode=false;movForm.wineId='';movForm._wineText='';render()"
+            style="font-size:10px;padding:4px 10px;border:1px solid var(--border2);color:var(--txt3);background:none;cursor:pointer;font-family:inherit;border-radius:6px">\u2715 Annulla</button>
+          <span style="font-size:10px;color:var(--txt4)">La referenza verrà creata al momento del Registra Carico</span>
         </div>
       </div>`:''}
+
       <div class="form-grid g2" style="margin-bottom:8px">
-        <div>
-          <label class="form-label">Tipologia${!selW&&movForm._wineText&&!movForm.wineId?' <span style="color:var(--amber3)">*</span>':''}</label>
-          <select class="form-select" data-prev="Rosso" onchange="_addTipologiaInline(this,(v)=>_movTipologiaChange(v));if(this.value!=='__new__'){this.dataset.prev=this.value;_movTipologiaChange(this.value)}">
-            ${selW
-              ? _tipoOptsHtml(selW.tipologia)
-              : _tipoOptsHtml(movForm._newTipologia||'Rosso')}
-            ${selW&&!TIPOLOGIE.includes(selW.tipologia)?`<option value="${h(selW.tipologia)}" selected>${h(selW.tipologia)}</option>`:''}
-          </select>
-          ${selW?`<div style="margin-top:4px;font-size:10px;color:var(--txt3)">${selW.annata||'N.V.'} · ${selW.giacenza} bt disponibili</div>`:''}
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm)">
+          <span style="font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--txt4)">Qtà</span>
+          <input id="mov-qty-input" class="form-input" type="number" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" min="1" value="${movForm.qty}" oninput="movForm.qty=this.value" style="text-align:center;font-family:'Montserrat',sans-serif;font-size:1.2rem;background:none;border:none;padding:0;width:60px">
+          <span style="font-size:11px;color:var(--txt3)">bottiglie</span>
         </div>
-        <div><label class="form-label">Quantità</label><input class="form-input" type="number" value="${movForm.qty}" oninput="movForm.qty=this.value"></div>
+        <div></div>
       </div>
       ${movForm.tipo==="carico"?`
+      ${!movForm._newMode?`
       <div class="form-grid g2" style="margin-bottom:8px">
         <div>
           <label class="form-label">Prezzo Acquisto Lotto (escl. IVA) € <span style="color:var(--txt4);font-size:9px;text-transform:none;letter-spacing:0">— vuoto = prezzo attuale</span></label>
@@ -1783,11 +1990,12 @@ function renderMovimenti(){
         <div>
           <label class="form-label">Prezzo in Carta € <span style="color:var(--txt4);font-size:9px;text-transform:none;letter-spacing:0">— opzionale</span></label>
           <input class="form-input" type="number" step="0.5" min="0" placeholder="${selW?fmtN(selW.prezzoCarta||0):"0.00"}"
-            value="${(!selW&&movForm._wineText&&!movForm.wineId)?(movForm._newPrezzoCarta||''):selW?h(String(selW.prezzoCarta||'')):''}'"
+            value="${selW?h(String(selW.prezzoCarta||'')):''}'"
             ${selW?'disabled':''}
             oninput="movForm._newPrezzoCarta=this.value">
         </div>
-      </div>
+      </div>`:''
+      }
       <div class="form-row" style="margin-bottom:8px">
         <label class="form-label">N° Fattura <span style="color:var(--txt4);font-size:9px;text-transform:none;letter-spacing:0">— opzionale</span></label>
         <input class="form-input" value="${h(movForm.fattura)}" placeholder="FT-2024-001" oninput="movForm.fattura=this.value">
@@ -1872,7 +2080,7 @@ function renderScaricoSerataPage(){
   const totDaScarico = winiDisponibili.reduce((s,w)=>s+(parseInt(scaricoSerata.qtys[w.id])||0),0);
   const sortBtn = (key, label) => {
     const active = sortKey === key;
-    return `<button onclick="scaricoSerata.sort='${key}';render()" style="font-size:10px;font-weight:${active?'700':'500'};padding:4px 12px;border:1px solid ${active?'rgba(255,159,10,.5)':'var(--border2)'};color:${active?'var(--amber)':'var(--txt3)'};background:${active?'rgba(255,159,10,.1)':'none'};cursor:pointer;font-family:inherit;border-radius:6px;transition:all .15s">${label}</button>`;
+    return `<button onclick="const _sy=window.scrollY;scaricoSerata.sort='${key}';render();requestAnimationFrame(()=>window.scrollTo(0,_sy))" style="font-size:10px;font-weight:${active?'700':'500'};padding:4px 12px;border:1px solid ${active?'rgba(255,159,10,.5)':'var(--border2)'};color:${active?'var(--amber)':'var(--txt3)'};background:${active?'rgba(255,159,10,.1)':'none'};cursor:pointer;font-family:inherit;border-radius:6px;transition:all .15s">${label}</button>`;
   };
   return `<div class="card" style="margin-bottom:16px">
     <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:16px">
@@ -1903,7 +2111,7 @@ function renderScaricoSerataPage(){
         <th style="text-align:left">Vino</th>
         <th style="text-align:left">Produttore</th>
         <th style="text-align:center">${badge('Tipo')}</th>
-        <th style="text-align:center;color:var(--amber3);background:rgba(255,159,10,.08);cursor:pointer" onclick="scaricoSerata.sort='giacenza';render()" title="Ordina per giacenza">Giacenza${sortKey==='giacenza'?' ↓':''}</th>
+        <th style="text-align:center;color:var(--amber3);background:rgba(255,159,10,.08);cursor:pointer" onclick="const _sy=window.scrollY;scaricoSerata.sort='giacenza';render();requestAnimationFrame(()=>window.scrollTo(0,_sy))" title="Ordina per giacenza">Giacenza${sortKey==='giacenza'?' ↓':''}</th>
         <th style="text-align:center;color:var(--txt);background:rgba(255,69,58,.08);min-width:110px">Scarico</th>
         <th style="text-align:right;color:#30D158;background:rgba(48,209,88,.06);min-width:80px">Ricavo</th>
         <th style="width:52px;background:rgba(255,69,58,.08)"></th>
@@ -1920,7 +2128,7 @@ function renderScaricoSerataPage(){
             <td style="text-align:center">${badge(w.tipologia)}</td>
             <td class="ssp-giac" style="text-align:center;font-family:'Montserrat',sans-serif;font-size:1.1rem;color:var(--amber3);background:rgba(255,159,10,.05)">${w.giacenza}</td>
             <td style="text-align:center;background:rgba(255,69,58,.04)">
-              <input type="number" min="0" max="${w.giacenza}" step="1" class="form-input"
+              <input type="number" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" min="0" max="${w.giacenza}" step="1" class="form-input"
                 style="width:80px;text-align:center;font-family:'Montserrat',sans-serif;font-size:1.1rem;padding:4px 8px;${overLimit?"border-color:#ef4444;color:#FF453A":hasVal?"border-color:rgba(239,68,68,.5);color:#FF6B6B":""}"
                 value="${qVal}" placeholder="0"
                 oninput="scaricoSerata.qtys['${w.id}']=this.value;const cb=document.querySelector('#ssp-table tr[data-wid=\\'${w.id}\\'] input[type=checkbox]');if(cb)cb.checked=(parseInt(this.value)||0)>0;_updateScaricoCounts()">
@@ -1980,7 +2188,7 @@ function _renderReportBody(dataSelezionata){
   const scarichi = movements.filter(m=>m.tipo==="scarico"&&m.data===dataSelezionata);
   const totBt = scarichi.reduce((s,m)=>s+m.qty,0);
   const totRicavo = scarichi.reduce((s,m)=>s+calcRicavoMovimento(m,wineMap[m.wineId]),0);
-  const totCosto = scarichi.reduce((s,m)=>s+m.qty*calcCostoIvaBottiglia(wineMap[m.wineId]||{}),0);
+  const totCosto = scarichi.reduce((s,m)=>s+calcCostoMovimento(m,wineMap[m.wineId]),0);
   const totMargine = totRicavo - totCosto;
   const byTipo = {};
   scarichi.forEach(m=>{const w=wineMap[m.wineId];const t=w?.tipologia||"—";if(!byTipo[t])byTipo[t]={bt:0,ricavo:0};byTipo[t].bt+=m.qty;byTipo[t].ricavo+=calcRicavoMovimento(m,w);});
@@ -2033,9 +2241,9 @@ function exportReportSerataCSV(data){
   const wineMap=Object.fromEntries(wines.map(w=>[w.id,w]));
   const scarichi=movements.filter(m=>m.tipo==="scarico"&&m.data===data);
   const headers=["Vino","Produttore","Tipologia","Annata","Nazione","Bt","Ricavo","Costo+IVA","Margine","Note"];
-  const rows=scarichi.map(m=>{const w=wineMap[m.wineId];const ric=calcRicavoMovimento(m,w);const cos=m.qty*calcCostoIvaBottiglia(w||{});return [m.wineName,m.produttore||"",w?.tipologia||"",w?.annata||"",m.nazione||w?.nazione||"",m.qty,fmtN(ric),fmtN(cos),fmtN(ric-cos),m.note||""];});
+  const rows=scarichi.map(m=>{const w=wineMap[m.wineId];const ric=calcRicavoMovimento(m,w);const cos=calcCostoMovimento(m,w);return [m.wineName,m.produttore||"",w?.tipologia||"",w?.annata||"",m.nazione||w?.nazione||"",m.qty,fmtN(ric),fmtN(cos),fmtN(ric-cos),m.note||""];});
   const totRic=scarichi.reduce((s,m)=>s+calcRicavoMovimento(m,wineMap[m.wineId]),0);
-  const totCos=scarichi.reduce((s,m)=>s+m.qty*calcCostoIvaBottiglia(wineMap[m.wineId]||{}),0);
+  const totCos=scarichi.reduce((s,m)=>s+calcCostoMovimento(m,wineMap[m.wineId]),0);
   rows.push([]);
   rows.push(["","","","","TOTALE",scarichi.reduce((s,m)=>s+m.qty,0),"",fmtN(totRic),fmtN(totCos),fmtN(totRic-totCos),""]);
   dlCSV(toCSV([headers,...rows]),`report_serata_${data}.csv`);
@@ -2043,25 +2251,27 @@ function exportReportSerataCSV(data){
 }
 
 function _movTipologiaChange(val){
-  // S6 FIX: aggiorna solo lo stato del form, NON muta l'anagrafica del vino.
-  // Il select tipologia nel form movimenti serve esclusivamente per i nuovi vini
-  // (movForm.wineId === ""). Per vini esistenti il valore è solo display e va
-  // ignorato: modificare la tipologia di un vino va fatto dalla scheda vino.
   movForm._tipologia = val;
   movForm._newTipologia = val;
-  // Non aggiornare wines[] qui — side-effect indesiderato rimosso.
+  _movUpdateCartaPreview();
 }
 
 
 function _movWineMatchSilent(val){
   movForm._wineText=val;
   const v=val.trim().toLowerCase();
-  if(!v){movForm.wineId="";movForm._newProduttore="";movForm._tipologia="";return;}
-  let found=wines.find(w=>(w.nome+' — '+w.produttore+(w.annata?' ('+w.annata+')':'')).toLowerCase()===v);
-  if(!found) found=wines.find(w=>w.nome.toLowerCase()===v);
-  if(!found) found=wines.find(w=>w.nome.toLowerCase().startsWith(v));
+  if(!v){movForm.wineId="";movForm._newProduttore="";movForm._tipologia="";movForm._newMode=false;return;}
+  // Match esatto sull'etichetta completa con [tipologia]
+  let found=wines.find(w=>(w.nome+' — '+w.produttore+(w.annata?' ('+w.annata+')':'')+ ' ['+w.tipologia+']').toLowerCase()===v);
+  // Match su nome+produttore+annata senza tipologia
+  if(!found) found=wines.find(w=>(w.nome+' — '+w.produttore+(w.annata?' ('+w.annata+')':'')).toLowerCase()===v);
+  // Match esatto su nome+produttore (solo se unico)
+  if(!found){const candidates=wines.filter(w=>w.nome.toLowerCase()===v||w.nome.toLowerCase()===v.split(' — ')[0].trim());
+    if(candidates.length===1) found=candidates[0];
+    // se ci sono più annate NON fare match automatico — l'utente deve scegliere dall'elenco
+  }
   movForm.wineId=found?found.id:"";
-  if(found){ movForm._newProduttore=""; movForm._tipologia=found.tipologia||""; }
+  if(found){ movForm._newProduttore=""; movForm._tipologia=found.tipologia||""; movForm._newMode=false; }
 }
 
 function _movWineMatch(val){
@@ -2070,6 +2280,47 @@ function _movWineMatch(val){
 
 function _movWineUpdatePanel(){
   render();
+  // Auto-focus qty dopo selezione vino — evita click manuale extra
+  if(movForm.wineId){
+    requestAnimationFrame(()=>{
+      const q = document.getElementById('mov-qty-input');
+      if(q){ q.focus(); q.select(); }
+    });
+  }
+}
+
+function _movUpdateCartaPreview(){
+  const preview = document.getElementById('mov-new-preview');
+  const body = document.getElementById('mov-new-preview-body');
+  if(!preview||!body) return;
+  const nome = (document.querySelector('#mov-wine-input') ? movForm._wineText : movForm._wineText) || '';
+  const prod = movForm._newProduttore||'';
+  const annata = movForm._newAnnata||'';
+  const tipo = movForm._newTipologia||'Rosso';
+  const vitigni = movForm._newVitigni||'';
+  const zona = movForm._newZona||'';
+  const regione = movForm._newRegione||'';
+  const pAcq = parseFloat(movForm.prezzoAcqLotto)||0;
+  const iva = movForm._newIva||22;
+  const pCarta = parseFloat(movForm._newPrezzoCarta)||0;
+  const costoIva = pAcq*(1+iva/100);
+  const suggerito = pAcq>0 ? Math.ceil(costoIva*_getMolt({prezzoAcq:pAcq,iva,nome,formato:'0.75'})) : null;
+  if(!nome&&!prod){ preview.style.display='none'; return; }
+  preview.style.display='block';
+  body.innerHTML = `
+    <div style="font-family:'Montserrat',sans-serif;font-size:1rem;font-weight:600;color:var(--txt)">${h(nome)}${annata?' <span style="color:var(--amber);font-size:.85rem">'+h(annata)+'</span>':''}</div>
+    <div style="font-size:11px;color:var(--txt3);margin-top:2px">${h(prod)}${zona?' · <span style="color:var(--txt4)">'+h(zona)+'</span>':''}</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;align-items:center">
+      ${badge(tipo)}
+      ${vitigni?`<span style="font-size:10px;color:var(--txt4)">🍇 ${h(vitigni)}</span>`:''}
+      ${regione?`<span style="font-size:10px;color:var(--txt3)">${h(regione)}</span>`:''}
+    </div>
+    ${pAcq>0?`<div style="display:flex;gap:16px;margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.06);font-size:11px">
+      <div><span style="color:var(--txt4)">Costo+IVA: </span><span style="color:var(--amber)">${fmt(costoIva)}/bt</span></div>
+      <div><span style="color:var(--txt4)">P.Carta: </span><span style="color:${pCarta?'#30D158':'var(--txt4)'}">${pCarta?fmt(pCarta):'—'}</span>${suggerito&&!pCarta?` <span style="color:var(--txt4);font-size:10px">(suggerito: ${fmt(suggerito)})</span>`:''}</div>
+      ${pCarta&&costoIva?`<div><span style="color:var(--txt4)">Margine: </span><span style="color:${pCarta-costoIva>=0?'#007AFF':'#FF453A'}">${fmtN((pCarta-costoIva)/pCarta*100,1)}%</span></div>`:''}
+    </div>`:''}
+  `;
 }
 
 function registraMovimento(){
@@ -2079,25 +2330,35 @@ function registraMovimento(){
   let {wineId}=movForm;
   const q=parseInt(qty)||0;
 
-  // ── Auto-crea vino se non trovato ──────────────────────────────────────────
-  if(!wineId){
+  // ── Crea nuova referenza se _newMode è attivo ────────────────────────────
+  if(!wineId && movForm._newMode){
+    if(tipo==="scarico"){ notify("⚠️ Impossibile scaricare un vino non ancora in cantina","err"); return; }
     const nomeTrimmed=(movForm._wineText||"").trim();
     const prodTrimmed=(movForm._newProduttore||"").trim();
-    if(!nomeTrimmed){ notify("⚠️ Seleziona o digita un vino","err"); return; }
-    if(!prodTrimmed){ notify("⚠️ Inserisci il produttore per il nuovo vino","err"); return; }
-    if(tipo==="scarico"){ notify("⚠️ Impossibile scaricare un vino non ancora in cantina","err"); return; }
-    // Crea nuova referenza minimale
+    if(!nomeTrimmed){ notify("⚠️ Inserisci il nome del vino","err"); return; }
+    if(!prodTrimmed){ notify("⚠️ Inserisci il produttore","err"); return; }
     const newWine={
       id:uid(), nome:nomeTrimmed, produttore:prodTrimmed,
-      distributore:fornitore||"", annata:"", vitigni:"", tipologia:movForm._newTipologia||"Rosso",
-      regione:"", nazione:movForm._newNazione||"Italia", zona:"",
-      prezzoAcq:parseFloat(prezzoAcqLotto)||0, iva:22,
+      distributore:(movForm._newDistributore||fornitore||"").trim(),
+      annata:(movForm._newAnnata||"").trim(),
+      vitigni:(movForm._newVitigni||"").trim(),
+      tipologia:movForm._newTipologia||"Rosso",
+      regione:(movForm._newRegione||"").trim(),
+      nazione:(movForm._newNazione||"Italia").trim(),
+      zona:(movForm._newZona||"").trim(),
+      prezzoAcq:parseFloat(prezzoAcqLotto)||0,
+      iva:movForm._newIva||22,
       prezzoCarta:parseFloat(movForm._newPrezzoCarta)||0,
       giacenza:0, lots:[]
     };
-    wines=[...wines,newWine];
+    newWine.nazione = inferPaese(newWine.nazione, newWine.regione, newWine.zona) || newWine.nazione || "Italia";
+    wines=[...wines, newWine];
     wineId=newWine.id;
-    notify(`🆕 Nuova referenza creata: ${nomeTrimmed}`);
+    notify("🆕 Nuova referenza creata: "+nomeTrimmed+(newWine.annata?" "+newWine.annata:""));
+  } else if(!wineId){
+    const nomeTrimmed=(movForm._wineText||"").trim();
+    if(!nomeTrimmed){ notify("⚠️ Seleziona un vino dall'elenco","err"); return; }
+    notify("⚠️ Vino non trovato — clicca 'Crea nuova referenza' per aggiungerlo","err"); return;
   }
 
   if(q<=0){notify("⚠️ Inserisci una quantità valida","err");return}
@@ -2117,8 +2378,12 @@ function registraMovimento(){
       return{...w,giacenza:w.giacenza-q,lots:updLots};
     }
   });
-  movements=[{id:uid(),wineId,wineName:wine.nome,produttore:wine.produttore,nazione:wine.nazione||"",tipo,qty:q,data,fattura,fornitore,note,ts:Date.now()},...movements];
-  movForm={...movForm,wineId:"",_wineText:"",_newProduttore:"",_newTipologia:"Rosso",_newPrezzoCarta:"",_tipologia:"",qty:1,fattura:"",fornitore:"",note:"",prezzoAcqLotto:""};
+  // M7: snapshot del costo medio ponderato al momento dello scarico
+  const _costoSnap = tipo==="scarico" ? calcCostoIvaBottiglia(wine) : undefined;
+  const _movEntry = {id:uid(),wineId,wineName:wine.nome,produttore:wine.produttore,nazione:wine.nazione||"",tipo,qty:q,data,fattura,fornitore,note,ts:Date.now()};
+  if(_costoSnap) _movEntry.costoUnitarioIva = _costoSnap;
+  movements=[_movEntry,...movements];
+  movForm={...movForm,wineId:"",_wineText:"",_newProduttore:"",_newTipologia:"Rosso",_newPrezzoCarta:"",_newVitigni:"",_newZona:"",_newAnnata:"",_newRegione:"",_newNazione:"Italia",_newIva:22,_newDistributore:"",_tipologia:"",_newMode:false,qty:1,fattura:"",fornitore:"",note:"",prezzoAcqLotto:""};
   scheduleSave(); notify(tipo==="carico"?"📦 Carico registrato":"🍾 Scarico registrato"); if(section==="inventario") renderInventarioOnly(); else render();
 }
 
@@ -2134,7 +2399,7 @@ function renderFallate(){
         </select>
       </div>
       <div class="form-grid g2">
-        <div><label class="form-label">Quantità</label><input class="form-input" type="number" value="${fallForm.qty}" oninput="fallForm.qty=this.value"></div>
+        <div><label class="form-label">Quantità</label><input class="form-input" type="number" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" value="${fallForm.qty}" oninput="fallForm.qty=this.value"></div>
         <div><label class="form-label">Data</label><input class="form-input" type="date" value="${fallForm.data}" oninput="fallForm.data=this.value"></div>
       </div>
       <div class="form-row" style="margin-top:10px"><label class="form-label">Motivo</label>
@@ -2199,23 +2464,23 @@ function renderAnalytics(){
   vendFilt.forEach(m=>{
     if(!bySales[m.wineId]) bySales[m.wineId]={wineId:m.wineId,wineName:m.wineName,produttore:m.produttore,wine:m.wine,qty:0,ricavo:0,costo:0};
     bySales[m.wineId].qty+=m.qty;
-    if(m.wine){bySales[m.wineId].ricavo+=calcRicavoMovimento(m,m.wine);bySales[m.wineId].costo+=m.qty*calcCostoIvaBottiglia(m.wine);}
+    if(m.wine){bySales[m.wineId].ricavo+=calcRicavoMovimento(m,m.wine);bySales[m.wineId].costo+=calcCostoMovimento(m,m.wine);}
   });
   const bestSellers=Object.values(bySales).sort((a,b)=>b.qty-a.qty).slice(0,5);
   const maxQty=bestSellers[0]?.qty||1;
   const byRegione={};
-  vendFilt.forEach(m=>{if(!m.wine) return;const r=m.wine.regione||"N/D";if(!byRegione[r]) byRegione[r]={regione:r,qty:0,ricavo:0,costo:0};byRegione[r].qty+=m.qty;byRegione[r].ricavo+=calcRicavoMovimento(m,m.wine);byRegione[r].costo+=m.qty*calcCostoIvaBottiglia(m.wine);});
+  vendFilt.forEach(m=>{if(!m.wine) return;const r=m.wine.regione||"N/D";if(!byRegione[r]) byRegione[r]={regione:r,qty:0,ricavo:0,costo:0};byRegione[r].qty+=m.qty;byRegione[r].ricavo+=calcRicavoMovimento(m,m.wine);byRegione[r].costo+=calcCostoMovimento(m,m.wine);});
   const regioneData=Object.values(byRegione).sort((a,b)=>b.ricavo-a.ricavo);
   const maxRicavo=regioneData[0]?.ricavo||1;
   const byTipo={};
-  vendFilt.forEach(m=>{if(!m.wine) return;const t=m.wine.tipologia||"N/D";if(!byTipo[t]) byTipo[t]={tipo:t,qty:0,ricavo:0,costo:0};byTipo[t].qty+=m.qty;byTipo[t].ricavo+=calcRicavoMovimento(m,m.wine);byTipo[t].costo+=m.qty*calcCostoIvaBottiglia(m.wine);});
+  vendFilt.forEach(m=>{if(!m.wine) return;const t=m.wine.tipologia||"N/D";if(!byTipo[t]) byTipo[t]={tipo:t,qty:0,ricavo:0,costo:0};byTipo[t].qty+=m.qty;byTipo[t].ricavo+=calcRicavoMovimento(m,m.wine);byTipo[t].costo+=calcCostoMovimento(m,m.wine);});
   const tipoData=Object.values(byTipo).sort((a,b)=>b.ricavo-a.ricavo);
   const now=Date.now(), lastSaleMap={};
   movements.forEach(m=>{if(m.tipo!=="scarico") return;const mts=m.ts||(m.data?new Date(m.data).getTime():0);if(!lastSaleMap[m.wineId]||mts>( lastSaleMap[m.wineId].ts||0)) lastSaleMap[m.wineId]={...m,ts:mts};});
   const winesFilt=wines.filter(w=>(!analyticsRegione||w.regione===analyticsRegione)&&(!analyticsTipo||w.tipologia===analyticsTipo)&&w.giacenza>0);
   const slowMovers=winesFilt.map(w=>{const ls=lastSaleMap[w.id];const ds=ls?Math.floor((now-ls.ts)/(24*60*60*1000)):null;return{...w,lastSaleDate:ls?.data||null,daysSince:ds}}).filter(w=>w.daysSince===null||w.daysSince>60).sort((a,b)=>(b.daysSince??99999)-(a.daysSince??99999)).slice(0,6);
   const totRicavo=vendFilt.reduce((s,m)=>s+(m.wine?calcRicavoMovimento(m,m.wine):0),0);
-  const totCosto=vendFilt.reduce((s,m)=>s+(m.wine?m.qty*calcCostoIvaBottiglia(m.wine):0),0);
+  const totCosto=vendFilt.reduce((s,m)=>s+(m.wine?calcCostoMovimento(m,m.wine):0),0);
   const totMargine=totRicavo-totCosto;
   const totQty=vendFilt.reduce((s,m)=>s+m.qty,0);
 
@@ -2564,8 +2829,18 @@ function renderOrdini(){
   const allProduttori=[...new Set([...wines.map(w=>w.produttore),...orders.flatMap(o=>(o.referenze||[]).map(r=>r.produttore))].filter(Boolean))].sort();
   const allNomiVino=[...new Set(wines.map(w=>w.nome).filter(Boolean))].sort();
 
-  // Active orders (not fully loaded)
-  const ordiniAttivi=orders.filter(o=>o.stato!=="caricato");
+  // Active orders (not fully loaded) — include bozze remote da ordini_testata
+  const _bozzeLocali=_bozzeSb.filter(b=>!orders.some(o=>o._sbTestataId===b.id));
+  const ordiniAttivi=[..._bozzeLocali.map(b=>({
+    id:b.id, _sbTestataId:b.id, fornitore:b.distributore,
+    dataOrdine:b.data_ordine||today(), note:b.note||'',
+    stato:'attesa', referenze:(b.righe||[]).map(r=>({
+      id:r.id, wineId:r.wine_id, nomeVino:r.nome_vino||'', produttore:r.produttore||'',
+      annata:r.annata||'', tipologia:'', prezzoAcq:r.prezzo_acq||0,
+      iva:r.iva||22, qty:r.qty_ordinata||1, formato:r.formato||0.75,
+      regione:'', zona:'', nazione:'', prezzoCarta:''
+    })), _isBozzaSb:true
+  })),...orders.filter(o=>o.stato!=="caricato")];
   const ordiniAttesa=ordiniAttivi.filter(o=>o.stato==="attesa");
 
   const ordiniRows=ordiniAttivi.length ? ordiniAttivi.map(o=>{
@@ -2576,6 +2851,11 @@ function renderOrdini(){
     const statoCell=isPending
       ? `<span style="display:inline-flex;align-items:center;gap:4px;background:#16a34a22;color:#30D158;border:1px solid #16a34a55;padding:2px 8px;font-size:.75rem;font-weight:600">✔ Ricevuto</span>`
       : `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--amber3)22;color:var(--amber);border:1px solid var(--amber3)55;padding:2px 8px;font-size:.75rem;font-weight:600">⏳ In attesa</span>`;
+    const invBadge = o.inviatoVia
+      ? (o.inviatoVia==='email'     ? `<span title="Inviato via email il ${o.dataInvio||'—'}" style="display:inline-flex;align-items:center;gap:3px;background:rgba(255,159,10,.12);color:var(--amber);border:1px solid rgba(255,159,10,.3);padding:2px 7px;font-size:.7rem;font-weight:600;border-radius:5px">✉️ Inviato</span>`
+        : o.inviatoVia==='whatsapp' ? `<span title="Inviato via WhatsApp il ${o.dataInvio||'—'}" style="display:inline-flex;align-items:center;gap:3px;background:rgba(37,211,102,.1);color:#25D366;border:1px solid rgba(37,211,102,.3);padding:2px 7px;font-size:.7rem;font-weight:600;border-radius:5px">🟢 Inviato</span>`
+        : `<span title="Inviato via email e WhatsApp il ${o.dataInvio||'—'}" style="display:inline-flex;align-items:center;gap:3px;background:rgba(0,122,255,.1);color:#007AFF;border:1px solid rgba(0,122,255,.3);padding:2px 7px;font-size:.7rem;font-weight:600;border-radius:5px">📨 Inviato</span>`)
+      : `<span style="display:inline-flex;align-items:center;gap:3px;background:rgba(142,142,147,.1);color:var(--txt4);border:1px solid rgba(142,142,147,.2);padding:2px 7px;font-size:.7rem;font-weight:600;border-radius:5px">📋 Bozza</span>`;
     return `<tr id="ord-row-${o.id}" class="${isPending?'lot-active':''}" data-sel-id="${o.id}">
       ${selMode==='ordini'?`<td class="cb-col"><input type="checkbox" class="cb-sel" data-id="${o.id}" onchange="toggleSel('${o.id}');_updateBulkBar()"></td>`:''}
       <td><input type="checkbox" class="ord-check" data-id="${o.id}" ${isPending?'checked':''} onchange="toggleOrdineArrivato('${o.id}',this.checked)" style="width:18px;height:18px;cursor:pointer"></td>
@@ -2585,7 +2865,7 @@ function renderOrdini(){
       <td style="color:var(--amber)">${totQty} bt</td>
       <td style="color:var(--txt2)">${fmt(totVal)}</td>
       <td><input type="date" class="form-input" style="font-size:10px;padding:3px 6px;width:130px;background:${o.dataArrivo?'rgba(48,209,88,.06)':'rgba(255,159,10,.06)'};border-color:${o.dataArrivo?'rgba(48,209,88,.25)':'rgba(255,159,10,.2)'}" value="${o.dataArrivo||''}" placeholder="—" title="Data arrivo prevista" onchange="orders.find(x=>x.id==='${o.id}').dataArrivo=this.value;scheduleSave();notify('📅 Data arrivo aggiornata')"></td>
-      <td>${statoCell}</td>
+      <td><div style="display:flex;flex-direction:column;gap:4px">${statoCell}${invBadge}</div></td>
       <td style="display:flex;gap:6px;align-items:center;padding:6px 14px">
         <button class="btn-outline btn-sm" onclick="apriModalRicezione('${o.id}')" title="Conferma arrivo" style="border-color:rgba(22,163,74,.4);color:#30D158">📦 Ricevi</button>
         <button class="btn-outline btn-sm" onclick="apriOrdineModal('${o.id}')" title="Modifica ordine">✏️</button>
@@ -2837,11 +3117,11 @@ function deleteEvaso(id){
   const o=orders.find(x=>x.id===id);
   if(!o) return;
   const totQty=(o.referenze||[]).reduce((s,r)=>s+(parseInt(r.qtyArr??r.qty)||0),0);
-  const scelta=confirm(`Eliminare l'ordine ${o.fornitore} del ${o.dataOrdine}?\n\nOK = annulla anche il carico (−${totQty} bt dall'inventario)\nAnnulla = lascia l'inventario invariato e rimuovi solo lo storico`);
-  if(scelta===null) return; // ESC — non fare nulla (ma confirm non supporta cancel distinguibile in tutti i browser)
-  if(scelta) _rollbackOrdine(o);
-  orders=orders.filter(x=>x.id!==id);
-  scheduleSave(); notify(scelta?`🗑️ Ordine e carico annullati (−${totQty} bt)`:"🗑️ Ordine rimosso dallo storico"); render();
+  _confirmModal2(
+    `Eliminare l'ordine <strong>${o.fornitore||'—'}</strong> del ${o.dataOrdine||'—'}?`,
+    { label:`🔄 Annulla carico (−${totQty} bt)`, cb:()=>{ _rollbackOrdine(o); orders=orders.filter(x=>x.id!==id); scheduleSave(); notify(`🗑️ Ordine e carico annullati (−${totQty} bt)`); render(); } },
+    { label:"🗑️ Solo storico",                  cb:()=>{ orders=orders.filter(x=>x.id!==id); scheduleSave(); notify("🗑️ Ordine rimosso dallo storico"); render(); } }
+  );
 }
 
 function deleteEvasiSelezionati(){
@@ -2849,11 +3129,12 @@ function deleteEvasiSelezionati(){
   if(!checked.length){notify("⚠️ Seleziona almeno un ordine","err");return;}
   const selOrdini=orders.filter(o=>checked.includes(o.id));
   const totQty=selOrdini.reduce((s,o)=>(o.referenze||[]).reduce((s2,r)=>s2+(parseInt(r.qtyArr??r.qty)||0),s),0);
-  const scelta=confirm(`Eliminare ${checked.length} ordini?\n\nOK = annulla anche i carichi (−${totQty} bt dall'inventario)\nAnnulla = rimuovi solo dallo storico`);
   const ids=new Set(checked);
-  if(scelta) selOrdini.forEach(o=>_rollbackOrdine(o));
-  orders=orders.filter(o=>!ids.has(o.id));
-  scheduleSave(); notify(scelta?`🗑️ ${checked.length} ordini e carichi annullati`:`🗑️ ${checked.length} ordini rimossi`); render();
+  _confirmModal2(
+    `Eliminare <strong>${checked.length} ordin${checked.length===1?'e':'i'}</strong>?`,
+    { label:`🔄 Annulla carichi (−${totQty} bt)`, cb:()=>{ selOrdini.forEach(o=>_rollbackOrdine(o)); orders=orders.filter(o=>!ids.has(o.id)); scheduleSave(); notify(`🗑️ ${checked.length} ordini e carichi annullati`); render(); } },
+    { label:"🗑️ Solo storico",                   cb:()=>{ orders=orders.filter(o=>!ids.has(o.id)); scheduleSave(); notify(`🗑️ ${checked.length} ordini rimossi`); render(); } }
+  );
 }
 
 // ── MODAL MODIFICA ORDINE EVASO ───────────────────────────────────────────────
@@ -3001,7 +3282,39 @@ function apriOrdineModal(idOrNull){
   const allProduttori=[...new Set([...wines.map(w=>w.produttore),...orders.flatMap(o=>(o.referenze||[]).map(r=>r.produttore))].filter(Boolean))].sort();
   const allNomi=[...new Set(wines.map(w=>w.nome).filter(Boolean))].sort();
 
-  let ordine=idOrNull?orders.find(o=>o.id===idOrNull):null;
+  // Cerca prima in orders locali, poi nelle bozze Supabase (_bozzeSb)
+  let ordine = idOrNull ? orders.find(o=>o.id===idOrNull) : null;
+  if (!ordine && idOrNull) {
+    const bozza = _bozzeSb.find(b=>b.id===idOrNull);
+    if (bozza) {
+      ordine = {
+        id: bozza.id,
+        _sbTestataId: bozza.id,
+        _isBozzaSb: true,
+        fornitore: bozza.distributore || '',
+        dataOrdine: bozza.data_ordine || today(),
+        note: bozza.note || '',
+        stato: 'attesa',
+        referenze: (bozza.righe || []).map(r => ({
+          id: r.id,
+          wineId: r.wine_id,
+          nomeVino: r.nome_vino || '',
+          produttore: r.produttore || '',
+          annata: r.annata || '',
+          tipologia: r.tipologia || 'Rosso',
+          prezzoAcq: r.prezzo_acq || 0,
+          iva: r.iva || 22,
+          qty: r.qty_ordinata || 1,
+          formato: r.formato || 0.75,
+          regione: r.regione || '',
+          zona: r.zona || '',
+          nazione: r.nazione || 'Italia',
+          prezzoCarta: r.prezzo_carta || '',
+          note_riga: r.note_riga || ''
+        }))
+      };
+    }
+  }
   ordineModalData={
     id: ordine?.id||null,
     dataOrdine: ordine?.dataOrdine||today(),
@@ -3098,7 +3411,7 @@ function _refRowHtml(r,i,tipoOpts,ivaOpts,allProduttori,allNomi){
     <td style="padding:5px 6px"><select class="form-input" style="font-size:11px;min-width:52px;width:100%" onchange="_refChange('${r.id}','iva',parseInt(this.value));_updateRefIvaIncl('${r.id}');_updateOrdineModalTotale()">${selIva}</select></td>
     <td style="padding:5px 6px;text-align:right;font-size:12px;color:var(--amber);font-weight:600;white-space:nowrap;background:rgba(255,159,10,.06);border-left:1px solid rgba(255,159,10,.12)" id="ref-ivaincl-${r.id}">${ivaIncl?fmtRound(ivaIncl):"—"}</td>
     <td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:11px;text-align:right;min-width:72px;width:100%" value="${r.prezzoCarta||''}" step="1" min="0" placeholder="0" onchange="_refChange('${r.id}','prezzoCarta',parseFloat(this.value)||0)"></td>
-    <td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:12px;text-align:center;min-width:52px;width:100%" value="${r.qty||6}" min="1" step="1" onchange="_refChange('${r.id}','qty',parseInt(this.value)||1)" oninput="_updateOrdineModalTotale()"></td>
+    <td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:12px;text-align:center;min-width:52px;width:100%" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" value="${r.qty||6}" min="1" step="1" onchange="_refChange('${r.id}','qty',parseInt(this.value)||1)" oninput="_updateOrdineModalTotale()"></td>
     <td style="padding:5px 6px;text-align:right"><button onclick="_removeRefRow('${r.id}')" style="color:var(--txt4);font-size:13px;background:none;border:none;cursor:pointer" title="Rimuovi">✕</button></td>
   </tr>`;
 }
@@ -3156,6 +3469,9 @@ function _showRefGiacenza(refId, nomeVino){
   if(!el) return;
   const w = wines.find(x => x.nome.toLowerCase() === (nomeVino||"").toLowerCase().trim());
   if(!w){ el.textContent=""; return; }
+  // T-B6: salva wineId nella referenza — T-B5 userà match stabile per id alla ricezione
+  const ref = ordineModalData?.referenze?.find(r=>r.id===refId);
+  if(ref && !ref.wineId) ref.wineId = w.id;
   const g = parseInt(w.giacenza)||0;
   const color = g===0?"#FF453A":g<=3?"#fb923c":"#30D158";
   el.innerHTML = `<span style="color:${color}">⬢ ${g} bt in cantina</span>`;
@@ -3191,33 +3507,30 @@ function salvaOrdine(){
   const dataOrdine=document.getElementById("omd-data")?.value||today();
   const note=(document.getElementById("omd-note")?.value||"").trim();
   if(!fornitore){notify("⚠️ Inserisci il fornitore","err");return;}
-  // Read referenze from DOM
-  const tbody=document.getElementById("omd-refs-body");
-  if(!tbody){notify("Errore: corpo tabella non trovato","err");return;}
+  // Read refs from in-memory ordineModalData.referenze (kept in sync by _refChange)
+  // instead of fragile positional DOM selectors.
   const refs=[];
   let ok=true;
-  tbody.querySelectorAll("tr[data-ref-id]").forEach(row=>{
-    const refId=row.dataset.refId;
-    const inps=row.querySelectorAll("input");
-    const sels=row.querySelectorAll("select");
-    const produttore=(inps[0]?.value||"").trim();
-    const nomeVino=(inps[1]?.value||"").trim();
-    const vitigni=(inps[2]?.value||"").trim();
-    const annata=(inps[3]?.value||"").trim();
-    const tipologia=sels[0]?.value||"Rosso";
-    const formato=parseFloat(sels[1]?.value)||0.75;
-    const regione=(inps[4]?.value||"").trim();
-    const zona=(inps[5]?.value||"").trim();
-    const nazione=(inps[6]?.value||"Italia").trim();
-    const prezzoAcq=parseFloat(inps[7]?.value)||0;
-    const iva=parseInt(sels[2]?.value||"22")||22;
-    const prezzoCarta=parseFloat(inps[8]?.value)||0;
-    const qty=parseInt(inps[9]?.value)||1;
+  (ordineModalData?.referenze||[]).forEach(r=>{
+    const nomeVino=(r.nomeVino||"").trim();
     if(!nomeVino){ok=false;return;}
-    // T-B4: carry wineId from in-memory referenza (set by _refAutofill) so ricezione can do O(1) id lookup
-    const existingRef=ordineModalData?.referenze?.find(x=>x.id===refId);
-    const wineId=existingRef?.wineId||(wines.find(w=>w.nome.toLowerCase()===nomeVino.toLowerCase())?.id||"");
-    refs.push({id:refId||uid(),wineId,produttore,nomeVino,vitigni,annata,tipologia,formato,regione,zona,nazione,prezzoAcq,iva,prezzoCarta,qty});
+    const wineId=r.wineId||(wines.find(w=>w.nome.toLowerCase()===nomeVino.toLowerCase())?.id||"");
+    refs.push({
+      id:r.id||uid(), wineId,
+      produttore:(r.produttore||"").trim(),
+      nomeVino,
+      vitigni:(r.vitigni||"").trim(),
+      annata:(r.annata||"").trim(),
+      tipologia:r.tipologia||"Rosso",
+      formato:parseFloat(r.formato)||0.75,
+      regione:(r.regione||"").trim(),
+      zona:(r.zona||"").trim(),
+      nazione:(r.nazione||"Italia").trim(),
+      prezzoAcq:parseFloat(r.prezzoAcq)||0,
+      iva:parseInt(r.iva)||22,
+      prezzoCarta:parseFloat(r.prezzoCarta)||0,
+      qty:parseInt(r.qty)||1
+    });
   });
   if(!ok){notify("⚠️ Inserisci il nome vino per tutte le referenze","err");return;}
   if(!refs.length){notify("⚠️ Aggiungi almeno una referenza","err");return;}
@@ -3272,7 +3585,7 @@ function _renderRicezioneModalBody(ordine, allForn, allProd, allNomi){
       <td style="padding:5px 8px">${badge(r.tipologia)}</td>
       <td style="padding:5px 8px;color:var(--txt2);text-align:center">${r.qty}</td>
       <td style="padding:5px 8px">
-        <input type="number" class="form-input" style="font-size:11px;text-align:center" value="${r.qtyArr}" min="0" step="1"
+        <input type="number" class="form-input" style="font-size:11px;text-align:center" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" value="${r.qtyArr}" min="0" step="1"
           onchange="ricezioneModalData.righe.find(x=>x.id==='${r.id}').qtyArr=parseInt(this.value)||0;_aggiornaRicTotale()" 
           oninput="ricezioneModalData.righe.find(x=>x.id==='${r.id}').qtyArr=parseInt(this.value)||0;_aggiornaRicTotale()">
       </td>
@@ -3340,7 +3653,7 @@ function _addRicezioneRow(){
         oninput="_ricRefChange('${newR.id}','nomeVino',this.value)"></td>
       <td style="padding:5px 6px"><select class="form-input" style="font-size:11px" data-prev="Rosso" onchange="_addTipologiaInline(this,(v)=>_ricRefChange('${newR.id}','tipologia',v));if(this.value!=='__new__'){this.dataset.prev=this.value;_ricRefChange('${newR.id}','tipologia',this.value)}">${tipoOpts}</select></td>
       <td style="padding:5px 8px;text-align:center;color:var(--txt4);font-size:11px">—</td>
-      <td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:11px;text-align:center" value="0" min="0"
+      <td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:11px;text-align:center" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" value="0" min="0"
         oninput="_ricRefChange('${newR.id}','qtyArr',parseInt(this.value)||0);_aggiornaRicTotale()"></td>
       <td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:11px" value="" step="0.01" min="0" placeholder="0.00"
         oninput="_ricRefChange('${newR.id}','prezzoAcq',parseFloat(this.value)||0);_aggiornaRicTotale()"></td>
@@ -3375,9 +3688,14 @@ function confermaRicezioneOrdine(){
 
   daProcessare.forEach(r=>{
     // T-B4: prefer stable wineId stored at order creation; fall back to name-match for legacy orders
-    const existingIdx = r.wineId
-      ? wines.findIndex(w=>w.id===r.wineId)
-      : wines.findIndex(w=>w.nome.toLowerCase()===r.nomeVino.toLowerCase());
+    // T-B5: fallback a 3 livelli — evita match sbagliato su stesso nome ma annata/produttore diversi
+    let existingIdx = r.wineId ? wines.findIndex(w=>w.id===r.wineId) : -1;
+    if(existingIdx < 0){
+      const nn=r.nomeVino.toLowerCase(), rp=(r.produttore||"").toLowerCase(), ra=(r.annata||"").toLowerCase();
+      if(rp&&ra) existingIdx=wines.findIndex(w=>w.nome.toLowerCase()===nn&&(w.produttore||"").toLowerCase()===rp&&(w.annata||"").toLowerCase()===ra);
+      if(existingIdx<0&&rp) existingIdx=wines.findIndex(w=>w.nome.toLowerCase()===nn&&(w.produttore||"").toLowerCase()===rp);
+      if(existingIdx<0) existingIdx=wines.findIndex(w=>w.nome.toLowerCase()===nn);
+    }
     let wine = existingIdx >= 0 ? wines[existingIdx] : null;
 
     if(!wine){
@@ -3410,7 +3728,7 @@ function confermaRicezioneOrdine(){
     wine = updatedWine;
 
     movements.unshift({id:uid(),wineId:wine.id,wineName:wine.nome,produttore:wine.produttore,nazione:wine.nazione||"",
-      tipo:"carico",qty:qtyArr,data:dataArrivo,fattura,
+      tipo:"carico",qty:qtyArr,data:dataArrivo,fattura,prezzoAcqLotto:pAcq,
       fornitore:ordine?.fornitore||"",note:"Da ordine "+ordine?.dataOrdine,ts:Date.now()});
 
     // Aggiorna qtyArr sulla referenza nell'ordine (oggetto ordine, mutazione locale accettabile)
@@ -3480,9 +3798,14 @@ function confermaRicezioneGlobale(){
       if(!qty) return;
 
       // T-B4: prefer stable wineId stored at order creation; fall back to name-match for legacy orders
-      const existingIdx = r.wineId
-        ? wines.findIndex(w=>w.id===r.wineId)
-        : wines.findIndex(w=>w.nome.toLowerCase()===r.nomeVino.toLowerCase());
+      // T-B5: fallback a 3 livelli — evita match sbagliato su stesso nome ma annata/produttore diversi
+      let existingIdx = r.wineId ? wines.findIndex(w=>w.id===r.wineId) : -1;
+      if(existingIdx < 0){
+        const nn=r.nomeVino.toLowerCase(), rp=(r.produttore||"").toLowerCase(), ra=(r.annata||"").toLowerCase();
+        if(rp&&ra) existingIdx=wines.findIndex(w=>w.nome.toLowerCase()===nn&&(w.produttore||"").toLowerCase()===rp&&(w.annata||"").toLowerCase()===ra);
+        if(existingIdx<0&&rp) existingIdx=wines.findIndex(w=>w.nome.toLowerCase()===nn&&(w.produttore||"").toLowerCase()===rp);
+        if(existingIdx<0) existingIdx=wines.findIndex(w=>w.nome.toLowerCase()===nn);
+      }
       let wine = existingIdx>=0 ? wines[existingIdx] : null;
 
       if(!wine){
@@ -3509,7 +3832,7 @@ function confermaRicezioneGlobale(){
       wine=updatedWine;
 
       newMovsGlob.push({id:uid(),wineId:wine.id,wineName:wine.nome,produttore:wine.produttore,nazione:wine.nazione||"",
-        tipo:"carico",qty,data:dataArrivo,fattura,
+        tipo:"carico",qty,data:dataArrivo,fattura,prezzoAcqLotto:pAcq,
         fornitore:ordine.fornitore||"",note:"Da ordine "+ordine.dataOrdine,ts:Date.now()});
       totRef++;
     });
@@ -3532,11 +3855,23 @@ function toggleOrdineArrivato(id,checked){
 }
 
 function deleteOrdine(id){
-  const o=orders.find(x=>x.id===id);
-  if(o&&o.stato==="caricato"){notify("Gli ordini evasi non possono essere eliminati","err");return;}
-  if(!confirm("Eliminare questo ordine?")) return;
-  orders=orders.filter(x=>x.id!==id);
-  scheduleSave(); render();
+  // Cerca prima in orders locali, poi nelle bozze remote
+  const o=orders.find(x=>x.id===id) || _bozzeSb.find(b=>b.id===id);
+  if(!o) return;
+  if(o.stato==="caricato"){notify("Gli ordini evasi non possono essere eliminati","err");return;}
+  _confirmModal(
+    `Eliminare l'ordine <strong>${o.fornitore||o.distributore||'—'}</strong> del ${o.dataOrdine||o.data_ordine||'—'}?`,
+    "🗑️ Elimina",
+    async ()=>{
+      orders=orders.filter(x=>x.id!==id);
+      if(_bozzeSb.some(b=>b.id===id)){
+        _bozzeSb=_bozzeSb.filter(b=>b.id!==id);
+        if(_sb) await _sb.from('ordini_testata').delete().eq('id',id);
+      }
+      scheduleSave(); render();
+    },
+    'danger'
+  );
 }
 
 function _getOrdineById(id){
@@ -3727,6 +4062,9 @@ function emailOrdine(id) {
   const consegnaBlock=loc.noteConsegna?"\n\n──────────────────────────────────\nINDICAZIONI CONSEGNA:\n"+loc.noteConsegna:"";
   const fullBody=encodeURIComponent(decodeURIComponent(body)+consegnaBlock+"\n\n──────────────────────────────────\n"+mittente);
   window.location.href=`mailto:${encodeURIComponent(fornEmail)}?subject=${subject}&body=${fullBody}`;
+  // Segna l'ordine come inviato via email
+  const _oe = orders.find(x => x.id === id);
+  if(_oe){ _oe.inviatoVia = _oe.inviatoVia === 'whatsapp' ? 'entrambi' : 'email'; _oe.dataInvio = _oe.dataInvio || today(); scheduleSave(); render(); }
 }
 
 function whatsappOrdine(id) {
@@ -3760,11 +4098,15 @@ function whatsappOrdine(id) {
   if(!tel){
     // Nessun telefono salvato — apri WhatsApp senza numero (l'utente sceglie la chat)
     notify("⚠️ Nessun telefono per questo fornitore — aggiungi il numero in Impostazioni → Rubrica Fornitori","err");
-    // Apri comunque con testo precompilato su WhatsApp Web generico
     window.open(`https://web.whatsapp.com/send?text=${encodeURIComponent(testo)}`,'_blank');
+    const _owb = orders.find(x => x.id === id);
+    if(_owb){ _owb.inviatoVia = _owb.inviatoVia === 'email' ? 'entrambi' : 'whatsapp'; _owb.dataInvio = _owb.dataInvio || today(); scheduleSave(); render(); }
     return;
   }
   window.open(url, '_blank');
+  // Segna l'ordine come inviato via whatsapp
+  const _ow = orders.find(x => x.id === id);
+  if(_ow){ _ow.inviatoVia = _ow.inviatoVia === 'email' ? 'entrambi' : 'whatsapp'; _ow.dataInvio = _ow.dataInvio || today(); scheduleSave(); render(); }
 }
 
 function _pulisciDateOrdiniImportati(){
@@ -4014,7 +4356,7 @@ function openWineDetail(id){
   })() : '';
 
   // Movimenti recenti (ultimi 6)
-  const wMovs = movements.filter(m=>m.wineId===id).slice(0,6);
+  const wMovs = [...movements].filter(m=>m.wineId===id).sort((a,b)=>b.data.localeCompare(a.data)||b.ts-a.ts).slice(0,6);
   const movsHtml = wMovs.length ? `<div style="margin-top:20px">
     <div class="modal-section-label">↕️ Movimenti Recenti</div>
     ${wMovs.map(m=>`<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:1px solid rgba(41,37,36,.4);font-size:12px">
@@ -4091,6 +4433,27 @@ function openWineDetail(id){
     ${movsHtml}
     ${histHtml}
   `;
+  // Crea il modal se manca nel DOM (es. index.html non aggiornato)
+  if (!document.getElementById('wine-detail-backdrop')) {
+    const bd = document.createElement('div');
+    bd.id = 'wine-detail-backdrop';
+    bd.className = 'modal-backdrop hidden';
+    bd.onclick = closeWineDetail;
+    bd.innerHTML = `<div class="modal" style="max-width:820px;overflow-y:auto;max-height:88vh" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h2>🍾 Scheda Vino</h2>
+        <button style="font-size:18px;color:var(--txt3)" onclick="closeWineDetail()">✕</button>
+      </div>
+      <div class="modal-body" id="wine-detail-body"></div>
+      <div class="modal-footer">
+        <button class="btn-outline" onclick="closeWineDetail()">Chiudi</button>
+        <button class="btn-primary" onclick="closeWineDetail();openWineModal(document.getElementById('wine-detail-backdrop').dataset.wineId)">✏️ Modifica</button>
+      </div>
+    </div>`;
+    document.body.appendChild(bd);
+    // ora ri-setta il body con il contenuto già generato
+    document.getElementById('wine-detail-body').innerHTML = document.getElementById('wine-detail-body')?.innerHTML || '';
+  }
   document.getElementById('wine-detail-backdrop').dataset.wineId = id;
   document.getElementById('wine-detail-backdrop').classList.remove('hidden');
 }
@@ -4130,7 +4493,7 @@ function closeWineModal(e){
   const delBtn=document.getElementById("modal-delete-btn"); if(delBtn) delBtn.remove();
 }
 function renderModalBody(wine){
-  const f=wine||{nome:"",produttore:"",distributore:"",annata:"",vitigni:"",tipologia:"Rosso",regione:"",nazione:"Italia",zona:"",prezzoAcq:"",iva:22,prezzoCarta:"",giacenza:0};
+  const f=wine||{nome:"",produttore:"",distributore:"",annata:"",vitigni:"",tipologia:"Rosso",regione:"",nazione:"Italia",zona:"",prezzoAcq:"",iva:22,prezzoCarta:"",prezzoCalice:"",giacenza:0};
   const lotsHtml=wine?.lots?.length?`
     <div style="margin-top:4px">
       <div class="modal-section-label">📦 Storico Lotti (FIFO)</div>
@@ -4176,15 +4539,16 @@ function renderModalBody(wine){
     <div class="modal-section">
       <div class="modal-section-label">💰 Prezzi & Giacenza</div>
       <div class="form-grid g2">
-        <div><label class="form-label">Prezzo Acquisto (escl. IVA) €</label><input class="form-input" id="mf-prezzoAcq" type="number" value="${f.prezzoAcq}" placeholder="0.00" oninput="updateModalCalc()"></div>
+        <div><label class="form-label">Prezzo Acquisto (escl. IVA) €</label><input class="form-input" id="mf-prezzoAcq" type="number" inputmode="decimal" onfocus="this.select()" value="${f.prezzoAcq}" placeholder="0.00" oninput="updateModalCalc()"></div>
         <div><label class="form-label">IVA %</label><select class="form-select" id="mf-iva" onchange="updateModalCalc()">${IVA_OPTIONS.map(v=>`<option value="${v}" ${parseInt(f.iva)===v?"selected":""}>${v}%</option>`).join("")}</select></div>
-        <div><label class="form-label">Prezzo in Carta €</label><input class="form-input" id="mf-prezzoCarta" type="number" value="${f.prezzoCarta}" placeholder="0.00" oninput="document.getElementById('mf-prezzoCarta')._userEdited=true;updateModalCalc()">
+        <div><label class="form-label">Prezzo in Carta €</label><input class="form-input" id="mf-prezzoCarta" type="number" inputmode="decimal" onfocus="this.select()" value="${f.prezzoCarta}" placeholder="0.00" oninput="document.getElementById('mf-prezzoCarta')._userEdited=true;updateModalCalc()">
           <div id="mc-carta-hint" style="display:none;align-items:center;gap:8px;margin-top:5px;padding:5px 8px;background:rgba(255,159,10,.08);border:1px solid rgba(255,159,10,.12);font-size:10px;color:var(--txt3)">
             <span>Suggerito (<span id="mc-carta-molt-label"></span>):</span><span class="mc-carta-val" style="color:var(--amber);font-family:'Montserrat',sans-serif"></span>
             <button type="button" onclick="applyCartaSuggerita()" style="margin-left:auto;font-size:9px;letter-spacing:.1em;text-transform:uppercase;padding:2px 8px;border:1px solid rgba(180,83,9,.5);color:var(--amber);background:rgba(255,159,10,.12);cursor:pointer;font-family:inherit">Usa →</button>
           </div>
         </div>
-        <div><label class="form-label">Giacenza (bottiglie)</label><input class="form-input" id="mf-giacenza" type="number" value="${f.giacenza||0}" placeholder="0" oninput="updateModalCalc()" ${wine&&(wine.lots||[]).some(l=>l.qtyRimanente>0)?'title="⚠️ Vino con lotti FIFO attivi: modifica tramite carico/scarico per non desincronizzare i lotti" style="border-color:rgba(180,83,9,.5)"':''} ><\/div>${wine&&(wine.lots||[]).some(l=>l.qtyRimanente>0)?'<div style="font-size:9px;color:rgba(251,146,60,.8);margin-top:3px;letter-spacing:.05em">⚠️ Lotti FIFO attivi — usa carico/scarico per aggiornare la giacenza<\/div>':''}
+        <div><label class="form-label">Prezzo al Calice € <span style="color:var(--txt4);font-size:9px;text-transform:none;letter-spacing:0">— opzionale</span></label><input class="form-input" id="mf-prezzoCalice" type="number" inputmode="decimal" onfocus="this.select()" value="${f.prezzoCalice||''}" placeholder="es. 8.00"></div>
+        <div><label class="form-label">Giacenza (bottiglie)</label><input class="form-input" id="mf-giacenza" type="number" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" value="${f.giacenza||0}" placeholder="0" oninput="updateModalCalc()" ${wine&&(wine.lots||[]).some(l=>l.qtyRimanente>0)?'title="⚠️ Vino con lotti FIFO attivi: modifica tramite carico/scarico per non desincronizzare i lotti" style="border-color:rgba(180,83,9,.5)"':''} ><\/div>${wine&&(wine.lots||[]).some(l=>l.qtyRimanente>0)?'<div style="font-size:9px;color:rgba(251,146,60,.8);margin-top:3px;letter-spacing:.05em">⚠️ Lotti FIFO attivi — usa carico/scarico per aggiornare la giacenza<\/div>':''}
       </div>
       <div class="calc-panel">
         <div><div class="calc-label">Costo+IVA/bottiglia</div><div class="calc-val c-amber" id="mc-costoiva">—</div></div>
@@ -4280,7 +4644,9 @@ function saveWine(){
     annata:get("mf-annata"),vitigni:get("mf-vitigni"),tipologia:get("mf-tipologia"),formato:parseFloat(get("mf-formato"))||0.75,
     regione:get("mf-regione"),nazione:get("mf-nazione"),zona:get("mf-zona"),
     prezzoAcq:parseFloat(get("mf-prezzoAcq"))||0,iva:parseInt(get("mf-iva"))||22,
-    prezzoCarta:parseFloat(get("mf-prezzoCarta"))||0,giacenza:parseInt(get("mf-giacenza"))||0,
+    prezzoCarta:parseFloat(get("mf-prezzoCarta"))||0,
+    prezzoCalice:parseFloat(get("mf-prezzoCalice"))||0,
+    giacenza:parseInt(get("mf-giacenza"))||0,
     lots:modalWine?.lots||[]
   };
   if(!wine.nome||!wine.produttore){ notify("⚠️ Nome e Produttore sono obbligatori","err"); return; }
@@ -4307,57 +4673,77 @@ function saveWine(){
 // ─── BULK DELETE ──────────────────────────────────────────────────────────────
 function bulkDeleteWines(){
   if(selIds.size===0) return;
-  if(!confirm(`Eliminare definitivamente ${selIds.size} vin${selIds.size===1?"o":"i"}? Verranno rimossi anche movimenti e fallate collegati.`)) return;
-  wines=wines.filter(w=>!selIds.has(w.id));
-  movements=movements.filter(m=>!selIds.has(m.wineId));
-  fallate=fallate.filter(f=>!selIds.has(f.wineId));
-  // B5: rimuovi soglie orfane — stesso pattern di deleteWine (S5)
-  selIds.forEach(id=>{ delete alertSoglie[id]; delete scaricoSerata.qtys[id]; });
-  notify(`🗑️ ${selIds.size} vini eliminati`);
-  exitSel(); scheduleSave(); render();
+  const n = selIds.size;
+  const snap = new Set(selIds); // snapshot — selIds può cambiare durante callback
+  _confirmModal(
+    `Eliminare <strong>${n} vin${n===1?'o':'i'}</strong>?<br><span style="font-size:11px;color:var(--txt4)">Verranno rimossi anche movimenti e fallate collegati.</span>`,
+    `🗑️ Elimina ${n} ${n===1?'vino':'vini'}`,
+    () => {
+      wines=wines.filter(w=>!snap.has(w.id));
+      movements=movements.filter(m=>!snap.has(m.wineId));
+      fallate=fallate.filter(f=>!snap.has(f.wineId));
+      snap.forEach(id=>{ delete alertSoglie[id]; delete scaricoSerata.qtys[id]; });
+      notify(`🗑️ ${n} vin${n===1?'o':'i'} eliminati`);
+      exitSel(); scheduleSave(); render();
+    },
+    'danger'
+  );
 }
 function bulkDeleteMovimenti(){
   if(selIds.size===0) return;
   const n=selIds.size;
-  // Ask user if they want to recalculate stocks after deletion
-  const choice=confirm(
-    `Eliminare ${n} moviment${n===1?"o":"i"}?\n\n` +
-    `OK = Elimina e ricalcola giacenze da movimenti rimanenti (FIFO)\n` +
-    `Annulla = Operazione annullata`
+  const snap = new Set(selIds);
+  _confirmModal(
+    `Eliminare <strong>${n} moviment${n===1?'o':'i'}</strong>?<br><span style="font-size:11px;color:var(--txt4)">Le giacenze verranno ricalcolate automaticamente dai movimenti rimanenti (FIFO).</span>`,
+    `🗑️ Elimina e ricalcola`,
+    () => {
+      selIds = snap; // ripristina snapshot per la logica sotto
+      movements=movements.filter(m=>!selIds.has(m.id));
+      // S2 FIX: FIFO full recalc senza mutazione diretta dell'array wines[].
+      wines=wines.map(w=>({...w,giacenza:0,lots:[]}));
+      const sorted=[...movements].sort((a,b)=>a.data.localeCompare(b.data)||a.ts-b.ts);
+      sorted.forEach(m=>{
+        const wIdx=wines.findIndex(w=>w.id===m.wineId);
+        if(wIdx<0) return;
+        const w=wines[wIdx];
+        const q=parseInt(m.qty)||0;
+        if(m.tipo==="carico"){
+          const pAcq=parseFloat(m.prezzoAcqLotto)||parseFloat(w.prezzoAcq)||0;
+          const newLot={id:m.id+"_lot",data:m.data,fattura:m.fattura||"",fornitore:m.fornitore||"",prezzoAcq:pAcq,iva:w.iva,qtyCaricata:q,qtyRimanente:q};
+          wines[wIdx]={...w,giacenza:w.giacenza+q,lots:[...(w.lots||[]),newLot]};
+        } else {
+          let rem=q;
+          const updLots=(w.lots||[]).map(l=>{if(rem<=0||l.qtyRimanente<=0)return l;const c=Math.min(rem,l.qtyRimanente);rem-=c;return{...l,qtyRimanente:l.qtyRimanente-c}});
+          wines[wIdx]={...w,giacenza:Math.max(0,w.giacenza-q),lots:updLots};
+        }
+      });
+      notify(`🗑️ ${n} movimenti eliminati — giacenze ricalcolate`);
+      exitSel(); scheduleSave(); render();
+    },
+    'danger'
   );
-  if(!choice) return;
-  movements=movements.filter(m=>!selIds.has(m.id));
-  // S2 FIX: FIFO full recalc senza mutazione diretta dell'array wines[].
-  // Ogni step usa un nuovo oggetto immutabile (spread) prima di aggiornare
-  // la posizione nell'array — coerente con il resto del codebase.
-  wines=wines.map(w=>({...w,giacenza:0,lots:[]}));
-  const sorted=[...movements].sort((a,b)=>a.data.localeCompare(b.data)||a.ts-b.ts);
-  sorted.forEach(m=>{
-    const wIdx=wines.findIndex(w=>w.id===m.wineId);
-    if(wIdx<0) return;
-    const w=wines[wIdx];
-    const q=parseInt(m.qty)||0;
-    if(m.tipo==="carico"){
-      const pAcq=parseFloat(m.prezzoAcqLotto)||parseFloat(w.prezzoAcq)||0;
-      const newLot={id:m.id+"_lot",data:m.data,fattura:m.fattura||"",fornitore:m.fornitore||"",prezzoAcq:pAcq,iva:w.iva,qtyCaricata:q,qtyRimanente:q};
-      // immutable: crea nuovo oggetto prima di assegnare all'indice
-      wines[wIdx]={...w,giacenza:w.giacenza+q,lots:[...(w.lots||[]),newLot]};
-    } else {
-      let rem=q;
-      const updLots=(w.lots||[]).map(l=>{if(rem<=0||l.qtyRimanente<=0)return l;const c=Math.min(rem,l.qtyRimanente);rem-=c;return{...l,qtyRimanente:l.qtyRimanente-c}});
-      // immutable: crea nuovo oggetto prima di assegnare all'indice
-      wines[wIdx]={...w,giacenza:Math.max(0,w.giacenza-q),lots:updLots};
-    }
-  });
-  notify(`🗑️ ${n} movimenti eliminati — giacenze ricalcolate`);
-  exitSel(); scheduleSave(); render();
 }
 function bulkDeleteOrdini(){
   if(selIds.size===0) return;
-  if(!confirm(`Eliminare ${selIds.size} ordin${selIds.size===1?"e":"i"}?`)) return;
-  orders=orders.filter(o=>!selIds.has(o.id));
-  notify(`🗑️ ${selIds.size} ordini eliminati`);
-  exitSel(); scheduleSave(); render();
+  const n=selIds.size;
+  const snap=new Set(selIds);
+  _confirmModal(
+    `Eliminare <strong>${n} ordin${n===1?'e':'i'}</strong>?`,
+    `🗑️ Elimina ${n} ${n===1?'ordine':'ordini'}`,
+    async ()=>{
+      // Ordini locali
+      orders=orders.filter(o=>!snap.has(o.id));
+      // Bozze remote su ordini_testata
+      const bozzeIds=[...snap].filter(id=>_bozzeSb.some(b=>b.id===id));
+      if(bozzeIds.length && _sb){
+        await _sb.from('ordini_testata').delete().in('id', bozzeIds);
+        _bozzeSb=_bozzeSb.filter(b=>!snap.has(b.id));
+      }
+      notify(`🗑️ ${n} ordin${n===1?'e':'i'} eliminati`);
+      exitSel(); scheduleSave(); render();
+    },
+    'danger'
+  );
 }
 
 // ─── BULK EDIT MODAL ──────────────────────────────────────────────────────────
@@ -4387,6 +4773,11 @@ const _bulkFields={
     {key:"fattura",label:"N° Fattura",type:"text"},
     {key:"fornitore",label:"Fornitore",type:"text"},
     {key:"note",label:"Note",type:"text"},
+    {key:"annata",label:"Annata",type:"text"},
+    {key:"vitigni",label:"Vitigni",type:"text"},
+    {key:"regione",label:"Regione",type:"text"},
+    {key:"nazione",label:"Nazione",type:"text"},
+    {key:"zona",label:"Zona/Cru",type:"text"},
   ],
   ordini:[
     {key:"fornitore",label:"Fornitore",type:"text"},
@@ -4450,11 +4841,21 @@ function applyBulkEdit(){
     });
     notify(`✅ ${count} vini aggiornati`);
   } else if(_bulkMode==="movimenti"){
+    // vitigni e annata appartengono al vino, non al movimento — aggiorna il wine corrispondente
+    const wineChanges={};
+    ["vitigni","annata","regione","nazione","zona"].forEach(k=>{
+      if(changes[k]!==undefined){ wineChanges[k]=changes[k]; delete changes[k]; }
+    });
+    const affectedWineIds=new Set();
     movements=movements.map(m=>{
       if(!selIds.has(m.id)) return m;
       count++;
+      if(Object.keys(wineChanges).length) affectedWineIds.add(m.wineId);
       return {...m,...changes};
     });
+    if(affectedWineIds.size){
+      wines=wines.map(w=>affectedWineIds.has(w.id)?{...w,...wineChanges}:w);
+    }
     notify(`✅ ${count} movimenti aggiornati`);
   } else if(_bulkMode==="ordini"){
     orders=orders.map(o=>{
@@ -4470,15 +4871,87 @@ function applyBulkEdit(){
   render();
 }
 
+// ─── CONFIRM MODAL (sostituisce window.confirm per azioni distruttive) ─────────
+// Uso: _confirmModal("Testo?", "Label bottone OK", callbackFn)
+// Non blocca il thread, non viene soppresso in iframe/WebView, supporta Escape.
+function _confirmModal(message, okLabel, onOk, dangerLevel='warn'){
+  // rimuovi eventuali dialog precedenti
+  const old = document.getElementById('cm-confirm-modal');
+  if(old) old.remove();
+
+  const colors = dangerLevel === 'danger'
+    ? { bg:'rgba(255,69,58,.12)', border:'rgba(255,69,58,.35)', btnBg:'#FF453A', btnColor:'#fff' }
+    : { bg:'rgba(255,159,10,.08)', border:'rgba(255,159,10,.3)', btnBg:'var(--amber)', btnColor:'#000' };
+
+  const el = document.createElement('div');
+  el.id = 'cm-confirm-modal';
+  el.style.cssText = `position:fixed;inset:0;background:rgba(0,0,0,.55);backdrop-filter:blur(4px);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px`;
+  el.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid ${colors.border};border-radius:12px;max-width:400px;width:100%;padding:24px;font-family:'Montserrat',system-ui,sans-serif;box-shadow:0 16px 48px rgba(0,0,0,.5)">
+      <div style="font-size:13px;color:var(--txt);line-height:1.6;margin-bottom:20px">${message}</div>
+      <div style="display:flex;justify-content:flex-end;gap:10px">
+        <button id="cm-conf-cancel" style="padding:8px 18px;border:1px solid var(--border2);background:none;color:var(--txt2);cursor:pointer;font-family:inherit;font-size:12px;border-radius:8px">Annulla</button>
+        <button id="cm-conf-ok" style="padding:8px 18px;background:${colors.btnBg};color:${colors.btnColor};border:none;cursor:pointer;font-family:inherit;font-size:12px;font-weight:700;border-radius:8px">${okLabel}</button>
+      </div>
+    </div>`;
+
+  const close = () => el.remove();
+  el.querySelector('#cm-conf-cancel').addEventListener('click', close);
+  el.querySelector('#cm-conf-ok').addEventListener('click', () => { close(); onOk(); });
+  el.addEventListener('click', e => { if(e.target === el) close(); });
+  el.addEventListener('keydown', e => { if(e.key==='Escape') close(); if(e.key==='Enter'){close();onOk();} });
+
+  document.body.appendChild(el);
+  // Focus sul bottone OK per Enter immediato se intenzionale, Cancel con Tab
+  setTimeout(()=>{ el.querySelector('#cm-conf-cancel').focus(); }, 40);
+}
+
+// ─── CONFIRM MODAL 2 — tre bottoni (azione-A / azione-B / annulla) ────────────
+// Uso: _confirmModal2("Testo?", {label:"Btn A", cb:fnA}, {label:"Btn B", cb:fnB})
+// Entrambe le azioni sono evidenziate; "Annulla" è il pulsante neutro.
+function _confirmModal2(message, actionA, actionB){
+  const old = document.getElementById('cm-confirm-modal2');
+  if(old) old.remove();
+  const el = document.createElement('div');
+  el.id = 'cm-confirm-modal2';
+  el.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);backdrop-filter:blur(4px);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+  el.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid rgba(255,159,10,.3);border-radius:12px;max-width:420px;width:100%;padding:24px;font-family:'Montserrat',system-ui,sans-serif;box-shadow:0 16px 48px rgba(0,0,0,.5)">
+      <div style="font-size:13px;color:var(--txt);line-height:1.6;margin-bottom:20px">${message}</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <button id="cm2-a" style="width:100%;padding:10px 16px;background:rgba(255,69,58,.12);border:1px solid rgba(255,69,58,.35);color:#FF6B6B;cursor:pointer;font-family:inherit;font-size:12px;font-weight:600;border-radius:8px;text-align:left">${actionA.label}</button>
+        <button id="cm2-b" style="width:100%;padding:10px 16px;background:rgba(255,159,10,.1);border:1px solid rgba(255,159,10,.3);color:var(--amber);cursor:pointer;font-family:inherit;font-size:12px;font-weight:600;border-radius:8px;text-align:left">${actionB.label}</button>
+        <button id="cm2-cancel" style="width:100%;padding:8px 16px;border:1px solid var(--border2);background:none;color:var(--txt3);cursor:pointer;font-family:inherit;font-size:12px;border-radius:8px">Annulla</button>
+      </div>
+    </div>`;
+  const close = () => el.remove();
+  el.querySelector('#cm2-a').addEventListener('click', ()=>{ close(); actionA.cb(); });
+  el.querySelector('#cm2-b').addEventListener('click', ()=>{ close(); actionB.cb(); });
+  el.querySelector('#cm2-cancel').addEventListener('click', close);
+  el.addEventListener('click', e=>{ if(e.target===el) close(); });
+  el.addEventListener('keydown', e=>{ if(e.key==='Escape') close(); });
+  document.body.appendChild(el);
+  setTimeout(()=>{ el.querySelector('#cm2-cancel').focus(); }, 40);
+}
+
+
 function deleteWine(id){
-  if(!confirm("Eliminare definitivamente questo vino? Verranno rimossi anche i movimenti e le fallate collegati.")) return;
-  wines=wines.filter(w=>w.id!==id);
-  movements=movements.filter(m=>m.wineId!==id);
-  fallate=fallate.filter(f=>f.wineId!==id);
-  // S5: rimuovi soglie orfane per evitare accumulo di chiavi inutili in alertSoglie
-  delete alertSoglie[id];
-  delete scaricoSerata.qtys[id];
-  scheduleSave(); notify("🗑️ Vino eliminato"); render();
+  const w = wines.find(x=>x.id===id);
+  if(!w) return;
+  _confirmModal(
+    `Eliminare <strong>${w.nome}</strong>${w.produttore?' ('+w.produttore+')':''}?<br><span style="font-size:11px;color:var(--txt4)">Verranno rimossi anche movimenti e fallate collegati.</span>`,
+    "🗑️ Elimina",
+    () => {
+      wines=wines.filter(x=>x.id!==id);
+      movements=movements.filter(m=>m.wineId!==id);
+      fallate=fallate.filter(f=>f.wineId!==id);
+      delete alertSoglie[id];
+      delete scaricoSerata.qtys[id];
+      _selectedWineId=null;
+      scheduleSave(); notify("🗑️ Vino eliminato"); render();
+    },
+    'danger'
+  );
 }
 
 // ─── CSV EXPORTS ──────────────────────────────────────────────────────────────
@@ -4492,8 +4965,8 @@ function toCSV(rows){return rows.map(r=>r.map(v=>esc(v)).join(";")).join("\n")}
 
 function exportInventarioCSV(){
   const dateStr=new Date().toLocaleDateString("it-IT");
-  const headers=["Distributore","Produttore","Nome Vino","Vitigni","Annata","Zona/Cru","Regione","Tipologia","P.Acq (escl.IVA)","IVA %","Costo+IVA/bt","P.Carta","Marg.Lordo/bt","Marg.%","Giacenza","Val.Costo","IVA su Stock","Val.Potenziale Carta","IVA Pot.Vendita"];
-  const rows=wines.map(w=>{const mb=calcMargineBottiglia(w);const mp=calcMarginePerc(w);const vc=calcValore(w);return [w.distributore||"",w.produttore,w.nome,w.vitigni||"",w.annata||"",w.zona||"",w.regione||"",w.tipologia,fmtN(w.prezzoAcq),w.iva+"%",fmtN(calcCostoIvaBottiglia(w)),fmtN(w.prezzoCarta),mb!==null?fmtN(mb):"—",mp!==null?fmtN(mp,1)+"%":"—",w.giacenza,fmtN(vc),fmtN(vc*(parseInt(w.iva)||22)/100),fmtN(calcValoreCarta(w)),fmtN(calcValoreCarta(w)*(parseInt(w.iva)||22)/100)];});
+  const headers=["Distributore","Produttore","Nome Vino","Vitigni","Annata","Zona/Cru","Regione","Tipologia","P.Acq (escl.IVA)","IVA %","Costo+IVA/bt","P.Carta","Marg.Lordo/bt","Marg.%","Giacenza","Val.Costo","IVA su Stock","Val.Potenziale Carta","IVA Pot.Vendita","Nota Veloce"];
+  const rows=wines.map(w=>{const mb=calcMargineBottiglia(w);const mp=calcMarginePerc(w);const vc=calcValore(w);return [w.distributore||"",w.produttore,w.nome,w.vitigni||"",w.annata||"",w.zona||"",w.regione||"",w.tipologia,fmtN(w.prezzoAcq),w.iva+"%",fmtN(calcCostoIvaBottiglia(w)),fmtN(w.prezzoCarta),mb!==null?fmtN(mb):"—",mp!==null?fmtN(mp,1)+"%":"—",w.giacenza,fmtN(vc),fmtN(vc*(parseInt(w.iva)||22)/100),fmtN(calcValoreCarta(w)),fmtN(calcValoreCarta(w)*(parseInt(w.iva)||22)/100),w.noteVeloce||""];});
   dlCSV(toCSV([headers,...rows]),`giacenze_al_${dateStr.replace(/\//g,"-")}.csv`);
   notify("📥 Giacenze esportate");
 }
@@ -4523,11 +4996,92 @@ function exportMovimentiCSV(){
   const wineMap=Object.fromEntries(wines.map(w=>[w.id,w]));
   const sorted=[...movements].sort((a,b)=>a.data.localeCompare(b.data));
   const headers=["Data","Tipo","N° Fattura","Fornitore","Nome Vino","Produttore","Nazione","Annata","Qtà","P.Acq/bt","IVA%","Valore Mov.","Note"];
-  const rows=sorted.map(m=>{const w=wineMap[m.wineId];const p=parseFloat(m.prezzoAcqLotto)||parseFloat(w?.prezzoAcq)||0;return [m.data,m.tipo.toUpperCase(),m.fattura||"",m.fornitore||"",m.wineName,m.produttore||"",m.nazione||w?.nazione||"",w?.annata||"",(m.tipo==="carico"?"+":"-")+m.qty,fmtN(p),(parseInt(w?.iva)||22)+"%",fmtN(p*m.qty),m.note||""];});
+  const rows=sorted.map(m=>{const w=wineMap[m.wineId];
+    // M7: per scarichi usa costoUnitarioIva snapshot; per carichi usa prezzoAcqLotto del lotto
+    const p=m.tipo==="scarico"
+      ? (m.costoUnitarioIva || parseFloat(w?.prezzoAcq)||0)
+      : (parseFloat(m.prezzoAcqLotto)||parseFloat(w?.prezzoAcq)||0);
+    return [m.data,m.tipo.toUpperCase(),m.fattura||"",m.fornitore||"",m.wineName,m.produttore||"",m.nazione||w?.nazione||"",w?.annata||"",(m.tipo==="carico"?"+":"-")+m.qty,fmtN(p),(parseInt(w?.iva)||22)+"%",fmtN(p*m.qty),m.note||""];});
   dlCSV(toCSV([headers,...rows]),`movimenti_${dateStr.replace(/\//g,"-")}.csv`);
   notify("📥 Movimenti esportati");
 }
 // ─── MODALITÀ MOBILE ─────────────────────────────────────────────────────────
+
+// ── CSS injection per classi mobile ──────────────────────────────────────────
+// Le classi mob-step-btn, mob-confirm-btn, mob-acc-* non sono in index.html CSS
+// (refactoring incrementale). Le iniettiamo qui una volta sola al caricamento JS.
+(function _injectMobCSS(){
+  if(document.getElementById('cm-mob-css')) return; // già iniettato
+  const style = document.createElement('style');
+  style.id = 'cm-mob-css';
+  style.textContent = `
+/* ── Accordion tipologia ── */
+.mob-acc-group { border-bottom: 1px solid var(--border); }
+.mob-acc-header {
+  width: 100%; display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px; background: var(--bg2); border: none; cursor: pointer;
+  font-family: 'Montserrat', system-ui, sans-serif; gap: 8px;
+  -webkit-tap-highlight-color: transparent;
+}
+.mob-acc-header:active { background: rgba(255,255,255,.06); }
+.mob-acc-title {
+  font-size: 10px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase;
+  color: var(--amber); flex: 1; text-align: left;
+}
+.mob-acc-meta { font-size: 10px; color: var(--txt4); flex-shrink: 0; }
+.mob-acc-arrow { font-size: 10px; color: var(--txt4); flex-shrink: 0; }
+.mob-acc-body { background: var(--bg); }
+
+/* ── Riga vino ── */
+.mob-wine-sub {
+  font-size: 10px; color: var(--txt4); margin-top: 2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ── Stepper quantità ── */
+.mob-stepper {
+  display: flex; align-items: center; gap: 0;
+  border: 1px solid var(--border2); border-radius: 8px; overflow: hidden;
+}
+.mob-step-btn {
+  min-width: 44px; min-height: 44px; width: 44px; height: 44px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px; font-weight: 300; background: var(--bg3); border: none;
+  color: var(--txt2); cursor: pointer; font-family: inherit;
+  -webkit-tap-highlight-color: transparent; user-select: none;
+  transition: background .1s;
+}
+.mob-step-btn:active { background: rgba(255,159,10,.2); color: var(--amber); }
+.mob-step-val {
+  min-width: 32px; text-align: center; font-family: 'Montserrat', sans-serif;
+  font-size: 1rem; font-weight: 500; color: var(--txt); padding: 0 4px;
+  background: var(--bg3);
+}
+
+/* ── Bottone Scarica ── */
+.mob-confirm-btn {
+  min-height: 44px; padding: 0 16px; font-size: 12px; font-weight: 700;
+  letter-spacing: .04em; text-transform: uppercase; font-family: inherit;
+  background: rgba(255,69,58,.15); border: 1px solid rgba(255,69,58,.35);
+  color: #FF6B6B; cursor: pointer; border-radius: 8px;
+  -webkit-tap-highlight-color: transparent; transition: background .1s;
+  white-space: nowrap;
+}
+.mob-confirm-btn:active:not(:disabled) { background: rgba(255,69,58,.35); color: #fff; }
+.mob-confirm-btn.disabled,
+.mob-confirm-btn:disabled {
+  opacity: .3; cursor: not-allowed; background: var(--bg3);
+  border-color: var(--border2); color: var(--txt4);
+}
+
+/* ── Scrollbar sottile inv-scroll-body (Webkit / macOS overlay) ── */
+#inv-scroll-body::-webkit-scrollbar { width: 5px; }
+#inv-scroll-body::-webkit-scrollbar-track { background: transparent; }
+#inv-scroll-body::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+#inv-scroll-body::-webkit-scrollbar-thumb:hover { background: var(--txt4); }
+  `;
+  document.head.appendChild(style);
+})();
 
 function _isMobile(){
   // Considera mobile se larghezza < 768px OPPURE se è un dispositivo touch con schermo piccolo
@@ -4570,11 +5124,11 @@ function _renderMobList(){
   const q = _mobQuery;
   const filtered = wines.filter(w => {
     const giac = parseInt(w.giacenza)||0;
-    if(giac <= 0) return false; // mobile: mostra solo vini scaricabili
+    if(giac <= 0) return false;
     if(!q) return true;
-    const hay = (w.nome+" "+w.produttore+" "+(w.annata||"")+" "+w.tipologia).toLowerCase();
+    const hay = (w.nome+" "+w.produttore+" "+(w.annata||"")+" "+(w.denominazione||"")+" "+w.tipologia).toLowerCase();
     return hay.includes(q);
-  }).sort((a,b) => a.tipologia.localeCompare(b.tipologia) || a.nome.localeCompare(b.nome));
+  });
 
   const list = document.getElementById("mob-list");
   const empty = document.getElementById("mob-empty");
@@ -4588,28 +5142,167 @@ function _renderMobList(){
   }
   empty.style.display = "none";
 
-  list.innerHTML = filtered.map(w => {
-    const giac = parseInt(w.giacenza)||0;
-    const sg = _getSoglie(w.id);
-    const gClass = giac <= sg.min ? "low" : "";
-    return `<div class="mob-wine-row">
-      <div class="mob-wine-info">
-        <div class="mob-wine-name">${h(w.nome)}</div>
-        <div class="mob-wine-meta">
-          ${w.annata ? `<span class="mob-wine-annata">${h(w.annata)}</span>` : ""}
-          <span class="badge badge-${w.tipologia||"default"}">${h(w.tipologia||"")}</span>
-          <span style="font-size:9px;color:var(--txt4)">${h(w.produttore)}</span>
-        </div>
-      </div>
-      <div class="mob-wine-right">
-        <button class="mob-btn mob-btn-minus" onclick="registraMovimentoMobile('${w.id}',-1)"
-          aria-label="Scarica 1 bottiglia">−</button>
-        <span class="mob-giacenza ${gClass}">${giac}</span>
-        <button class="mob-btn mob-btn-plus" onclick="registraMovimentoMobile('${w.id}',1)"
-          aria-label="Carica 1 bottiglia">+</button>
-      </div>
-    </div>`;
-  }).join("");
+  // Raggruppa per tipologia seguendo ordine TIPOLOGIE
+  const groups = {};
+  TIPOLOGIE.forEach(t => { groups[t] = []; });
+  filtered.forEach(w => {
+    const t = w.tipologia || "Altro";
+    if(!groups[t]) groups[t] = [];
+    groups[t].push(w);
+  });
+
+  // Inizializza accordion: aperto di default se non ancora impostato
+  TIPOLOGIE.forEach(t => {
+    if(_mobAccordionOpen[t] === undefined) _mobAccordionOpen[t] = true;
+  });
+
+  let html = "";
+  TIPOLOGIE.forEach(t => {
+    const grp = groups[t];
+    if(!grp || grp.length === 0) return;
+    grp.sort((a,b) => a.nome.localeCompare(b.nome));
+
+    const isOpen = _mobAccordionOpen[t] !== false;
+    html += `<div class="mob-acc-group">
+      <button class="mob-acc-header" onclick="mobToggleAccordion(${JSON.stringify(t)})">
+        <span class="mob-acc-title">${h(t.toUpperCase())}</span>
+        <span class="mob-acc-meta">${grp.length} ${grp.length===1?"referenza":"referenze"} &nbsp; ${grp.reduce((s,w)=>s+(parseInt(w.giacenza)||0),0)} bt</span>
+        <span class="mob-acc-arrow">${isOpen?"▲":"▼"}</span>
+      </button>`;
+
+    if(isOpen){
+      html += `<div class="mob-acc-body">`;
+      grp.forEach(w => {
+        const giac = parseInt(w.giacenza)||0;
+        const sg = _getSoglie(w.id);
+        const gClass = giac <= 0 ? "zero" : giac <= sg.min ? "low" : "";
+        const qty = _mobSteppers[w.id] || 1;
+        const canScarica = giac >= qty;
+        html += `<div class="mob-wine-row" data-mob-id="${w.id}">
+          <div class="mob-wine-info">
+            <div class="mob-wine-name">${h(w.nome)}${w.annata ? `<span class="mob-wine-annata"> ${h(w.annata)}</span>` : ""}</div>
+            ${w.produttore || w.denominazione ? `<div class="mob-wine-sub">${[w.produttore,w.denominazione].filter(Boolean).map(s=>h(s)).join(" — ")}</div>` : ""}
+          </div>
+          <div class="mob-wine-right">
+            <span class="mob-giacenza ${gClass}" id="mob-giac-${w.id}">${giac}</span>
+            <div class="mob-stepper">
+              <button class="mob-step-btn" onclick="mobStepChange('${w.id}',-1)" aria-label="Diminuisci">−</button>
+              <span class="mob-step-val" id="mob-step-${w.id}">${qty}</span>
+              <button class="mob-step-btn" onclick="mobStepChange('${w.id}',1)" aria-label="Aumenta">+</button>
+            </div>
+            <button class="mob-confirm-btn${canScarica?"":" disabled"}" onclick="mobScaricaConfirm('${w.id}')" ${canScarica?"":"disabled"}>Scarica</button>
+          </div>
+        </div>`;
+      });
+      html += `</div>`;
+    }
+    html += `</div>`;
+  });
+
+  list.innerHTML = html;
+}
+
+function mobToggleAccordion(tipo){
+  _mobAccordionOpen[tipo] = !(_mobAccordionOpen[tipo] !== false);
+  _renderMobList();
+}
+
+function mobStepChange(wineId, delta){
+  const cur = _mobSteppers[wineId] || 1;
+  const wine = wines.find(w => w.id === wineId);
+  const maxGiac = wine ? (parseInt(wine.giacenza)||0) : 999;
+  const next = Math.max(1, Math.min(cur + delta, maxGiac));
+  _mobSteppers[wineId] = next;
+  const el = document.getElementById("mob-step-"+wineId);
+  if(el) el.textContent = next;
+  const rowEl = el && el.closest(".mob-wine-row");
+  const btn = rowEl && rowEl.querySelector(".mob-confirm-btn");
+  if(btn){
+    const canScarica = maxGiac >= next;
+    btn.disabled = !canScarica;
+    btn.classList.toggle("disabled", !canScarica);
+  }
+}
+
+function mobScaricaConfirm(wineId){
+  const qty = _mobSteppers[wineId] || 1;
+  _mobSteppers[wineId] = 1;
+  registraMovimentoMobileQty(wineId, -qty);
+}
+
+// Versione ottimistica non-await: aggiorna UI subito, sync in background
+function registraMovimentoMobileQty(wineId, delta){
+  _hideMobToast();
+  const wine = wines.find(w => w.id === wineId);
+  if(!wine) return;
+  const qty = Math.abs(delta);
+  if(delta < 0 && wine.giacenza < qty) return;
+
+  const prevGiacenza = wine.giacenza;
+  const prevLots = JSON.parse(JSON.stringify(wine.lots||[]));
+  const tipo = delta > 0 ? "carico" : "scarico";
+  const dateStr = today();
+  const fattura = `MOB-${dateStr}`;
+  const movId = uid();
+
+  // 1. Aggiornamento immediato in memoria
+  wines = wines.map(w => {
+    if(w.id !== wineId) return w;
+    if(delta > 0){
+      const pAcq = parseFloat(w.prezzoAcq)||0;
+      const newLot = {id:uid(), data:dateStr, fattura, fornitore:"", prezzoAcq:pAcq, iva:w.iva, qtyCaricata:qty, qtyRimanente:qty};
+      return {...w, giacenza:w.giacenza+qty, lots:[...(w.lots||[]),newLot]};
+    } else {
+      let rem = qty;
+      const updLots = (w.lots||[]).map(l => {
+        if(rem<=0||l.qtyRimanente<=0) return l;
+        const c = Math.min(rem,l.qtyRimanente); rem-=c;
+        return {...l, qtyRimanente:l.qtyRimanente-c};
+      });
+      return {...w, giacenza:w.giacenza-qty, lots:updLots};
+    }
+  });
+  const newMov = {id:movId, wineId, wineName:wine.nome, produttore:wine.produttore,
+    tipo, qty, data:dateStr, fattura, fornitore:"", note:"[mobile]", ts:Date.now()};
+  movements = [newMov, ...movements];
+
+  // 2. Aggiornamento ottimistico UI (solo il valore giacenza, senza re-render completo)
+  const giacEl = document.getElementById("mob-giac-"+wineId);
+  const newGiac = parseInt(wines.find(w=>w.id===wineId)?.giacenza)||0;
+  if(giacEl){
+    giacEl.textContent = newGiac;
+    const sg = _getSoglie(wineId);
+    giacEl.className = "mob-giacenza" + (newGiac<=0?" zero":newGiac<=sg.min?" low":"");
+  }
+  // Aggiorna stepper max e bottone
+  const stepEl = document.getElementById("mob-step-"+wineId);
+  const rowEl = stepEl && stepEl.closest(".mob-wine-row");
+  if(rowEl){
+    const confirmBtn = rowEl.querySelector(".mob-confirm-btn");
+    const curStep = _mobSteppers[wineId]||1;
+    if(confirmBtn){
+      const canNow = newGiac >= curStep;
+      confirmBtn.disabled = !canNow;
+      confirmBtn.classList.toggle("disabled",!canNow);
+    }
+    if(newGiac <= 0){
+      // Rimuovi la riga se giacenza esaurita
+      setTimeout(()=>{ if(rowEl.parentNode) rowEl.remove(); }, 300);
+    }
+  }
+
+  // 3. Persist in background (non blocca la UI)
+  _saveLocalBackup();
+  scheduleSave();
+
+  // 4. Log & toast
+  const ts = new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"});
+  const desc = `Scaricato ${qty}× ${wine.nome}${wine.annata?" "+wine.annata:""}`;
+  _mobLog = [{ts, desc}, ..._mobLog].slice(0,4);
+  _renderMobLog();
+  _mobUndoData = {wineId, delta, movId, prevGiacenza, prevLots};
+  _showMobToast(desc);
+  updateSidebar();
 }
 
 function _renderMobLog(){
@@ -4832,7 +5525,7 @@ function openMovModal(id){
     <div class="form-grid g2" style="margin-bottom:12px">
       <div>
         <label class="form-label">Quantità</label>
-        <input class="form-input" type="number" min="1" id="me-qty" value="${m.qty}">
+        <input class="form-input" type="number" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" min="1" id="me-qty" value="${m.qty}">
       </div>
       <div>
         <label class="form-label">N° Fattura</label>
@@ -4954,8 +5647,8 @@ function exportBilancioCSV(){
   lines.push(row("Valore potenziale di vendita (carta)","",fmtN(s.valoreCarta),"",fmtN(s.valoreCarta)));
   lines.push(""); lines.push("");
   lines.push(row("B — GIACENZE AL "+dateStr));
-  lines.push(row("Produttore","Nome Vino","Tipologia","Annata","P.Acq","IVA%","P.Carta","Giacenza","Val.Costo","IVA Stock","Val.Carta"));
-  wines.forEach(w=>{const vc=calcValore(w);lines.push(row(w.produttore,w.nome,w.tipologia,w.annata||"",fmtN(w.prezzoAcq),w.iva+"%",fmtN(w.prezzoCarta),w.giacenza,fmtN(vc),fmtN(vc*(parseInt(w.iva)||22)/100),fmtN(calcValoreCarta(w))));});
+  lines.push(row("Produttore","Nome Vino","Tipologia","Annata","P.Acq","IVA%","P.Carta","Giacenza","Val.Costo","IVA Stock","Val.Carta","Nota Veloce"));
+  wines.forEach(w=>{const vc=calcValore(w);lines.push(row(w.produttore,w.nome,w.tipologia,w.annata||"",fmtN(w.prezzoAcq),w.iva+"%",fmtN(w.prezzoCarta),w.giacenza,fmtN(vc),fmtN(vc*(parseInt(w.iva)||22)/100),fmtN(calcValoreCarta(w)),w.noteVeloce||""));});
   lines.push(row("","TOTALE","","","","",wines.reduce((s2,w)=>s2+w.giacenza,0),fmtN(totValStock),fmtN(totIvaStock),fmtN(s.valoreCarta),""));
   lines.push(""); lines.push("");
   lines.push(row("C — REGISTRO ACQUISTI"));
@@ -5086,18 +5779,26 @@ function importBackupJSON(event){
     try {
       const data = JSON.parse(e.target.result);
       if(!data.wines || !Array.isArray(data.wines)) throw new Error("Formato non valido");
-      if(!confirm(`Importare ${data.wines.length} vini? I dati esistenti verranno sostituiti.`)) return;
-      wines = data.wines;
-      if(data.movements) movements = data.movements;
-      if(data.fallate) fallate = data.fallate;
-      if(data.orders) orders = data.orders;
-      if(data.alertSoglie) alertSoglie = data.alertSoglie;
-      // B4: esegui migration per garantire compatibilità con backup da versioni precedenti
-      _migrateOrders();
-      _migrateWines();
-      scheduleSave();
-      render();
-      notify(`✅ Importati ${wines.length} vini`);
+      // _confirmModal è non-blocking: la catch gestisce solo il parse JSON
+      _confirmModal(
+        `Importare <strong>${data.wines.length} vini</strong>?<br><span style="font-size:11px;color:var(--txt4)">I dati esistenti verranno sostituiti.</span>`,
+        "📥 Importa",
+        () => {
+          wines = data.wines;
+          if(data.movements) movements = data.movements;
+          if(data.fallate) fallate = data.fallate;
+          if(data.orders) orders = data.orders;
+          if(data.alertSoglie) alertSoglie = data.alertSoglie;
+          // B4: esegui migration per garantire compatibilità con backup da versioni precedenti
+          _migrateOrders();
+          _migrateWines();
+          scheduleSave();
+          render();
+          notify(`✅ Importati ${wines.length} vini`);
+          event.target.value = '';
+        },
+        'danger'
+      );
     } catch(err) {
       notify("❌ Errore: " + err.message, "err");
     }
@@ -5144,8 +5845,8 @@ function _normDup(s){
 }
 
 function _dupKey(w){
-  // Chiave di raggruppamento: norm(produttore) + "|" + norm(nome)
-  return _normDup(w.produttore) + "|" + _normDup(w.nome);
+  // Chiave di raggruppamento: norm(produttore) + "|" + norm(nome) + "|" + norm(annata)
+  return _normDup(w.produttore) + "|" + _normDup(w.nome) + "|" + _normDup(w.annata||"nv");
 }
 
 function _findDuplicateGroups(){
@@ -5364,4 +6065,331 @@ document.getElementById("content").addEventListener("dblclick", function(e){
   if(!tr) return;
   e.preventDefault();
   openWineDetail(tr.dataset.wineId);
+});
+
+// ─── BRIDGE ORDINI_TESTATA → renderOrdini ────────────────────────────────────
+/**
+ * Carica le bozze da ordini_testata + ordini_righe in background.
+ * Aggiorna _bozzeSb e fa re-render della sezione ordini se siamo lì.
+ * Chiamata ogni volta che si apre la sezione Ordini.
+ */
+async function _loadBozzeSb() {
+  if (!_sb) return;
+  try {
+    const { data: testate, error } = await _sb
+      .from('ordini_testata')
+      .select('id, distributore, stato, data_ordine, note')
+      .eq('user_id', DB_USER)
+      .eq('stato', 'bozza');
+    if (error || !testate || !testate.length) { _bozzeSb = []; return; }
+
+    // Carica tutte le righe di queste bozze in un'unica query
+    const ids = testate.map(t => t.id);
+    const { data: righe } = await _sb
+      .from('ordini_righe')
+      .select('*')
+      .in('testata_id', ids);
+
+    // Associa le righe alla testata
+    _bozzeSb = testate.map(t => ({
+      ...t,
+      righe: (righe || []).filter(r => r.testata_id === t.id)
+    }));
+
+    // Se siamo ancora nella sezione ordini, aggiorna silenziosamente
+    if (section === 'ordini') {
+      const c = document.getElementById('content');
+      if (c) c.innerHTML = renderOrdini();
+      afterRender();
+    }
+  } catch(e) {
+    console.warn('_loadBozzeSb error:', e);
+    _bozzeSb = [];
+  }
+}
+
+// ─── BASI D'ORDINE AUTOMATICHE ────────────────────────────────────────────────
+
+/**
+ * Calcola la quantità da ordinare:
+ * usa (soglia − giacenza) arrotondata alla cassetta (6bt), fallback 6.
+ */
+function _qtyDaOrdinare(w) {
+  const soglia = parseInt(alertSoglie[w.id] ?? w.soglia ?? 0);
+  const giac   = parseInt(w.giacenza ?? 0);
+  if (soglia > 0 && soglia > giac) {
+    const diff = soglia - giac;
+    return Math.ceil(diff / 6) * 6;
+  }
+  return 6;
+}
+
+/**
+ * Raggruppa i vini selezionati per distributore,
+ * crea/trova la bozza su Supabase e fa batch-insert delle righe.
+ * Fallback offline: aggiunge agli ordini locali.
+ */
+async function creaBasiOrdineDatiSelezionati() {
+  if (!selIds.size) { notify('⚠️ Nessun vino selezionato', 'err'); return; }
+
+  const viniSel = [...selIds].map(id => wines.find(w => w.id === id)).filter(Boolean);
+  if (!viniSel.length) { notify('⚠️ Vini non trovati', 'err'); return; }
+
+  // Raggruppa per distributore (fallback fornitore → "—")
+  const byDist = {};
+  viniSel.forEach(w => {
+    const dist = (w.distributore || w.fornitore || '—').trim();
+    (byDist[dist] = byDist[dist] || []).push(w);
+  });
+
+  if (_sb) {
+    // ── ONLINE ──────────────────────────────────────────────────────────────
+    let totRighe = 0;
+    try {
+      for (const [dist, wList] of Object.entries(byDist)) {
+        // 1. Cerca bozza attiva
+        let testataId;
+        const { data: existing, error: errSel } = await _sb
+          .from('ordini_testata')
+          .select('id')
+          .eq('user_id', DB_USER)
+          .eq('distributore', dist)
+          .eq('stato', 'bozza')
+          .maybeSingle();
+        if (errSel) throw errSel;
+
+        if (existing) {
+          testataId = existing.id;
+        } else {
+          const { data: newT, error: errIns } = await _sb
+            .from('ordini_testata')
+            .insert({ user_id: DB_USER, distributore: dist, stato: 'bozza',
+                      data_ordine: today(), note: '' })
+            .select('id')
+            .single();
+          if (errIns) throw errIns;
+          testataId = newT.id;
+        }
+
+        // 2. Evita duplicati wine_id già presenti nella bozza
+        const { data: giaPres } = await _sb
+          .from('ordini_righe')
+          .select('wine_id')
+          .eq('testata_id', testataId);
+        const presentiSet = new Set((giaPres || []).map(r => r.wine_id));
+
+        const nuoveRighe = wList
+          .filter(w => !presentiSet.has(w.id))
+          .map(w => ({
+            testata_id:  testataId,
+            wine_id:     w.id,
+            nome_vino:   w.nome || '',
+            produttore:  w.produttore || '',
+            distributore: dist,
+            annata:      w.annata || '',
+            formato:     parseFloat(w.formato) || 0.75,
+            prezzo_acq:  parseFloat(w.prezzoAcq) || null,
+            iva:         parseInt(w.iva) || 22,
+            qty_ordinata: _qtyDaOrdinare(w),
+            note_riga:   ''
+          }));
+
+        if (nuoveRighe.length) {
+          const { error: errR } = await _sb.from('ordini_righe').insert(nuoveRighe);
+          if (errR) throw errR;
+          totRighe += nuoveRighe.length;
+        }
+      }
+      notify(`✅ ${totRighe} righe aggiunte a ${Object.keys(byDist).length} bozze ordine`);
+      exitSel();
+      await _loadBozzeSb(); // aggiorna il bridge così la sezione Ordini è subito allineata
+    } catch(err) {
+      console.error('creaBasiOrdine error:', err);
+      notify('❌ Errore: ' + (err.message || err), 'err');
+    }
+  } else {
+    // ── OFFLINE: popola array locale orders ──────────────────────────────────
+    for (const [dist, wList] of Object.entries(byDist)) {
+      let ordine = orders.find(o =>
+        (o.fornitore || o.distributore || '—') === dist && o.stato === 'attesa'
+      );
+      if (!ordine) {
+        ordine = { id: uid(), fornitore: dist, dataOrdine: today(),
+                   note: '', referenze: [], stato: 'attesa' };
+        orders.push(ordine);
+      }
+      const presentiIds = new Set((ordine.referenze || []).map(r => r.wineId));
+      wList.filter(w => !presentiIds.has(w.id)).forEach(w => {
+        ordine.referenze.push({
+          id: uid(), wineId: w.id,
+          produttore: w.produttore || '', nomeVino: w.nome || '',
+          annata: w.annata || '', tipologia: w.tipologia || '',
+          prezzoAcq: w.prezzoAcq || '', iva: w.iva || 22,
+          qty: _qtyDaOrdinare(w),
+          regione: w.regione || '', zona: w.zona || '',
+          nazione: w.nazione || 'Italia',
+          prezzoCarta: w.prezzoCarta || '', formato: w.formato || ''
+        });
+      });
+    }
+    scheduleSave();
+    notify(`📋 Bozze offline: ${Object.keys(byDist).length} distrib., vai in Ordini`);
+    exitSel();
+    if (section === 'ordini') render();
+  }
+}
+
+// ─── SHORTCUTS MODAL ─────────────────────────────────────────────────────────
+function openShortcutsModal(){
+  const sections = [
+    {
+      label: 'Globali',
+      icon: '🌐',
+      rows: [
+        ['Esc', 'Chiude qualsiasi modal aperto'],
+      ]
+    },
+    {
+      label: 'Inventario',
+      icon: '🍷',
+      note: 'Solo fuori dai campi di testo',
+      rows: [
+        ['↑ ↓', 'Naviga riga per riga, scrolla automaticamente'],
+        ['Space', 'Toggle checkbox riga selezionata (modalità multipla)'],
+        ['/', 'Focus sulla barra di ricerca'],
+        ['N', 'Nuovo vino'],
+        ['E', 'Modifica vino selezionato'],
+        ['P', 'Nota veloce sul vino selezionato'],
+        ['Del / ⌫', 'Elimina vino selezionato'],
+      ]
+    },
+    {
+      label: 'Movimenti',
+      icon: '📦',
+      rows: [
+        ['Ctrl + Enter', 'Registra carico / scarico'],
+      ]
+    },
+  ];
+
+  const html = sections.map(s => `
+    <div style="margin-bottom:20px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <span style="font-size:13px">${s.icon}</span>
+        <span style="font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--txt3)">${s.label}</span>
+        ${s.note ? `<span style="font-size:10px;color:var(--txt4);font-style:italic">— ${s.note}</span>` : ''}
+        <div style="flex:1;height:1px;background:var(--border)"></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        ${s.rows.map(([k,d]) => `
+        <div style="display:flex;align-items:center;gap:12px;padding:6px 10px;border-radius:var(--radius-sm);background:rgba(58,58,60,.3)">
+          <kbd style="display:inline-flex;align-items:center;justify-content:center;min-width:80px;padding:3px 10px;background:var(--bg3);border:1px solid var(--border2);border-bottom:2px solid var(--border2);border-radius:6px;font-family:'Montserrat',monospace;font-size:11px;font-weight:600;color:var(--txt2);white-space:nowrap;flex-shrink:0">${k}</kbd>
+          <span style="font-size:12px;color:var(--txt2)">${d}</span>
+        </div>`).join('')}
+      </div>
+    </div>
+  `).join('');
+
+  document.getElementById('shortcuts-modal-body').innerHTML = html;
+  document.getElementById('shortcuts-modal-backdrop').classList.remove('hidden');
+}
+
+function closeShortcutsModal(e){
+  if(e && e.target !== document.getElementById('shortcuts-modal-backdrop')) return;
+  document.getElementById('shortcuts-modal-backdrop').classList.add('hidden');
+}
+
+// ─── KEYBOARD SHORTCUTS GLOBALI ───────────────────────────────────────────────
+// Escape → chiude qualsiasi modal aperto
+// /      → focus ricerca inventario (solo se sezione inventario)
+// N      → apre modal Aggiungi Vino (solo se sezione inventario, fuori da input)
+document.addEventListener('keydown', function(e){
+  // Escape: chiude modal aperto — funziona sempre, anche dentro input
+  if(e.key === 'Escape'){
+    const modals = [
+      'wine-modal-backdrop','bulk-modal-backdrop','dup-modal-backdrop',
+      'note-veloce-backdrop','db-config-backdrop','shortcuts-modal-backdrop'
+    ];
+    let closed = false;
+    modals.forEach(id => {
+      const el = document.getElementById(id);
+      if(el && !el.classList.contains('hidden')){ el.classList.add('hidden'); closed = true; }
+    });
+    // chiude anche modal dinamici iniettati da renderMovimenti / renderOrdini
+    ['mov-edit-backdrop','ordine-modal-backdrop','ricezione-modal-backdrop','ordine-evaso-modal-backdrop'].forEach(id => {
+      const el = document.getElementById(id);
+      if(el && !el.classList.contains('hidden')){ el.classList.add('hidden'); closed = true; }
+    });
+    if(closed) return;
+  }
+
+  // Shortcut solo se loggato e fuori da campi di testo
+  if(!sessionStorage.getItem('cm_logged')) return;
+  if(e.target.matches('input,select,textarea')) return;
+  if(e.ctrlKey || e.metaKey || e.altKey) return;
+
+  // Ctrl+Enter → conferma form Movimenti (registra carico/scarico)
+  if((e.key === 'Enter') && (e.ctrlKey || e.metaKey) && section === 'movimenti'){
+    e.preventDefault();
+    registraMovimento();
+    return;
+  }
+
+  // / → focus barra di ricerca inventario
+  if(e.key === '/' && section === 'inventario'){
+    e.preventDefault();
+    const inv = document.getElementById('inv-search');
+    if(inv){ inv.focus(); inv.select(); }
+    return;
+  }
+  // N → nuovo vino (solo inventario, modal non aperto)
+  if((e.key === 'n' || e.key === 'N') && section === 'inventario'){
+    const anyOpen = ['wine-modal-backdrop','bulk-modal-backdrop'].some(id => {
+      const el = document.getElementById(id);
+      return el && !el.classList.contains('hidden');
+    });
+    if(!anyOpen) openWineModal(null);
+    return;
+  }
+  // E → modifica vino selezionato (inventario)
+  if((e.key === 'e' || e.key === 'E') && section === 'inventario'){
+    const btn = document.getElementById('tba-edit');
+    if(btn && btn.classList.contains('enabled')){ btn.click(); }
+    return;
+  }
+  // P → nota veloce su vino selezionato (inventario)
+  if((e.key === 'p' || e.key === 'P') && section === 'inventario'){
+    const btn = document.getElementById('tba-note');
+    if(btn && btn.classList.contains('enabled')){ btn.click(); }
+    return;
+  }
+  // Delete / Backspace → elimina vino selezionato (inventario)
+  if((e.key === 'Delete' || e.key === 'Backspace') && section === 'inventario'){
+    const btn = document.getElementById('tba-del');
+    if(btn && btn.classList.contains('enabled')){ btn.click(); }
+    return;
+  }
+  // ArrowDown / ArrowUp → naviga le righe inventario con tastiera
+  if((e.key === 'ArrowDown' || e.key === 'ArrowUp') && section === 'inventario'){
+    e.preventDefault();
+    const ids = _selAllIds.length ? _selAllIds
+      : [...document.querySelectorAll('.inv-table tr[data-wine-id]')].map(r=>r.dataset.wineId);
+    if(!ids.length) return;
+    const cur = ids.indexOf(_selectedWineId);
+    const next = e.key === 'ArrowDown'
+      ? (cur < 0 ? 0 : Math.min(cur+1, ids.length-1))
+      : (cur < 0 ? ids.length-1 : Math.max(cur-1, 0));
+    selectWineRow(ids[next]);
+    // scroll morbido alla riga
+    const row = document.querySelector(`.inv-table tr[data-wine-id="${ids[next]}"]`);
+    if(row) row.scrollIntoView({block:'nearest',behavior:'smooth'});
+    return;
+  }
+  // Space → toggle checkbox selezione multipla sulla riga focalizzata (non hover)
+  if(e.key === ' ' && section === 'inventario' && selMode === 'wines' && _selectedWineId){
+    e.preventDefault();
+    toggleSel(_selectedWineId);
+    _updateBulkBar();
+    return;
+  }
 });

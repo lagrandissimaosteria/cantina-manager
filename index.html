@@ -422,6 +422,7 @@ td[ondblclick]:hover{background:rgba(255,159,10,.06)!important}
       <button class="nav-btn" data-section="analytics" data-label="Analytics" onclick="go('analytics')"><span class="nav-icon">📈</span><span class="nav-btn-label"> Analytics</span></button>
       <button class="nav-btn" data-section="ordini" data-label="Ordini" onclick="go('ordini')"><span class="nav-icon">🛒</span><span class="nav-btn-label"> Ordini</span></button>
       <button class="nav-btn" data-section="export" data-label="Export" onclick="go('export')"><span class="nav-icon">💾</span><span class="nav-btn-label"> Export</span></button>
+      <button class="nav-btn" data-section="impostazioni" data-label="Impostazioni" onclick="go('impostazioni')"><span class="nav-icon">⚙️</span><span class="nav-btn-label"> Impostazioni</span></button>
       <button id="sidebar-toggle-btn" onclick="toggleSidebar()" style="width:100%;display:flex;align-items:center;gap:10px;padding:10px 20px;font-size:10px;letter-spacing:.12em;text-transform:uppercase;font-family:inherit;text-align:left;color:var(--txt4);background:none;border:none;border-top:1px solid var(--border);margin-top:4px;cursor:pointer;transition:all .15s" onmouseover="this.style.color='var(--txt2)'" onmouseout="this.style.color='var(--txt4)'"><span class="nav-icon" id="sidebar-toggle-icon">◀</span><span class="nav-btn-label"> Riduci</span></button>
     </nav>
     <div class="sidebar-stats">
@@ -431,7 +432,7 @@ td[ondblclick]:hover{background:rgba(255,159,10,.06)!important}
       <div class="ss-row"><span class="ss-label">Potenziale</span><span class="ss-val" id="ss-pot" style="color:#30D158">—</span></div>
     </div>
     <div style="padding:12px 20px;border-top:1px solid var(--border)">
-      <button onclick="sessionStorage.removeItem('cm_logged');location.reload()" style="width:100%;display:flex;align-items:center;gap:8px;padding:7px 10px;font-size:9px;letter-spacing:.15em;text-transform:uppercase;font-family:inherit;color:var(--txt4);background:none;border:1px solid transparent;cursor:pointer;transition:all .15s" onmouseover="this.style.color='#FF453A';this.style.borderColor='rgba(255,69,58,.2)'" onmouseout="this.style.color='var(--txt4)';this.style.borderColor='transparent'">🔓 <span>Esci / Logout</span></button>
+      <button onclick="localStorage.removeItem('cm_logged');location.reload()" style="width:100%;display:flex;align-items:center;gap:8px;padding:7px 10px;font-size:9px;letter-spacing:.15em;text-transform:uppercase;font-family:inherit;color:var(--txt4);background:none;border:1px solid transparent;cursor:pointer;transition:all .15s" onmouseover="this.style.color='#FF453A';this.style.borderColor='rgba(255,69,58,.2)'" onmouseout="this.style.color='var(--txt4)';this.style.borderColor='transparent'">🔓 <span>Esci / Logout</span></button>
       <div id="db-status" onclick="if(document.getElementById('db-dot').classList.contains('err'))forceSave()" style="cursor:default" title="Clicca per ritentare se in errore"><span class="db-dot off" id="db-dot"></span><span id="db-label">Database</span></div>
       <button onclick="openDbConfig()" style="width:100%;display:flex;align-items:center;gap:8px;padding:5px 10px;font-size:9px;letter-spacing:.15em;text-transform:uppercase;font-family:inherit;color:var(--txt4);background:none;border:1px solid transparent;cursor:pointer;transition:all .15s" onmouseover="this.style.color='var(--amber)';this.style.borderColor='rgba(255,159,10,.2)'" onmouseout="this.style.color='var(--txt4)';this.style.borderColor='transparent'">⚙️ <span>Config DB</span></button>
     </div>
@@ -446,6 +447,7 @@ td[ondblclick]:hover{background:rgba(255,159,10,.06)!important}
         <span id="topbar-sync-label">Offline</span>
       </div>
       <button class="btn-primary hidden" id="btn-add-wine" onclick="openWineModal(null)">+ Aggiungi Vino</button>
+      <button onclick="openShortcutsModal()" title="Shortcut tastiera" style="width:28px;height:28px;border-radius:50%;border:1px solid var(--border2);color:var(--txt4);font-size:13px;font-weight:600;font-family:inherit;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .18s" onmouseover="this.style.borderColor='var(--amber)';this.style.color='var(--amber)'" onmouseout="this.style.borderColor='var(--border2)';this.style.color='var(--txt4)'">?</button>
     </div>
     <div id="content"></div>
   </div>
@@ -587,6 +589,20 @@ td[ondblclick]:hover{background:rgba(255,159,10,.06)!important}
       <button class="btn-outline" onclick="dupPrev()" id="dup-footer-prev">‹ Precedente</button>
       <button class="btn-outline" onclick="dupNext()" id="dup-footer-next">Successivo ›</button>
       <button class="btn-primary" onclick="mergeDuplicati()" style="background:#bf5fff;margin-left:auto">🔀 Fondi questo gruppo</button>
+    </div>
+  </div>
+</div>
+
+<!-- SHORTCUTS MODAL -->
+<div class="modal-backdrop hidden" id="shortcuts-modal-backdrop" onclick="closeShortcutsModal(event)">
+  <div class="modal" style="max-width:480px" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h2>⌨️ Shortcut tastiera</h2>
+      <button style="font-size:18px;color:var(--txt3)" onclick="closeShortcutsModal()">✕</button>
+    </div>
+    <div class="modal-body" id="shortcuts-modal-body"></div>
+    <div class="modal-footer">
+      <button class="btn-primary" onclick="closeShortcutsModal()">Chiudi</button>
     </div>
   </div>
 </div>
