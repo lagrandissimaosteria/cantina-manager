@@ -3892,7 +3892,7 @@ function _getOrdineById(id){
 // ─── DATI LOCALE + EMAIL FORNITORI ───────────────────────────────────────────
 // localeData: dati del ristorante/osteria — usati in stampaOrdine, emailOrdine
 // e nella sezione Impostazioni. Persistiti in localStorage.
-function _loadLocale(){ try{ const s=localStorage.getItem("cm_locale"); return s?JSON.parse(s):{nome:"",indirizzo:"",cap:"",citta:"",provincia:"",piva:"",cf:"",email:"",telefono:"",noteConsegna:""}; }catch{ return {nome:"",indirizzo:"",cap:"",citta:"",provincia:"",piva:"",cf:"",email:"",telefono:"",noteConsegna:""}; } }
+function _loadLocale(){ const _def={nome:"",indirizzo:"",cap:"",citta:"",provincia:"",piva:"",cf:"",sdi:"",pec:"",email:"",telefono:"",noteConsegna:""}; try{ const s=localStorage.getItem("cm_locale"); return s?{..._def,...JSON.parse(s)}:_def; }catch{ return _def; } }
 function _saveLocale(d){ try{ localStorage.setItem("cm_locale",JSON.stringify(d)); }catch{} }
 let localeData = _loadLocale();
 
@@ -4056,9 +4056,18 @@ function emailOrdine(id) {
   );
 
   const fornEmail=_getFornEmail(o.fornitore||"");
-  const loc=localeData;
+  const loc=_loadLocale(); // rilegge sempre fresco da localStorage
   const addrLine=[loc.cap,loc.citta,loc.provincia?"("+loc.provincia+")":""].filter(Boolean).join(" ");
-  const mittente=[loc.nome||NOME_LOCALE,loc.indirizzo?(loc.indirizzo+(addrLine?" — "+addrLine:"")):"",loc.piva?"P.IVA: "+loc.piva:"",loc.cf?"C.F.: "+loc.cf:"",loc.email?"Email: "+loc.email:"",loc.telefono?"Tel: "+loc.telefono:""].filter(Boolean).join("\n");
+  const mittente=[
+    loc.nome||NOME_LOCALE,
+    loc.indirizzo?(loc.indirizzo+(addrLine?" — "+addrLine:"")):"",
+    loc.piva?"P.IVA: "+loc.piva:"",
+    loc.cf?"C.F.: "+loc.cf:"",
+    loc.sdi?"SDI: "+loc.sdi:"",
+    loc.pec?"PEC: "+loc.pec:"",
+    loc.email?"Email: "+loc.email:"",
+    loc.telefono?"Tel: "+loc.telefono:""
+  ].filter(Boolean).join("\n");
   const consegnaBlock=loc.noteConsegna?"\n\n──────────────────────────────────\nINDICAZIONI CONSEGNA:\n"+loc.noteConsegna:"";
   const fullBody=encodeURIComponent(decodeURIComponent(body)+consegnaBlock+"\n\n──────────────────────────────────\n"+mittente);
   window.location.href=`mailto:${encodeURIComponent(fornEmail)}?subject=${subject}&body=${fullBody}`;
@@ -4074,7 +4083,7 @@ function whatsappOrdine(id) {
   const tel = _getFornTelefono(o.fornitore||"");
   const ref = o.referenze || [];
   const totQty = ref.reduce((s,r) => s+(parseInt(r.qty)||0), 0);
-  const loc = localeData;
+  const loc = _loadLocale(); // rilegge sempre fresco da localStorage
 
   // Testo ottimizzato per WhatsApp: conciso, leggibile su mobile
   const righeWa = ref.map((r,i) =>
