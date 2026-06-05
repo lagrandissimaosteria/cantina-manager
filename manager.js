@@ -565,14 +565,14 @@ async function _flushSave(){
   _savePending  = false;
   _setDbStatus("sync","Sincronizzazione…");
 
-  // Cattura snapshot immutabile dello stato corrente prima dell'await
-  const snapshot = {
-    wines:     wines.slice(),
-    movements: movements.slice(),
-    fallate:   fallate.slice(),
-    soglie:    {...alertSoglie},
-    orders:    orders.slice(),
-  };
+  // Cattura snapshot immutabile DEEP dello stato corrente prima dell'await.
+  // wines.slice() è shallow: gli oggetti dentro sono condivisi per riferimento.
+  // JSON round-trip garantisce che mutazioni successive non inquinino lo snapshot.
+  const snapshot = JSON.parse(JSON.stringify({
+    wines, movements, fallate,
+    soglie: alertSoglie,
+    orders,
+  }));
 
   try{
     // VERSION CHECK: leggi versione remota prima di scrivere.
@@ -606,6 +606,7 @@ async function _flushSave(){
 function scheduleSave(){
   clearTimeout(saveTimer);
   _saveLocalBackup(); // backup locale ottimistico e immediato (sincrono)
+  _setDbStatus("pending","Da sincronizzare…"); // PATCH: indica stato pendente
   saveTimer = setTimeout(_flushSave, 400);
 }
 
@@ -613,14 +614,12 @@ async function forceSave(){
   clearTimeout(saveTimer);
   if(!_sb){ notify("⚠️ Nessuna connessione Supabase","err"); return; }
   _setDbStatus("sync","Sincronizzazione…");
-  // Snapshot immutabile prima dell'await (stessa logica di _flushSave)
-  const snapshot = {
-    wines:     wines.slice(),
-    movements: movements.slice(),
-    fallate:   fallate.slice(),
-    soglie:    {...alertSoglie},
-    orders:    orders.slice(),
-  };
+  // Snapshot immutabile DEEP prima dell'await
+  const snapshot = JSON.parse(JSON.stringify({
+    wines, movements, fallate,
+    soglie: alertSoglie,
+    orders,
+  }));
   try{
     _saveLocalBackup(snapshot);
     await Promise.all([
@@ -743,6 +742,34 @@ async function doLogin(){
   }
 }
 document.getElementById("pw-input").addEventListener("keydown",e=>{if(e.key==="Enter")doLogin()});
+
+// ── PROTEZIONE USCITA: flush pendente su pagehide/beforeunload ───────────────
+// Se saveTimer è attivo (debounce non scattato) e l'utente chiude/ricarica la
+// pagina, i dati sarebbero persi su Supabase (localStorage è già aggiornato).
+// pagehide è più affidabile di beforeunload su mobile Safari.
+window.addEventListener("pagehide", () => {
+  if(saveTimer){ clearTimeout(saveTimer); }
+  // Tenta flush sincrono via sendBeacon se disponibile, altrimenti localStorage è già ok
+  if(_sb && typeof navigator.sendBeacon === "function"){
+    const snap = {
+      wines: wines, movements: movements, fallate: fallate,
+      orders: orders, soglie: alertSoglie
+    };
+    // sendBeacon non supporta JSON arbitrario verso Supabase — salviamo almeno localStorage
+    _saveLocalBackup(snap);
+  }
+});
+window.addEventListener("beforeunload", (e) => {
+  if(saveTimer){
+    // C'è un save pendente non ancora inviato a Supabase
+    e.preventDefault();
+    e.returnValue = "Ci sono modifiche non ancora sincronizzate con il database. Attendere un momento prima di chiudere.";
+    // Tenta flush immediato (non garantito ma aumenta la probabilità)
+    clearTimeout(saveTimer);
+    _flushSave();
+    return e.returnValue;
+  }
+});
 
 // ─── SIDEBAR COLLAPSE ─────────────────────────────────────────────────────────
 let _sidebarCollapsed = localStorage.getItem("cm_sidebar_collapsed") === "1";
@@ -2384,7 +2411,10 @@ function registraMovimento(){
   if(_costoSnap) _movEntry.costoUnitarioIva = _costoSnap;
   movements=[_movEntry,...movements];
   movForm={...movForm,wineId:"",_wineText:"",_newProduttore:"",_newTipologia:"Rosso",_newPrezzoCarta:"",_newVitigni:"",_newZona:"",_newAnnata:"",_newRegione:"",_newNazione:"Italia",_newIva:22,_newDistributore:"",_tipologia:"",_newMode:false,qty:1,fattura:"",fornitore:"",note:"",prezzoAcqLotto:""};
-  scheduleSave(); notify(tipo==="carico"?"📦 Carico registrato":"🍾 Scarico registrato"); if(section==="inventario") renderInventarioOnly(); else render();
+  scheduleSave();
+  // PATCH: flush immediato per carichi/scarichi — modificano giacenza
+  clearTimeout(saveTimer); _flushSave();
+  notify(tipo==="carico"?"📦 Carico registrato":"🍾 Scarico registrato"); if(section==="inventario") renderInventarioOnly(); else render();
 }
 
 // ─── FALLATE ─────────────────────────────────────────────────────────────────
@@ -2447,7 +2477,10 @@ function registraFallata(){
   });
   fallate=[{id:uid(),wineId,wineName:wine.nome,produttore:wine.produttore,qty:q,motivo,data,note,ts:Date.now()},...fallate];
   fallForm={...fallForm,qty:1,note:""};
-  scheduleSave(); notify("⚠️ Fallata registrata, giacenza aggiornata"); if(section==="inventario") renderInventarioOnly(); else render();
+  scheduleSave();
+  // PATCH: flush immediato per fallate — modificano giacenza
+  clearTimeout(saveTimer); _flushSave();
+  notify("⚠️ Fallata registrata, giacenza aggiornata"); if(section==="inventario") renderInventarioOnly(); else render();
 }
 
 // ─── ANALYTICS ───────────────────────────────────────────────────────────────
@@ -3543,6 +3576,10 @@ function salvaOrdine(){
     orders.push({id:uid(),fornitore,dataOrdine,note,referenze:refs,stato:"attesa"});
   }
   scheduleSave();
+  // PATCH: flush immediato per ordini — non aspettare il debounce da 400ms.
+  // Il mutex _saveInFlight in _flushSave gestisce la concorrenza correttamente.
+  clearTimeout(saveTimer);
+  _flushSave();
   chiudiOrdineModal();
   notify("🛒 Ordine salvato");
   render();
@@ -3744,6 +3781,9 @@ function confermaRicezioneOrdine(){
     if(fattura) ordine.numeroFattura=fattura;
   }
   scheduleSave();
+  // PATCH: flush immediato — ricezione ordine è irreversibile
+  clearTimeout(saveTimer);
+  _flushSave();
   chiudiRicezioneModal();
   notify(`✅ ${daProcessare.length} referenze caricate in magazzino!`);
   render();
@@ -3844,6 +3884,9 @@ function confermaRicezioneGlobale(){
   });
   movements=[...newMovsGlob,...movements];
   scheduleSave();
+  // PATCH: flush immediato — ricezione globale è irreversibile
+  clearTimeout(saveTimer);
+  _flushSave();
   chiudiRicezioneGlobale();
   notify(`✅ ${selezionati.length} ordini (${totRef} referenze) caricati in magazzino!`);
   render();
@@ -4023,7 +4066,7 @@ function stampaOrdine(id) {
   else notify("⚠️ Pop-up bloccato — abilita i pop-up per questo sito","err");
 }
 
-function emailOrdine(id) {
+async function emailOrdine(id) {
   const o = _getOrdineById(id);
   if(!o){ notify("Salva prima l'ordine per inviarlo","err"); return; }
   const ref = o.referenze || [];
@@ -4070,6 +4113,8 @@ function emailOrdine(id) {
   ].filter(Boolean).join("\n");
   const consegnaBlock=loc.noteConsegna?"\n\n──────────────────────────────────\nINDICAZIONI CONSEGNA:\n"+loc.noteConsegna:"";
   const fullBody=encodeURIComponent(decodeURIComponent(body)+consegnaBlock+"\n\n──────────────────────────────────\n"+mittente);
+  // PATCH: flush Supabase prima di navigare via (window.location.href annulla saveTimer)
+  if(_sb && saveTimer){ clearTimeout(saveTimer); await _flushSave(); }
   window.location.href=`mailto:${encodeURIComponent(fornEmail)}?subject=${subject}&body=${fullBody}`;
   // Segna l'ordine come inviato via email
   const _oe = orders.find(x => x.id === id);
@@ -4957,7 +5002,10 @@ function deleteWine(id){
       delete alertSoglie[id];
       delete scaricoSerata.qtys[id];
       _selectedWineId=null;
-      scheduleSave(); notify("🗑️ Vino eliminato"); render();
+      scheduleSave();
+      // PATCH: flush immediato — eliminazione irreversibile
+      clearTimeout(saveTimer); _flushSave();
+      notify("🗑️ Vino eliminato"); render();
     },
     'danger'
   );

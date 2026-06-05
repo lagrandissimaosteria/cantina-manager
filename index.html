@@ -126,6 +126,7 @@ nav{flex:1;padding:8px 0}
 #topbar-sync .db-dot.sync{background:#007AFF;box-shadow:0 0 6px #007AFF88;animation:pulse-sync .8s ease-in-out infinite}
 #topbar-sync .db-dot.err{background:#FF453A;box-shadow:0 0 6px #FF453A88;animation:pulse-sync 1s ease-in-out infinite}
 #topbar-sync .db-dot.off{background:var(--txt4)}
+#topbar-sync .db-dot.pending{background:#FF9F0A;box-shadow:0 0 6px #FF9F0A88;animation:pulse-sync .8s ease-in-out infinite}
 #topbar-sync-label{font-size:11px;font-weight:500;color:var(--txt3)}
 @keyframes pulse-sync{0%,100%{opacity:1}50%{opacity:.35}}
 /* ── COL TOGGLE ── */
@@ -253,6 +254,7 @@ tfoot td{padding:10px 14px;font-size:12px;border-top:2px solid var(--border2);ba
 .db-dot.err{background:#FF453A;box-shadow:0 0 5px #FF453A88}
 .db-dot.off{background:var(--txt4)}
 .db-dot.sync{background:var(--amber);animation:pulse .8s infinite}
+.db-dot.pending{background:#FF9F0A;animation:pulse .8s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
 @keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-6px)}40%{transform:translateX(6px)}60%{transform:translateX(-4px)}80%{transform:translateX(4px)}}
 .hidden{display:none!important}
