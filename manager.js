@@ -500,7 +500,8 @@ function _migrateWines(){
     }
     return upd;
   });
-  if(changed) scheduleSave();
+  // FIX T-B6: setTimeout per evitare chiamata pre-DOM al primo load
+  if(changed) setTimeout(scheduleSave, 0);
 }
 
 // ── SUPABASE READ/WRITE ───────────────────────────────────────────────────────
@@ -948,9 +949,23 @@ function _confirmRettifica(id, giacAttuale){
     fornitore:"", fattura:""
   };
   movements.push(mov);
-  // Aggiorna giacenza
-  wines=wines.map(x=>x.id===id?{...x,giacenza:newQty}:x);
+  // FIX T-B5: aggiorna anche i lotti FIFO, non solo la giacenza.
+  // Carico → nuovo lotto; scarico → consuma FIFO dai lotti esistenti.
+  wines=wines.map(x=>{
+    if(x.id!==id) return x;
+    if(diff>0){
+      const pAcq=parseFloat(x.prezzoAcq)||0;
+      const newLot={id:mov.id+"_lot",data:mov.data,fattura:"",fornitore:"",prezzoAcq:pAcq,iva:x.iva||22,qtyCaricata:diff,qtyRimanente:diff};
+      return {...x,giacenza:newQty,lots:[...(x.lots||[]),newLot]};
+    } else {
+      let rem=Math.abs(diff);
+      const updLots=(x.lots||[]).map(l=>{if(rem<=0||l.qtyRimanente<=0)return l;const c=Math.min(rem,l.qtyRimanente);rem-=c;return{...l,qtyRimanente:l.qtyRimanente-c};});
+      return {...x,giacenza:newQty,lots:updLots};
+    }
+  });
   scheduleSave();
+  // PATCH: flush immediato — rettifica giacenza è irreversibile
+  clearTimeout(saveTimer); _flushSave();
   document.getElementById("rett-backdrop")?.remove();
   notify(`⚖️ Rettifica registrata: ${w.nome} → ${newQty} bt (${diff>0?"+":""}${diff})`);
   render();
@@ -1008,7 +1023,8 @@ function inlineEdit(evt, field, wineId, currentVal){
   const inp = document.createElement("input");
   inp.className = "inline-edit-input form-input";
   inp.type = isNum ? "number" : "text";
-  inp.step = isNum ? "0.01" : undefined;
+  // FIX T-B7: prezzoCarta è sempre intero (coerente con saveWine e _migrateWines)
+  inp.step = field==="prezzoCarta" ? "1" : (isNum ? "0.01" : undefined);
   inp.min = isNum ? "0" : undefined;
   inp.value = currentVal;
   inp.style.cssText = `width:100%;min-width:${isNum?80:120}px;font-size:12px;padding:4px 8px;font-family:inherit;text-align:${isNum?"right":"left"}`;
@@ -1017,7 +1033,9 @@ function inlineEdit(evt, field, wineId, currentVal){
   inp.focus(); inp.select();
   const commit = async () => {
     const raw = inp.value.trim();
-    const val = isNum ? (parseFloat(raw)||0) : raw;
+    let val = isNum ? (parseFloat(raw)||0) : raw;
+    // FIX T-B7: arrotonda prezzoCarta a intero
+    if(field==="prezzoCarta") val = Math.round(val);
     if(String(val) === String(currentVal)){ td.innerHTML = orig; return; }
     const idx = wines.findIndex(x=>x.id===wineId);
     if(idx === -1){ td.innerHTML = orig; return; }
@@ -3133,13 +3151,18 @@ function _rollbackOrdine(ordine){
   const movsDaRimuovere=movements.filter(m=>m.note===notePattern&&m.tipo==="carico"&&m.fornitore===ordine.fornitore);
   const movsIds=new Set(movsDaRimuovere.map(m=>m.id));
   // For each referenza, decrement giacenza and remove lot
+  // FIX FORMATO: match per wineId quando disponibile, con fallback nome+formato
+  // (evita di scalare la voce sbagliata quando esistono più formati dello stesso vino)
   (ordine.referenze||[]).forEach(r=>{
-    const wine=wines.find(w=>w.nome.toLowerCase()===r.nomeVino.toLowerCase());
+    const rFmt=String(parseFloat(r.formato)||0.75);
+    const sameFmt=w=>String(parseFloat(w.formato)||0.75)===rFmt;
+    let wine = r.wineId ? wines.find(w=>w.id===r.wineId) : null;
+    if(!wine) wine = wines.find(w=>w.nome.toLowerCase()===r.nomeVino.toLowerCase()&&sameFmt(w));
     if(!wine) return;
     const qtyToRemove=parseInt(r.qtyArr??r.qty)||0;
     if(!qtyToRemove) return;
     const newGiac=Math.max(0,(parseInt(wine.giacenza)||0)-qtyToRemove);
-    // Remove the lot linked to this order (match by fattura+data)
+    // Remove the lot linked to this order (match by fattura+data+qty)
     const newLots=(wine.lots||[]).filter(l=>!(l.fattura===(ordine.numeroFattura||ordine.fattura||"")&&l.data===ordine.dataArrivo&&l.qtyCaricata===qtyToRemove));
     wines=wines.map(w=>w.id===wine.id?{...w,giacenza:newGiac,lots:newLots}:w);
   });
@@ -3152,8 +3175,8 @@ function deleteEvaso(id){
   const totQty=(o.referenze||[]).reduce((s,r)=>s+(parseInt(r.qtyArr??r.qty)||0),0);
   _confirmModal2(
     `Eliminare l'ordine <strong>${o.fornitore||'—'}</strong> del ${o.dataOrdine||'—'}?`,
-    { label:`🔄 Annulla carico (−${totQty} bt)`, cb:()=>{ _rollbackOrdine(o); orders=orders.filter(x=>x.id!==id); scheduleSave(); notify(`🗑️ Ordine e carico annullati (−${totQty} bt)`); render(); } },
-    { label:"🗑️ Solo storico",                  cb:()=>{ orders=orders.filter(x=>x.id!==id); scheduleSave(); notify("🗑️ Ordine rimosso dallo storico"); render(); } }
+    { label:`🔄 Annulla carico (−${totQty} bt)`, cb:()=>{ _rollbackOrdine(o); orders=orders.filter(x=>x.id!==id); scheduleSave(); clearTimeout(saveTimer); _flushSave(); notify(`🗑️ Ordine e carico annullati (−${totQty} bt)`); render(); } },
+    { label:"🗑️ Solo storico",                  cb:()=>{ orders=orders.filter(x=>x.id!==id); scheduleSave(); clearTimeout(saveTimer); _flushSave(); notify("🗑️ Ordine rimosso dallo storico"); render(); } }
   );
 }
 
@@ -3444,7 +3467,7 @@ function _refRowHtml(r,i,tipoOpts,ivaOpts,allProduttori,allNomi){
     <td style="padding:5px 6px"><select class="form-input" style="font-size:11px;min-width:52px;width:100%" onchange="_refChange('${r.id}','iva',parseInt(this.value));_updateRefIvaIncl('${r.id}');_updateOrdineModalTotale()">${selIva}</select></td>
     <td style="padding:5px 6px;text-align:right;font-size:12px;color:var(--amber);font-weight:600;white-space:nowrap;background:rgba(255,159,10,.06);border-left:1px solid rgba(255,159,10,.12)" id="ref-ivaincl-${r.id}">${ivaIncl?fmtRound(ivaIncl):"—"}</td>
     <td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:11px;text-align:right;min-width:72px;width:100%" value="${r.prezzoCarta||''}" step="1" min="0" placeholder="0" onchange="_refChange('${r.id}','prezzoCarta',parseFloat(this.value)||0)"></td>
-    <td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:12px;text-align:center;min-width:52px;width:100%" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" value="${r.qty||6}" min="1" step="1" onchange="_refChange('${r.id}','qty',parseInt(this.value)||1)" oninput="_updateOrdineModalTotale()"></td>
+    <td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:12px;text-align:center;min-width:52px;width:100%" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" value="${r.qty||6}" min="1" step="1" oninput="_refChange('${r.id}','qty',parseInt(this.value)||1)"></td>
     <td style="padding:5px 6px;text-align:right"><button onclick="_removeRefRow('${r.id}')" style="color:var(--txt4);font-size:13px;background:none;border:none;cursor:pointer" title="Rimuovi">✕</button></td>
   </tr>`;
 }
@@ -3456,7 +3479,11 @@ function _syncFornitoreToRefs(val){
 
 function _refChange(refId,field,value){
   const r=ordineModalData.referenze.find(x=>x.id===refId);
-  if(r) r[field]=value;
+  if(r){
+    r[field]=value;
+    // FIX FORMATO: se cambia il formato, il wineId assegnato (per nome) non è più valido
+    if(field==='formato'){ r.wineId=""; _showRefGiacenza(refId, r.nomeVino); }
+  }
   _updateOrdineModalTotale();
 }
 
@@ -3500,10 +3527,13 @@ function _updateRefIvaIncl(refId){
 function _showRefGiacenza(refId, nomeVino){
   const el = document.getElementById("ref-giac-"+refId);
   if(!el) return;
-  const w = wines.find(x => x.nome.toLowerCase() === (nomeVino||"").toLowerCase().trim());
+  const ref = ordineModalData?.referenze?.find(r=>r.id===refId);
+  // FIX FORMATO: cerca il vino con lo stesso nome E lo stesso formato della referenza
+  const _fmt = String(parseFloat(ref?.formato)||0.75);
+  const w = wines.find(x => x.nome.toLowerCase() === (nomeVino||"").toLowerCase().trim()
+    && String(parseFloat(x.formato)||0.75) === _fmt);
   if(!w){ el.textContent=""; return; }
   // T-B6: salva wineId nella referenza — T-B5 userà match stabile per id alla ricezione
-  const ref = ordineModalData?.referenze?.find(r=>r.id===refId);
   if(ref && !ref.wineId) ref.wineId = w.id;
   const g = parseInt(w.giacenza)||0;
   const color = g===0?"#FF453A":g<=3?"#fb923c":"#30D158";
@@ -3547,7 +3577,9 @@ function salvaOrdine(){
   (ordineModalData?.referenze||[]).forEach(r=>{
     const nomeVino=(r.nomeVino||"").trim();
     if(!nomeVino){ok=false;return;}
-    const wineId=r.wineId||(wines.find(w=>w.nome.toLowerCase()===nomeVino.toLowerCase())?.id||"");
+    // FIX FORMATO: il wineId assegnato per nome deve rispettare anche il formato
+    const _fmt=String(parseFloat(r.formato)||0.75);
+    const wineId=r.wineId||(wines.find(w=>w.nome.toLowerCase()===nomeVino.toLowerCase()&&String(parseFloat(w.formato)||0.75)===_fmt)?.id||"");
     refs.push({
       id:r.id||uid(), wineId,
       produttore:(r.produttore||"").trim(),
@@ -3726,19 +3758,25 @@ function confermaRicezioneOrdine(){
   daProcessare.forEach(r=>{
     // T-B4: prefer stable wineId stored at order creation; fall back to name-match for legacy orders
     // T-B5: fallback a 3 livelli — evita match sbagliato su stesso nome ma annata/produttore diversi
-    let existingIdx = r.wineId ? wines.findIndex(w=>w.id===r.wineId) : -1;
+    // FIX FORMATO: il match deve considerare anche il formato bottiglia — una magnum (1.5)
+    // NON deve matchare la voce 0.75 dello stesso vino. Default formato: 0.75.
+    const rFmt=String(parseFloat(r.formato)||0.75);
+    const sameFmt=w=>String(parseFloat(w.formato)||0.75)===rFmt;
+    let existingIdx = r.wineId ? wines.findIndex(w=>w.id===r.wineId&&sameFmt(w)) : -1;
     if(existingIdx < 0){
       const nn=r.nomeVino.toLowerCase(), rp=(r.produttore||"").toLowerCase(), ra=(r.annata||"").toLowerCase();
-      if(rp&&ra) existingIdx=wines.findIndex(w=>w.nome.toLowerCase()===nn&&(w.produttore||"").toLowerCase()===rp&&(w.annata||"").toLowerCase()===ra);
-      if(existingIdx<0&&rp) existingIdx=wines.findIndex(w=>w.nome.toLowerCase()===nn&&(w.produttore||"").toLowerCase()===rp);
-      if(existingIdx<0) existingIdx=wines.findIndex(w=>w.nome.toLowerCase()===nn);
+      if(rp&&ra) existingIdx=wines.findIndex(w=>w.nome.toLowerCase()===nn&&(w.produttore||"").toLowerCase()===rp&&(w.annata||"").toLowerCase()===ra&&sameFmt(w));
+      if(existingIdx<0&&rp) existingIdx=wines.findIndex(w=>w.nome.toLowerCase()===nn&&(w.produttore||"").toLowerCase()===rp&&sameFmt(w));
+      if(existingIdx<0) existingIdx=wines.findIndex(w=>w.nome.toLowerCase()===nn&&sameFmt(w));
     }
     let wine = existingIdx >= 0 ? wines[existingIdx] : null;
 
     if(!wine){
       // Nuovo vino: crea oggetto e inserisce immutabilmente
+      // FIX FORMATO: include il campo formato dalla referenza dell'ordine
       const newWine = {id:uid(),nome:r.nomeVino,produttore:r.produttore||"",distributore:"",
         annata:r.annata||"",vitigni:r.vitigni||"",tipologia:r.tipologia||"Bianco",regione:r.regione||"",nazione:r.nazione||"Italia",zona:r.zona||"",
+        formato:parseFloat(r.formato)||0.75,
         prezzoAcq:r.prezzoAcq||0,iva:r.iva||22,prezzoCarta:r.prezzoCarta||0,giacenza:0,lots:[]};
       wines = [...wines, newWine];
       wine = wines[wines.length - 1];
@@ -3839,18 +3877,22 @@ function confermaRicezioneGlobale(){
 
       // T-B4: prefer stable wineId stored at order creation; fall back to name-match for legacy orders
       // T-B5: fallback a 3 livelli — evita match sbagliato su stesso nome ma annata/produttore diversi
-      let existingIdx = r.wineId ? wines.findIndex(w=>w.id===r.wineId) : -1;
+      // FIX FORMATO: il match deve considerare anche il formato bottiglia
+      const rFmt=String(parseFloat(r.formato)||0.75);
+      const sameFmt=w=>String(parseFloat(w.formato)||0.75)===rFmt;
+      let existingIdx = r.wineId ? wines.findIndex(w=>w.id===r.wineId&&sameFmt(w)) : -1;
       if(existingIdx < 0){
         const nn=r.nomeVino.toLowerCase(), rp=(r.produttore||"").toLowerCase(), ra=(r.annata||"").toLowerCase();
-        if(rp&&ra) existingIdx=wines.findIndex(w=>w.nome.toLowerCase()===nn&&(w.produttore||"").toLowerCase()===rp&&(w.annata||"").toLowerCase()===ra);
-        if(existingIdx<0&&rp) existingIdx=wines.findIndex(w=>w.nome.toLowerCase()===nn&&(w.produttore||"").toLowerCase()===rp);
-        if(existingIdx<0) existingIdx=wines.findIndex(w=>w.nome.toLowerCase()===nn);
+        if(rp&&ra) existingIdx=wines.findIndex(w=>w.nome.toLowerCase()===nn&&(w.produttore||"").toLowerCase()===rp&&(w.annata||"").toLowerCase()===ra&&sameFmt(w));
+        if(existingIdx<0&&rp) existingIdx=wines.findIndex(w=>w.nome.toLowerCase()===nn&&(w.produttore||"").toLowerCase()===rp&&sameFmt(w));
+        if(existingIdx<0) existingIdx=wines.findIndex(w=>w.nome.toLowerCase()===nn&&sameFmt(w));
       }
       let wine = existingIdx>=0 ? wines[existingIdx] : null;
 
       if(!wine){
         const newWine={id:uid(),nome:r.nomeVino,produttore:r.produttore||"",distributore:ordine.fornitore||"",
           annata:r.annata||"",vitigni:r.vitigni||"",tipologia:r.tipologia||"Bianco",regione:r.regione||"",nazione:r.nazione||"Italia",zona:r.zona||"",
+          formato:parseFloat(r.formato)||0.75,
           prezzoAcq:r.prezzoAcq||0,iva:r.iva||22,prezzoCarta:r.prezzoCarta||0,giacenza:0,lots:[]};
         wines=[...wines,newWine];
         wine=wines[wines.length-1];
@@ -4738,7 +4780,10 @@ function bulkDeleteWines(){
       fallate=fallate.filter(f=>!snap.has(f.wineId));
       snap.forEach(id=>{ delete alertSoglie[id]; delete scaricoSerata.qtys[id]; });
       notify(`🗑️ ${n} vin${n===1?'o':'i'} eliminati`);
-      exitSel(); scheduleSave(); render();
+      exitSel(); scheduleSave();
+      // PATCH: flush immediato — eliminazione irreversibile
+      clearTimeout(saveTimer); _flushSave();
+      render();
     },
     'danger'
   );
@@ -4751,8 +4796,8 @@ function bulkDeleteMovimenti(){
     `Eliminare <strong>${n} moviment${n===1?'o':'i'}</strong>?<br><span style="font-size:11px;color:var(--txt4)">Le giacenze verranno ricalcolate automaticamente dai movimenti rimanenti (FIFO).</span>`,
     `🗑️ Elimina e ricalcola`,
     () => {
-      selIds = snap; // ripristina snapshot per la logica sotto
-      movements=movements.filter(m=>!selIds.has(m.id));
+      // FIX T-B8: usa snap direttamente — non riassegnare selIds (race con exitSel)
+      movements=movements.filter(m=>!snap.has(m.id));
       // S2 FIX: FIFO full recalc senza mutazione diretta dell'array wines[].
       wines=wines.map(w=>({...w,giacenza:0,lots:[]}));
       const sorted=[...movements].sort((a,b)=>a.data.localeCompare(b.data)||a.ts-b.ts);
@@ -4772,7 +4817,10 @@ function bulkDeleteMovimenti(){
         }
       });
       notify(`🗑️ ${n} movimenti eliminati — giacenze ricalcolate`);
-      exitSel(); scheduleSave(); render();
+      exitSel(); scheduleSave();
+      // PATCH: flush immediato — eliminazione + ricalcolo FIFO è irreversibile
+      clearTimeout(saveTimer); _flushSave();
+      render();
     },
     'danger'
   );
@@ -4794,7 +4842,10 @@ function bulkDeleteOrdini(){
         _bozzeSb=_bozzeSb.filter(b=>!snap.has(b.id));
       }
       notify(`🗑️ ${n} ordin${n===1?'e':'i'} eliminati`);
-      exitSel(); scheduleSave(); render();
+      exitSel(); scheduleSave();
+      // PATCH: flush immediato — eliminazione irreversibile
+      clearTimeout(saveTimer); _flushSave();
+      render();
     },
     'danger'
   );
@@ -4901,14 +4952,49 @@ function applyBulkEdit(){
       if(changes[k]!==undefined){ wineChanges[k]=changes[k]; delete changes[k]; }
     });
     const affectedWineIds=new Set();
+    // FIX T-B4: se tipo o qty cambiano in bulk, serve FIFO replay completo
+    const needsFifoReplay = changes.tipo!==undefined || changes.qty!==undefined;
+    const fifoWineIds=new Set();
     movements=movements.map(m=>{
       if(!selIds.has(m.id)) return m;
       count++;
       if(Object.keys(wineChanges).length) affectedWineIds.add(m.wineId);
+      if(needsFifoReplay) fifoWineIds.add(m.wineId);
       return {...m,...changes};
     });
     if(affectedWineIds.size){
       wines=wines.map(w=>affectedWineIds.has(w.id)?{...w,...wineChanges}:w);
+    }
+    // FIX T-B4: replay FIFO completo per i vini i cui movimenti hanno cambiato tipo/qty
+    if(needsFifoReplay && fifoWineIds.size){
+      wines=wines.map(w=>fifoWineIds.has(w.id)?{...w,giacenza:0,lots:[]}:w);
+      const sorted=[...movements].filter(m=>fifoWineIds.has(m.wineId))
+        .sort((a,b)=>a.data.localeCompare(b.data)||(a.ts||0)-(b.ts||0));
+      sorted.forEach(m=>{
+        const wIdx=wines.findIndex(w=>w.id===m.wineId);
+        if(wIdx<0) return;
+        const w=wines[wIdx];
+        const q=parseInt(m.qty)||0;
+        if(q<=0) return;
+        if(m.tipo==="carico"){
+          const pAcq=parseFloat(m.prezzoAcqLotto)||parseFloat(w.prezzoAcq)||0;
+          const lot={id:m.id+"_lot",data:m.data,fattura:m.fattura||"",fornitore:m.fornitore||"",prezzoAcq:pAcq,iva:w.iva||22,qtyCaricata:q,qtyRimanente:q};
+          wines[wIdx]={...w,giacenza:w.giacenza+q,lots:[...(w.lots||[]),lot]};
+        } else {
+          let rem=q;
+          const updLots=(w.lots||[]).map(l=>{if(rem<=0||l.qtyRimanente<=0)return l;const c=Math.min(rem,l.qtyRimanente);rem-=c;return{...l,qtyRimanente:l.qtyRimanente-c};});
+          wines[wIdx]={...w,giacenza:Math.max(0,w.giacenza-q),lots:updLots};
+        }
+      });
+      // Applica anche le fallate dei vini coinvolti (FIFO consistency)
+      fallate.filter(f=>fifoWineIds.has(f.wineId)).forEach(f=>{
+        const wIdx=wines.findIndex(w=>w.id===f.wineId);
+        if(wIdx<0) return;
+        const w=wines[wIdx]; const q=parseInt(f.qty)||0;
+        let rem=q;
+        const updLots=(w.lots||[]).map(l=>{if(rem<=0||l.qtyRimanente<=0)return l;const c=Math.min(rem,l.qtyRimanente);rem-=c;return{...l,qtyRimanente:l.qtyRimanente-c};});
+        wines[wIdx]={...w,giacenza:Math.max(0,w.giacenza-q),lots:updLots};
+      });
     }
     notify(`✅ ${count} movimenti aggiornati`);
   } else if(_bulkMode==="ordini"){
@@ -4920,6 +5006,8 @@ function applyBulkEdit(){
     notify(`✅ ${count} ordini aggiornati`);
   }
   scheduleSave();
+  // PATCH: flush immediato se la bulk edit ha toccato giacenze
+  clearTimeout(saveTimer); _flushSave();
   closeBulkModal();
   exitSel();
   render();
@@ -5682,6 +5770,8 @@ function saveMovEdit(){
   document.getElementById("mov-edit-backdrop").classList.add("hidden");
   _editMovId = null;
   scheduleSave();
+  // PATCH: flush immediato — saveMovEdit modifica giacenza via FIFO replay
+  clearTimeout(saveTimer); _flushSave();
   notify("✅ Movimento aggiornato");
   render();
 }
