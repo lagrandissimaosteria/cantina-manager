@@ -3603,7 +3603,13 @@ function salvaOrdine(){
   if(ordineModalData.id){
     // Update existing
     const idx=orders.findIndex(o=>o.id===ordineModalData.id);
-    if(idx>=0) orders[idx]={...orders[idx],fornitore,dataOrdine,note,referenze:refs};
+    if(idx>=0){
+      orders[idx]={...orders[idx],fornitore,dataOrdine,note,referenze:refs};
+    } else {
+      // Bozza remota (_bozzeSb) o id orfano: promuovi a ordine normale in orders
+      orders.push({id:ordineModalData.id,fornitore,dataOrdine,note,referenze:refs,stato:"attesa"});
+      _bozzeSb=_bozzeSb.filter(b=>b.id!==ordineModalData.id);
+    }
   } else {
     orders.push({id:uid(),fornitore,dataOrdine,note,referenze:refs,stato:"attesa"});
   }
@@ -3971,7 +3977,27 @@ function _getOrdineById(id){
     };
     return null;
   }
-  return orders.find(o => o.id === id) || null;
+  const found = orders.find(o => o.id === id);
+  if(found) return found;
+  // Fallback: bozza remota non ancora promossa (usata da stampa/email senza aprire prima la modale)
+  const bozza = _bozzeSb.find(b => b.id === id);
+  if(bozza) return {
+    id: bozza.id,
+    fornitore: bozza.distributore || '—',
+    dataOrdine: bozza.data_ordine || today(),
+    note: bozza.note || '',
+    stato: 'attesa',
+    referenze: (bozza.righe||[]).map(r=>({
+      id: r.id, wineId: r.wine_id,
+      nomeVino: r.nome_vino||'', produttore: r.produttore||'',
+      annata: r.annata||'', tipologia: r.tipologia||'Rosso',
+      prezzoAcq: r.prezzo_acq||0, iva: r.iva||22,
+      qty: r.qty_ordinata||1, formato: r.formato||0.75,
+      regione: r.regione||'', zona: r.zona||'', nazione: r.nazione||'Italia',
+      prezzoCarta: r.prezzo_carta||''
+    }))
+  };
+  return null;
 }
 
 // ─── DATI LOCALE + EMAIL FORNITORI ───────────────────────────────────────────
