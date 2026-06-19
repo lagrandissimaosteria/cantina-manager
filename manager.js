@@ -519,8 +519,11 @@ async function _sbUpsert(table, payload){
 async function _sbRead(table){
   if(!_sb) return null;
   const { data, error } = await _sb.from(table).select("data").eq("user_id", DB_USER);
-  if(error){ console.error(`_sbRead(${table}) error:`, error.message, error.code, error.details); return null; }
-  if(!data || data.length === 0) return null;
+  // FIX PERDITA DATI: in caso di ERRORE di lettura NON ritornare null (che a monte
+  // diventerebbe [] e poi sovrascriverebbe la tabella vuota). Lancia, così
+  // loadData/registraMovimentoMobile vanno in catch e mantengono il backup locale.
+  if(error){ console.error(`_sbRead(${table}) error:`, error.message, error.code, error.details); throw error; }
+  if(!data || data.length === 0) return null; // tabella legittimamente vuota
   // Se c'è una sola riga (caso normale) restituisce direttamente
   if(data.length === 1) return data[0].data ?? null;
   // Se ci sono più righe (struttura legacy divisa in attive/terminate), le unisce
@@ -546,6 +549,85 @@ async function _sbWriteVersion(v){
   try{
     await _sb.from("cm_meta").upsert({user_id:DB_USER, version:v}, {onConflict:"user_id"});
   }catch{}
+}
+
+// ─── MOVIMENTI: LEDGER APPEND-ONLY (cm_movements_ledger) ─────────────────────────
+// I movimenti NON vivono più in un blob JSONB sovrascritto per intero (causa
+// storica di perdita scarichi: un client "indietro" riscriveva tutto l'array,
+// azzerando giorni di scarichi). Ora ogni movimento è una RIGA in cm_movements_ledger
+// (upsert per id; cancellazione = tombstone deleted=true). La sincronizzazione è
+// a DELTA rispetto a una baseline PER-SESSIONE: un client può scrivere solo le
+// righe che conosce e tombstonare solo quelle che aveva caricato. Non può
+// fisicamente azzerare la storia che non ha mai visto. Questo elimina alla radice
+// la classe di bug "scarichi persi".
+let _movSyncBaseline = new Map(); // id -> hash dello stato sincronizzato l'ultima volta
+let _movV2Available = false;       // true se la tabella cm_movements_ledger esiste ed è usabile
+
+function _movHash(m){
+  // hash stabile e cheap: chiavi ordinate, così un edit cambia l'hash ma un
+  // semplice riordino di proprietà non genera scritture inutili.
+  try{ const k=Object.keys(m).sort(); return JSON.stringify(k.map(x=>[x,m[x]])); }
+  catch{ return JSON.stringify(m); }
+}
+function _chunk(arr,n){ const o=[]; for(let i=0;i<arr.length;i+=n) o.push(arr.slice(i,i+n)); return o; }
+
+// Riconosce l'errore "tabella inesistente" (v2 non ancora creata su Supabase).
+function _isMissingTableErr(error){
+  const code=(error&&error.code)||""; const msg=((error&&error.message)||"").toLowerCase();
+  return code==="42P01" || code==="PGRST205" || code==="PGRST204"
+    || msg.includes("does not exist") || msg.includes("could not find the table")
+    || msg.includes("relation") && msg.includes("does not exist");
+}
+
+// Carica le righe (vive + tombstone) da cm_movements_ledger.
+// Se la tabella non esiste ancora, ritorna {_missing:true} → l'app usa il blob legacy.
+async function _loadMovementsV2(){
+  const { data, error } = await _sb.from("cm_movements_ledger")
+    .select("id,payload,deleted").eq("user_id", DB_USER);
+  if(error){
+    if(_isMissingTableErr(error)) return { _missing:true };
+    throw error; // errore transitorio reale → gestito a monte (backup locale)
+  }
+  return data || [];
+}
+
+// Seed una-tantum: copia il vecchio blob cm_movements nella tabella v2.
+// Garantisce che ogni payload abbia un id (i movimenti legacy potrebbero non averlo).
+async function _seedMovementsV2(legacyArr){
+  const rows = legacyArr.map(m => {
+    const withId = (m && m.id) ? m : {...m, id: uid()};
+    return { id: withId.id, user_id: DB_USER, payload: withId, deleted: false };
+  });
+  for(const c of _chunk(rows, 500)){
+    const { error } = await _sb.from("cm_movements_ledger").upsert(c, {onConflict:"id"});
+    if(error) throw error;
+  }
+  return rows;
+}
+
+// Sincronizza i movimenti a DELTA verso cm_movements_ledger (append-only-safe).
+// Se la tabella v2 non esiste ancora, ripiega sul blob legacy (comportamento
+// pre-refactor) così i movimenti continuano comunque a persistere senza rotture.
+async function _flushMovementsV2(){
+  if(!_sb) return;
+  if(!_movV2Available){
+    await _sbUpsert("cm_movements", { user_id:DB_USER, data:movements });
+    return;
+  }
+  const cur = new Map(movements.map(m => [m.id, _movHash(m)]));
+  const upserts = movements.filter(m => _movSyncBaseline.get(m.id) !== cur.get(m.id));
+  const deletes = [..._movSyncBaseline.keys()].filter(id => !cur.has(id));
+  for(const c of _chunk(upserts, 500)){
+    const rows = c.map(m => ({ id:m.id, user_id:DB_USER, payload:m, deleted:false }));
+    const { error } = await _sb.from("cm_movements_ledger").upsert(rows, {onConflict:"id"});
+    if(error) throw error;
+  }
+  for(const c of _chunk(deletes, 500)){
+    const { error } = await _sb.from("cm_movements_ledger")
+      .update({ deleted:true }).in("id", c).eq("user_id", DB_USER);
+    if(error) throw error;
+  }
+  _movSyncBaseline = cur; // baseline = ciò che abbiamo appena sincronizzato
 }
 
 // ── PUBLIC API ────────────────────────────────────────────────────────────────
@@ -576,18 +658,26 @@ async function _flushSave(){
   }));
 
   try{
-    // VERSION CHECK: leggi versione remota prima di scrivere.
-    // Se un altro dispositivo ha salvato nel frattempo, allineiamo _localVersion
-    // e procediamo comunque: l'azione dell'utente (cancellazione, scarico, ecc.)
-    // va sempre rispettata. Non blocchiamo mai operazioni intenzionali.
+    // 1) MOVIMENTI: sync a delta sul ledger append-only. Va fatto SEMPRE e per primo,
+    //    perché è sicuro anche se questa sessione è "indietro": può solo inserire/
+    //    aggiornare le righe che conosce, mai azzerare la storia altrui.
+    await _flushMovementsV2();
+
+    // 2) BLOB (wines/fallate/soglie/orders): qui vale ancora last-write-wins, perciò
+    //    proteggiamo con il version-check. Se la versione remota è più alta, questa
+    //    sessione è stantia → NON sovrascrivere i blob, ricarica e avvisa.
     const remoteVersion = await _sbReadVersion();
     if(remoteVersion !== null && remoteVersion > _localVersion){
-      _localVersion = remoteVersion; // allinea prima di scrivere
+      _setDbStatus("sync","Aggiornamento da altra sessione…");
+      notify("⚠️ I dati erano stati aggiornati da un'altra sessione: li ho ricaricati. Ricontrolla e riapplica l'ultima modifica.","err");
+      _saveInFlight = false; // libera il mutex prima del reload
+      _savePending  = false; // scarta la coda: i blob locali stale non vanno scritti
+      await loadData();      // riallinea _localVersion, stato e baseline movimenti
+      return;
     }
     const newVersion = (_localVersion||0) + 1;
     await Promise.all([
       _sbUpsert("cm_wines",    { user_id:DB_USER, data:snapshot.wines }),
-      _sbUpsert("cm_movements",{ user_id:DB_USER, data:snapshot.movements }),
       _sbUpsert("cm_fallate",  { user_id:DB_USER, data:snapshot.fallate }),
       _sbUpsert("cm_soglie",   { user_id:DB_USER, data:snapshot.soglie }),
       _sbUpsert("cm_orders",   { user_id:DB_USER, data:snapshot.orders }),
@@ -623,9 +713,9 @@ async function forceSave(){
   }));
   try{
     _saveLocalBackup(snapshot);
+    await _flushMovementsV2(); // movimenti sul ledger append-only
     await Promise.all([
       _sbUpsert("cm_wines",    { user_id:DB_USER, data:snapshot.wines }),
-      _sbUpsert("cm_movements",{ user_id:DB_USER, data:snapshot.movements }),
       _sbUpsert("cm_fallate",  { user_id:DB_USER, data:snapshot.fallate }),
       _sbUpsert("cm_soglie",   { user_id:DB_USER, data:snapshot.soglie }),
       _sbUpsert("cm_orders",   { user_id:DB_USER, data:snapshot.orders }),
@@ -650,16 +740,39 @@ async function loadData(){
   }
   _setDbStatus("sync","Caricamento…");
   try{
-    const [w,m,f,s,o,ver] = await Promise.all([
-      _sbRead("cm_wines"), _sbRead("cm_movements"), _sbRead("cm_fallate"),
-      _sbRead("cm_soglie"), _sbRead("cm_orders"), _sbReadVersion()
+    const [w,f,s,o,ver,movRows] = await Promise.all([
+      _sbRead("cm_wines"), _sbRead("cm_fallate"),
+      _sbRead("cm_soglie"), _sbRead("cm_orders"), _sbReadVersion(),
+      _loadMovementsV2()
     ]);
     wines       = (w ?? []).map(v=>({...v, nazione: inferPaese(v.nazione, v.regione, v.zona)}));
-    movements   = m ?? [];
     fallate     = f ?? [];
     alertSoglie = s ?? {};
     orders      = o ?? [];
     _localVersion = ver ?? 0;
+
+    // MOVIMENTI dal ledger append-only cm_movements_ledger.
+    if(movRows && movRows._missing){
+      // Tabella v2 non ancora creata su Supabase: l'app NON si rompe, resta sul
+      // vecchio blob finché non esegui la migration SQL. Nessuna perdita di dati.
+      _movV2Available = false;
+      const legacy = await _sbRead("cm_movements");
+      movements = legacy ?? [];
+      _movSyncBaseline = new Map();
+    } else {
+      _movV2Available = true;
+      // Seed una-tantum: se la tabella v2 è vuota ma esiste il vecchio blob, migra.
+      let rows = movRows;
+      if(rows.length === 0){
+        const legacy = await _sbRead("cm_movements"); // null se vuoto/assente
+        if(legacy && legacy.length){ rows = await _seedMovementsV2(legacy); }
+      }
+      const live = rows.filter(r => !r.deleted);
+      movements = live.map(r => r.payload)
+        .sort((a,b)=> (b.ts||0)-(a.ts||0) || String(b.data||"").localeCompare(String(a.data||"")));
+      _movSyncBaseline = new Map(live.map(r => [r.payload.id, _movHash(r.payload)]));
+    }
+
     _migrateOrders();
     _migrateWines();
     _saveLocalBackup(); // update local cache with remote data
@@ -3600,14 +3713,17 @@ function salvaOrdine(){
   if(!ok){notify("⚠️ Inserisci il nome vino per tutte le referenze","err");return;}
   if(!refs.length){notify("⚠️ Aggiungi almeno una referenza","err");return;}
 
+  const _bozzaId = _bozzeSb.some(b=>b.id===ordineModalData.id) ? ordineModalData.id : null;
   if(ordineModalData.id){
     // Update existing
     const idx=orders.findIndex(o=>o.id===ordineModalData.id);
     if(idx>=0){
       orders[idx]={...orders[idx],fornitore,dataOrdine,note,referenze:refs};
     } else {
-      // Bozza remota (_bozzeSb) o id orfano: promuovi a ordine normale in orders
-      orders.push({id:ordineModalData.id,fornitore,dataOrdine,note,referenze:refs,stato:"attesa"});
+      // Bozza remota (_bozzeSb): promuovi a ordine normale in orders.
+      // _sbTestataId mantiene il dedup in renderOrdini (riga ~2884) finché la
+      // bozza Supabase non è cancellata; _bozzeSb viene ripulito subito.
+      orders.push({id:ordineModalData.id,_sbTestataId:ordineModalData.id,fornitore,dataOrdine,note,referenze:refs,stato:"attesa"});
       _bozzeSb=_bozzeSb.filter(b=>b.id!==ordineModalData.id);
     }
   } else {
@@ -3618,6 +3734,12 @@ function salvaOrdine(){
   // Il mutex _saveInFlight in _flushSave gestisce la concorrenza correttamente.
   clearTimeout(saveTimer);
   _flushSave();
+  // Cancella la bozza Supabase (ordini_testata + righe via cascade) così non
+  // riappare al prossimo _loadBozzeSb(). Fire-and-forget: l'ordine è già in cm_orders.
+  if(_bozzaId && _sb){
+    _sb.from('ordini_testata').delete().eq('id',_bozzaId)
+      .then(()=>{}, e=>console.warn('delete bozza fallita:',e));
+  }
   chiudiOrdineModal();
   notify("🛒 Ordine salvato");
   render();
@@ -5524,18 +5646,14 @@ async function registraMovimentoMobile(wineId, delta){
     tipo, qty, data:dateStr, fattura, fornitore:"", note:"[mobile]", ts:Date.now()};
   movements = [newMov, ...movements];
 
-  // Read-before-write: rileggi dati freschi prima di scrivere (protezione multi-utente)
+  // Read-before-write: rileggi i VINI freschi prima di scrivere (protezione multi-utente).
+  // I movimenti vanno invece sul ledger append-only: niente merge di blob, niente rischio
+  // di azzerare la storia. newMov è già in `movements`, _flushMovementsV2 lo sincronizza.
   if(_sb){
     _setDbStatus("sync","Sincronizzazione…");
     try{
-      const [freshWines, freshMovs] = await Promise.all([
-        _sbRead("cm_wines"), _sbRead("cm_movements")
-      ]);
-      // Applica la modifica sui dati freschi dal server
+      const freshWines = await _sbRead("cm_wines");
       const freshW = freshWines ?? wines;
-      const freshM = freshMovs ?? movements;
-      // Aggiorna giacenza e lots sul record fresco
-      // S1: se il fresh read non contiene il vino (cancellato da altro client), usa dati locali
       const freshWineExists = freshW.some(w => w.id === wineId);
       const baseWines = freshWineExists ? freshW : wines;
       const mergedWines = baseWines.map(w => {
@@ -5554,14 +5672,9 @@ async function registraMovimentoMobile(wineId, delta){
           return {...w, giacenza:Math.max(0,(parseInt(w.giacenza)||0)-qty), lots:updLots};
         }
       });
-      const mergedMovs = [newMov, ...freshM];
-      // Aggiorna memoria locale con i dati merged
       wines = mergedWines;
-      movements = mergedMovs;
-      await Promise.all([
-        _sbUpsert("cm_wines",     {user_id:DB_USER, data:wines}),
-        _sbUpsert("cm_movements", {user_id:DB_USER, data:movements}),
-      ]);
+      await _flushMovementsV2(); // sincronizza il nuovo movimento (delta-only)
+      await _sbUpsert("cm_wines", {user_id:DB_USER, data:wines});
       _setDbStatus("ok","Sincronizzato");
     }catch(e){
       _setDbStatus("err","Errore sync");
@@ -5633,10 +5746,8 @@ async function mobUndo(){
   if(_sb){
     _setDbStatus("sync","Sincronizzazione…");
     try{
-      await Promise.all([
-        _sbUpsert("cm_wines",     {user_id:DB_USER, data:wines}),
-        _sbUpsert("cm_movements", {user_id:DB_USER, data:movements}),
-      ]);
+      await _flushMovementsV2(); // il movimento rimosso viene tombstonato (delta-only)
+      await _sbUpsert("cm_wines", {user_id:DB_USER, data:wines});
       _setDbStatus("ok","Sincronizzato");
     }catch(e){ _setDbStatus("err","Errore sync"); }
   }
