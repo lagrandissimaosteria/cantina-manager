@@ -3208,7 +3208,7 @@ function initAnalyticsCharts(){
 
 // ─── ORDINI ───────────────────────────────────────────────────────────────────
 // Stato modale nuovo ordine / ricezione
-let ordineModalData = null; // {id, dataOrdine, fornitore, note, referenze:[{id,produttore,nomeVino,tipologia,prezzoAcq,iva,qty}]}
+let ordineModalData = null; // {id, dataOrdine, fornitore, note, sconto:0, referenze:[{id,produttore,nomeVino,tipologia,prezzoAcq,iva,qty}]}
 let ricezioneModalData = null; // {ordineId, dataArrivo, fattura, righe:[{refId,produttore,nomeVino,tipologia,prezzoAcq,iva,qtyOrd,qtyArr}]}
 
 function _buildComboOpts(items, inputId, listId){
@@ -3239,7 +3239,12 @@ function renderOrdini(){
   const ordiniRows=ordiniAttivi.length ? ordiniAttivi.map(o=>{
     const ref=o.referenze||[];
     const totQty=ref.reduce((s,r)=>s+(parseInt(r.qty)||0),0);
-    const totVal=ref.reduce((s,r)=>{const p=parseFloat(r.prezzoAcq)||0;const iva=(parseInt(r.iva)||22)/100;return s+p*(1+iva)*(parseInt(r.qty)||0);},0);
+    const totLordo=ref.reduce((s,r)=>{const p=parseFloat(r.prezzoAcq)||0;const iva=(parseInt(r.iva)||22)/100;return s+p*(1+iva)*(parseInt(r.qty)||0);},0);
+    const _sconto=parseFloat(o.sconto)||0;
+    const totNetto=totLordo*(1-_sconto/100);
+    const valCell=_sconto>0
+      ? `<span style="color:var(--txt4);text-decoration:line-through;font-size:10px">${fmt(totLordo)}</span> <span style="color:#30D158;font-weight:600">${fmt(totNetto)}</span> <span style="font-size:9px;color:#FF453A">−${_sconto}%</span>`
+      : fmt(totLordo);
     const isPending=o.stato==="confermato_pendente";
     const statoCell=isPending
       ? `<span style="display:inline-flex;align-items:center;gap:4px;background:#16a34a22;color:#30D158;border:1px solid #16a34a55;padding:2px 8px;font-size:.75rem;font-weight:600">✔ Ricevuto</span>`
@@ -3256,7 +3261,7 @@ function renderOrdini(){
       <td style="font-weight:500">${h(o.fornitore||'—')}</td>
       <td style="color:var(--txt3);font-size:10px">${ref.length} ref.</td>
       <td style="color:var(--amber)">${totQty} bt</td>
-      <td style="color:var(--txt2)">${fmt(totVal)}</td>
+      <td style="color:var(--txt2)">${valCell}</td>
       <td><input type="date" class="form-input" style="font-size:10px;padding:3px 6px;width:130px;background:${o.dataArrivo?'rgba(48,209,88,.06)':'rgba(255,159,10,.06)'};border-color:${o.dataArrivo?'rgba(48,209,88,.25)':'rgba(255,159,10,.2)'}" value="${o.dataArrivo||''}" placeholder="—" title="Data arrivo prevista" onchange="orders.find(x=>x.id==='${o.id}').dataArrivo=this.value;scheduleSave();notify('📅 Data arrivo aggiornata')"></td>
       <td><div style="display:flex;flex-direction:column;gap:4px">${statoCell}${invBadge}</div></td>
       <td style="display:flex;gap:6px;align-items:center;padding:6px 14px">
@@ -3718,6 +3723,7 @@ function apriOrdineModal(idOrNull){
     dataOrdine: ordine?.dataOrdine||today(),
     fornitore: ordine?.fornitore||"",
     note: ordine?.note||"",
+    sconto: parseFloat(ordine?.sconto)||0,
     referenze: ordine?.referenze ? ordine.referenze.map(r=>({...r})) : []
   };
   if(ordineModalData.referenze.length===0) ordineModalData.referenze.push(_newRef());
@@ -3744,7 +3750,7 @@ function _renderOrdineModalBody(allFornitori, allProduttori, allNomi){
     <datalist id="omd-wine-dl">${allNomi.map(v=>`<option value="${h(v)}">`).join("")}</datalist>
     <datalist id="omd-reg-dl">${allRegioni.map(v=>`<option value="${h(v)}">`).join("")}</datalist>
     <!-- Header ordine -->
-    <div style="display:grid;grid-template-columns:1fr 1fr 2fr;gap:12px;margin-bottom:20px">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 2fr;gap:12px;margin-bottom:20px">
       <div>
         <label class="form-label">Data Ordine</label>
         <input id="omd-data" type="date" class="form-input" value="${h(ordineModalData.dataOrdine)}">
@@ -3752,6 +3758,13 @@ function _renderOrdineModalBody(allFornitori, allProduttori, allNomi){
       <div>
         <label class="form-label">Fornitore *</label>
         <input id="omd-fornitore" class="form-input" list="omd-forn-dl" autocomplete="off" value="${h(ordineModalData.fornitore)}" placeholder="Scrivi o scegli…" oninput="_syncFornitoreToRefs(this.value)">
+      </div>
+      <div>
+        <label class="form-label">Sconto Fornitore %</label>
+        <div style="display:flex;align-items:center;gap:6px">
+          <input id="omd-sconto" type="number" class="form-input" min="0" max="100" step="0.1" value="${ordineModalData.sconto||0}" placeholder="0" style="text-align:right" oninput="ordineModalData.sconto=parseFloat(this.value)||0;_updateOrdineModalTotale()">
+          <span style="color:var(--txt3);font-size:13px;white-space:nowrap">%</span>
+        </div>
       </div>
       <div>
         <label class="form-label">Note ordine</label>
@@ -3778,6 +3791,7 @@ function _renderOrdineModalBody(allFornitori, allProduttori, allNomi){
             <td style="padding:6px 8px;min-width:90px">P.Acq+IVA</td>
             <td style="padding:6px 8px;min-width:80px">P.Carta</td>
             <td style="padding:6px 8px;min-width:56px">Qty</td>
+            <td style="padding:6px 8px;min-width:80px;text-align:right;background:rgba(48,209,88,.04)">Tot. riga</td>
             <td style="padding:6px 8px;min-width:28px"></td>
           </tr>
         </thead>
@@ -3787,29 +3801,40 @@ function _renderOrdineModalBody(allFornitori, allProduttori, allNomi){
     <button class="btn-outline btn-sm" style="margin-top:10px" onclick="_addRefRow()">+ Aggiungi referenza</button>
     <div id="omd-totale" style="margin-top:12px;text-align:right;font-size:11px;color:var(--txt2)"></div>`;
   _updateOrdineModalTotale();
+  // Inizializza suggerimenti P.Carta per righe con prezzoAcq già valorizzato (es. ordine in modifica)
+  ordineModalData.referenze.forEach(r=>{ if(r.prezzoAcq) _updateRefCartaSuggerita(r.id); });
 }
 
 function _refRowHtml(r,i,tipoOpts,ivaOpts,allProduttori,allNomi){
   const selTipo=_tipoOptsHtml(r.tipologia);
   const selIva=IVA_OPTIONS.map(v=>`<option value="${v}"${v===r.iva?" selected":""}>${v}%</option>`).join("");
   const ivaIncl = r.prezzoAcq ? (parseFloat(r.prezzoAcq)*(1+(parseInt(r.iva)||22)/100)) : 0;
+  const totRiga = ivaIncl * (parseInt(r.qty)||0);
+  const sconto = parseFloat(ordineModalData?.sconto)||0;
+  const totRigaNetto = totRiga * (1 - sconto/100);
+  const totRigaHtml = totRiga
+    ? (sconto>0
+        ? `<span style="color:var(--txt4);text-decoration:line-through;font-size:10px">${fmtRound(totRiga)}</span><br><span style="color:#30D158">${fmtRound(totRigaNetto)}</span>`
+        : `<span style="color:var(--txt2)">${fmtRound(totRiga)}</span>`)
+    : "—";
   return `<tr data-ref-id="${r.id}" style="border-top:1px solid var(--border)">
     <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;min-width:110px;width:100%" list="omd-prod-dl" autocomplete="off" value="${h(r.produttore)}" placeholder="Produttore" onchange="_refChange('${r.id}','produttore',this.value)"></td>
     <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;min-width:110px;width:100%" list="omd-wine-dl" autocomplete="off" value="${h(r.nomeVino)}" placeholder="Nome vino" onchange="_refChange('${r.id}','nomeVino',this.value);_showRefGiacenza('${r.id}',this.value)"><div id="ref-giac-${r.id}" style="font-size:9px;margin-top:2px"></div></td>
     <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;min-width:80px;width:100%" value="${h(r.vitigni||'')}" placeholder="es. Nebbiolo" onchange="_refChange('${r.id}','vitigni',this.value.trim())"></td>
     <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;text-align:center;min-width:52px;width:100%" value="${h(r.annata||'')}" placeholder="es. 2021" onchange="_refChange('${r.id}','annata',this.value.trim())"></td>
     <td style="padding:5px 6px"><select class="form-input" style="font-size:11px;min-width:80px;width:100%" data-prev="${h(r.tipologia)}" onchange="_addTipologiaInline(this,(v)=>_refChange('${r.id}','tipologia',v));if(this.value!=='__new__'){this.dataset.prev=this.value;_refChange('${r.id}','tipologia',this.value)}">${selTipo}</select></td>
-    <td style="padding:5px 6px"><select class="form-input" style="font-size:11px;min-width:72px;width:100%" onchange="_refChange('${r.id}','formato',parseFloat(this.value)||0.75)">
+    <td style="padding:5px 6px"><select class="form-input" style="font-size:11px;min-width:72px;width:100%" onchange="_refChange('${r.id}','formato',parseFloat(this.value)||0.75);_updateRefCartaSuggerita('${r.id}')">
       ${[{v:"0.75",l:"0.75L"},{v:"1.5",l:"1.5L Magnum"},{v:"2.0",l:"2.0L Jero."},{v:"3.0",l:"3.0L D.Mag."},{v:"4.5",l:"4.5L Réhob."},{v:"6.0",l:"6.0L Math."}].map(x=>`<option value="${x.v}" ${String(r.formato||"0.75")===x.v?"selected":""}>${x.l}</option>`).join("")}
     </select></td>
     <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;min-width:90px;width:100%" list="omd-reg-dl" autocomplete="off" value="${h(r.regione||'')}" placeholder="es. Piemonte" onchange="_refChange('${r.id}','regione',this.value.trim())"></td>
     <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;min-width:80px;width:100%" value="${h(r.nazione||'Italia')}" placeholder="es. Italia" onchange="_refChange('${r.id}','nazione',this.value.trim())"></td>
     <td style="padding:0;width:0;overflow:hidden;max-width:0"><input class="form-input" style="font-size:11px;width:0;border:none;padding:0;background:none" value="${h(r.zona||'')}" onchange="_refChange('${r.id}','zona',this.value.trim())"></td>
-    <td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:11px;min-width:80px;width:100%" value="${r.prezzoAcq||''}" step="0.01" min="0" placeholder="0.00" onchange="_refChange('${r.id}','prezzoAcq',parseFloat(this.value)||0);_updateRefIvaIncl('${r.id}')" oninput="_refChange('${r.id}','prezzoAcq',parseFloat(this.value)||0);_updateRefIvaIncl('${r.id}');_updateOrdineModalTotale()"></td>
-    <td style="padding:5px 6px"><select class="form-input" style="font-size:11px;min-width:52px;width:100%" onchange="_refChange('${r.id}','iva',parseInt(this.value));_updateRefIvaIncl('${r.id}');_updateOrdineModalTotale()">${selIva}</select></td>
+    <td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:11px;min-width:80px;width:100%" value="${r.prezzoAcq||''}" step="0.01" min="0" placeholder="0.00" onchange="_refChange('${r.id}','prezzoAcq',parseFloat(this.value)||0);_updateRefIvaIncl('${r.id}');_updateRefCartaSuggerita('${r.id}')" oninput="_refChange('${r.id}','prezzoAcq',parseFloat(this.value)||0);_updateRefIvaIncl('${r.id}');_updateRefCartaSuggerita('${r.id}');_updateOrdineModalTotale()"></td>
+    <td style="padding:5px 6px"><select class="form-input" style="font-size:11px;min-width:52px;width:100%" onchange="_refChange('${r.id}','iva',parseInt(this.value));_updateRefIvaIncl('${r.id}');_updateRefCartaSuggerita('${r.id}');_updateOrdineModalTotale()">${selIva}</select></td>
     <td style="padding:5px 6px;text-align:right;font-size:12px;color:var(--amber);font-weight:600;white-space:nowrap;background:rgba(255,159,10,.06);border-left:1px solid rgba(255,159,10,.12)" id="ref-ivaincl-${r.id}">${ivaIncl?fmtRound(ivaIncl):"—"}</td>
-    <td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:11px;text-align:right;min-width:72px;width:100%" value="${r.prezzoCarta||''}" step="1" min="0" placeholder="0" onchange="_refChange('${r.id}','prezzoCarta',parseFloat(this.value)||0)"></td>
-    <td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:12px;text-align:center;min-width:52px;width:100%" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" value="${r.qty||6}" min="1" step="1" oninput="_refChange('${r.id}','qty',parseInt(this.value)||1)"></td>
+    <td style="padding:5px 6px"><input type="number" id="ref-carta-inp-${r.id}" class="form-input" style="font-size:11px;text-align:right;min-width:72px;width:100%" value="${r.prezzoCarta||''}" step="1" min="0" placeholder="0" onchange="_refChange('${r.id}','prezzoCarta',parseFloat(this.value)||0)"><div id="ref-carta-hint-${r.id}" style="font-size:9px;margin-top:2px;white-space:nowrap"></div></td>
+    <td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:12px;text-align:center;min-width:52px;width:100%" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" value="${r.qty||6}" min="1" step="1" oninput="_refChange('${r.id}','qty',parseInt(this.value)||1);_updateOrdineModalTotale()"></td>
+    <td id="ref-tot-${r.id}" style="padding:5px 8px;text-align:right;font-size:11px;white-space:nowrap;background:rgba(48,209,88,.04);border-left:1px solid rgba(48,209,88,.12)">${totRigaHtml}</td>
     <td style="padding:5px 6px;text-align:right"><button onclick="_removeRefRow('${r.id}')" style="color:var(--txt4);font-size:13px;background:none;border:none;cursor:pointer" title="Rimuovi">✕</button></td>
   </tr>`;
 }
@@ -3866,6 +3891,33 @@ function _updateRefIvaIncl(refId){
   el.textContent=v?fmtRound(v):"—";
 }
 
+function _updateRefCartaSuggerita(refId){
+  const r=ordineModalData?.referenze.find(x=>x.id===refId);
+  const hint=document.getElementById(`ref-carta-hint-${refId}`);
+  const inp=document.getElementById(`ref-carta-inp-${refId}`);
+  if(!r||!hint) return;
+  const p=parseFloat(r.prezzoAcq)||0;
+  if(!p){ hint.textContent=""; return; }
+  // Costruisce oggetto temporaneo compatibile con _calcPrezzoCartaSuggerito
+  const pseudo={prezzoAcq:p, iva:parseInt(r.iva)||22, formato:parseFloat(r.formato)||0.75};
+  const sug=_calcPrezzoCartaSuggerito(pseudo);
+  const label=_getMoltLabel(pseudo);
+  if(!sug){ hint.textContent=""; return; }
+  hint.innerHTML=`<span style="color:var(--txt4)">${label} → </span><button type="button" onclick="_applyCartaSuggerita('${refId}',${sug})" style="background:none;border:none;color:#30D158;font-size:9px;cursor:pointer;padding:0;font-family:inherit;text-decoration:underline;text-underline-offset:2px">applica €${sug}</button>`;
+  // Se il campo P.Carta è ancora vuoto, pre-compila silenziosamente
+  if(inp && !inp.value){
+    inp.value=sug;
+    _refChange(refId,'prezzoCarta',sug);
+  }
+}
+function _applyCartaSuggerita(refId, val){
+  const inp=document.getElementById(`ref-carta-inp-${refId}`);
+  if(inp){ inp.value=val; inp.focus(); }
+  _refChange(refId,'prezzoCarta',val);
+  const hint=document.getElementById(`ref-carta-hint-${refId}`);
+  if(hint) hint.innerHTML=`<span style="color:#30D158;font-size:9px">✓ applicato</span>`;
+}
+
 function _showRefGiacenza(refId, nomeVino){
   const el = document.getElementById("ref-giac-"+refId);
   if(!el) return;
@@ -3892,18 +3944,33 @@ function _removeRefRow(refId){
 function _updateOrdineModalTotale(){
   const el=document.getElementById("omd-totale");
   if(!el) return;
-  // Legge da ordineModalData.referenze (source of truth in-memory, aggiornata da _refChange)
-  // invece di usare indici fragili su input/select del DOM.
   if(!ordineModalData?.referenze){el.textContent="";return;}
-  let totQty=0,totVal=0;
+  const sconto=parseFloat(ordineModalData.sconto)||0;
+  let totQty=0,totLordo=0;
   ordineModalData.referenze.forEach(r=>{
     const q=parseInt(r.qty)||0;
     const p=parseFloat(r.prezzoAcq)||0;
     const iva=(parseInt(r.iva)||22);
+    const rigaLorda=p*(1+iva/100)*q;
     totQty+=q;
-    totVal+=p*(1+iva/100)*q;
+    totLordo+=rigaLorda;
+    // aggiorna cella tot riga in tempo reale
+    const rigaEl=document.getElementById(`ref-tot-${r.id}`);
+    if(rigaEl){
+      const rigaNetta=rigaLorda*(1-sconto/100);
+      rigaEl.innerHTML = rigaLorda
+        ? (sconto>0
+            ? `<span style="color:var(--txt4);text-decoration:line-through;font-size:10px">${fmtRound(rigaLorda)}</span><br><span style="color:#30D158">${fmtRound(rigaNetta)}</span>`
+            : `<span style="color:var(--txt2)">${fmtRound(rigaLorda)}</span>`)
+        : "—";
+    }
   });
-  el.innerHTML=`Totale: <span style="color:var(--amber)">${fmt(totVal)}</span> IVA incl. · <span style="color:var(--txt2)">${totQty} bottiglie</span>`;
+  const importoSconto=totLordo*sconto/100;
+  const totNetto=totLordo-importoSconto;
+  const scontoHtml=sconto>0
+    ? `<span style="color:#FF453A;margin:0 6px">− ${sconto}% (${fmt(importoSconto)})</span><span style="color:var(--txt4)">→</span> <strong style="color:#30D158;font-size:13px;margin-left:6px">${fmt(totNetto)}</strong> netto`
+    : '';
+  el.innerHTML=`Lordo IVA incl.: <span style="color:var(--amber)">${fmt(totLordo)}</span>${scontoHtml} · <span style="color:var(--txt2)">${totQty} bottiglie</span>`;
 }
 
 function salvaOrdine(){
@@ -3947,16 +4014,16 @@ function salvaOrdine(){
     // Update existing
     const idx=orders.findIndex(o=>o.id===ordineModalData.id);
     if(idx>=0){
-      orders[idx]={...orders[idx],fornitore,dataOrdine,note,referenze:refs};
+      orders[idx]={...orders[idx],fornitore,dataOrdine,note,sconto:parseFloat(document.getElementById("omd-sconto")?.value)||ordineModalData.sconto||0,referenze:refs};
     } else {
       // Bozza remota (_bozzeSb): promuovi a ordine normale in orders.
       // _sbTestataId mantiene il dedup in renderOrdini (riga ~2884) finché la
       // bozza Supabase non è cancellata; _bozzeSb viene ripulito subito.
-      orders.push({id:ordineModalData.id,_sbTestataId:ordineModalData.id,fornitore,dataOrdine,note,referenze:refs,stato:"attesa"});
+      orders.push({id:ordineModalData.id,_sbTestataId:ordineModalData.id,fornitore,dataOrdine,note,sconto:parseFloat(document.getElementById("omd-sconto")?.value)||ordineModalData.sconto||0,referenze:refs,stato:"attesa"});
       _bozzeSb=_bozzeSb.filter(b=>b.id!==ordineModalData.id);
     }
   } else {
-    orders.push({id:uid(),fornitore,dataOrdine,note,referenze:refs,stato:"attesa"});
+    orders.push({id:uid(),fornitore,dataOrdine,note,sconto:parseFloat(document.getElementById("omd-sconto")?.value)||ordineModalData.sconto||0,referenze:refs,stato:"attesa"});
   }
   scheduleSave();
   // PATCH: flush immediato per ordini — non aspettare il debounce da 400ms.
@@ -4122,16 +4189,23 @@ function confermaRicezioneOrdine(){
     let existingIdx = r.wineId ? wines.findIndex(w=>w.id===r.wineId&&sameFmt(w)) : -1;
     if(existingIdx < 0){
       const nn=r.nomeVino.toLowerCase(), rp=(r.produttore||"").toLowerCase(), ra=(r.annata||"").toLowerCase();
+      // FIX ANNATA: se l'ordine ha un'annata, il match senza annata è vietato —
+      // evita di caricare "Syrah 2023" sull'entry "Syrah 2021" già esistente.
       if(rp&&ra) existingIdx=wines.findIndex(w=>w.nome.toLowerCase()===nn&&(w.produttore||"").toLowerCase()===rp&&(w.annata||"").toLowerCase()===ra&&sameFmt(w));
-      if(existingIdx<0&&rp) existingIdx=wines.findIndex(w=>w.nome.toLowerCase()===nn&&(w.produttore||"").toLowerCase()===rp&&sameFmt(w));
-      if(existingIdx<0) existingIdx=wines.findIndex(w=>w.nome.toLowerCase()===nn&&sameFmt(w));
+      // fallback nome+produttore SOLO se l'ordine non ha annata (NV)
+      if(existingIdx<0&&rp&&!ra) existingIdx=wines.findIndex(w=>w.nome.toLowerCase()===nn&&(w.produttore||"").toLowerCase()===rp&&!(w.annata||"").trim()&&sameFmt(w));
+      // ultimo fallback nome solo se né produttore né annata specificati
+      if(existingIdx<0&&!rp&&!ra) existingIdx=wines.findIndex(w=>w.nome.toLowerCase()===nn&&sameFmt(w));
     }
     let wine = existingIdx >= 0 ? wines[existingIdx] : null;
+
+    const ordine=orders.find(o=>o.id===ricezioneModalData.ordineId);
+    const fornitureName = ordine?.fornitore||"";
 
     if(!wine){
       // Nuovo vino: crea oggetto e inserisce immutabilmente
       // FIX FORMATO: include il campo formato dalla referenza dell'ordine
-      const newWine = {id:uid(),nome:r.nomeVino,produttore:r.produttore||"",distributore:"",
+      const newWine = {id:uid(),nome:r.nomeVino,produttore:r.produttore||"",distributore:fornitureName,
         annata:r.annata||"",vitigni:r.vitigni||"",tipologia:r.tipologia||"Bianco",regione:r.regione||"",nazione:r.nazione||"Italia",zona:r.zona||"",
         formato:parseFloat(r.formato)||0.75,
         prezzoAcq:r.prezzoAcq||0,iva:r.iva||22,prezzoCarta:r.prezzoCarta||0,giacenza:0,lots:[]};
@@ -4141,16 +4215,17 @@ function confermaRicezioneOrdine(){
 
     const pAcq=parseFloat(r.prezzoAcq)||parseFloat(wine.prezzoAcq)||0;
     const qtyArr=parseInt(r.qtyArr)||0;
-    const ordine=orders.find(o=>o.id===ricezioneModalData.ordineId);
-    const newLot={id:uid(),data:dataArrivo,fattura,fornitore:ordine?.fornitore||wine.distributore||"",
+    const newLot={id:uid(),data:dataArrivo,fattura,fornitore:fornitureName||wine.distributore||"",
       prezzoAcq:pAcq,iva:r.iva||wine.iva||22,qtyCaricata:qtyArr,qtyRimanente:qtyArr};
 
     // Traccia variazione prezzi sull'oggetto corrente (non muta)
     const trackedRic=_trackPriceChange(wine, pAcq, null, 'ricezione_ordine');
 
     // Aggiornamento immutabile del vino nell'array globale
+    // FIX FORNITORE: aggiorna distributore se il vino non ce l'ha già
     const updatedWine = {
       ...trackedRic,
+      distributore: wine.distributore || fornitureName,
       giacenza: (parseInt(wine.giacenza)||0) + qtyArr,
       prezzoAcq: pAcq,
       lots: [...(wine.lots||[]), newLot],
@@ -4161,7 +4236,7 @@ function confermaRicezioneOrdine(){
 
     movements.unshift({id:uid(),wineId:wine.id,wineName:wine.nome,produttore:wine.produttore,nazione:wine.nazione||"",
       tipo:"carico",qty:qtyArr,data:dataArrivo,fattura,prezzoAcqLotto:pAcq,
-      fornitore:ordine?.fornitore||"",note:"Da ordine "+ordine?.dataOrdine,ts:Date.now()});
+      fornitore:fornitureName,note:"Da ordine "+ordine?.dataOrdine,ts:Date.now()});
 
     // Aggiorna qtyArr sulla referenza nell'ordine (oggetto ordine, mutazione locale accettabile)
     const refInOrd=(ordine?.referenze||[]).find(x=>x.id===r.id);
@@ -4240,14 +4315,19 @@ function confermaRicezioneGlobale(){
       let existingIdx = r.wineId ? wines.findIndex(w=>w.id===r.wineId&&sameFmt(w)) : -1;
       if(existingIdx < 0){
         const nn=r.nomeVino.toLowerCase(), rp=(r.produttore||"").toLowerCase(), ra=(r.annata||"").toLowerCase();
+        // FIX ANNATA: se l'ordine ha un'annata, il match senza annata è vietato
         if(rp&&ra) existingIdx=wines.findIndex(w=>w.nome.toLowerCase()===nn&&(w.produttore||"").toLowerCase()===rp&&(w.annata||"").toLowerCase()===ra&&sameFmt(w));
-        if(existingIdx<0&&rp) existingIdx=wines.findIndex(w=>w.nome.toLowerCase()===nn&&(w.produttore||"").toLowerCase()===rp&&sameFmt(w));
-        if(existingIdx<0) existingIdx=wines.findIndex(w=>w.nome.toLowerCase()===nn&&sameFmt(w));
+        // fallback nome+produttore SOLO se l'ordine non ha annata (NV)
+        if(existingIdx<0&&rp&&!ra) existingIdx=wines.findIndex(w=>w.nome.toLowerCase()===nn&&(w.produttore||"").toLowerCase()===rp&&!(w.annata||"").trim()&&sameFmt(w));
+        // ultimo fallback nome solo se né produttore né annata specificati
+        if(existingIdx<0&&!rp&&!ra) existingIdx=wines.findIndex(w=>w.nome.toLowerCase()===nn&&sameFmt(w));
       }
       let wine = existingIdx>=0 ? wines[existingIdx] : null;
 
+      const fornitureName = ordine.fornitore||"";
+
       if(!wine){
-        const newWine={id:uid(),nome:r.nomeVino,produttore:r.produttore||"",distributore:ordine.fornitore||"",
+        const newWine={id:uid(),nome:r.nomeVino,produttore:r.produttore||"",distributore:fornitureName,
           annata:r.annata||"",vitigni:r.vitigni||"",tipologia:r.tipologia||"Bianco",regione:r.regione||"",nazione:r.nazione||"Italia",zona:r.zona||"",
           formato:parseFloat(r.formato)||0.75,
           prezzoAcq:r.prezzoAcq||0,iva:r.iva||22,prezzoCarta:r.prezzoCarta||0,giacenza:0,lots:[]};
@@ -4256,13 +4336,14 @@ function confermaRicezioneGlobale(){
       }
 
       const pAcq=parseFloat(r.prezzoAcq)||parseFloat(wine.prezzoAcq)||0;
-      const newLot={id:uid(),data:dataArrivo,fattura,fornitore:ordine.fornitore||"",
+      const newLot={id:uid(),data:dataArrivo,fattura,fornitore:fornitureName||wine.distributore||"",
         prezzoAcq:pAcq,iva:r.iva||wine.iva||22,qtyCaricata:qty,qtyRimanente:qty};
 
       // Traccia variazione prezzo e aggiorna immutabilmente
       const trackedGlob=_trackPriceChange(wine, pAcq, null, 'ricezione_globale');
       const updatedWine={
         ...trackedGlob,
+        distributore: wine.distributore || fornitureName,
         giacenza:(parseInt(wine.giacenza)||0)+qty,
         prezzoAcq:pAcq,
         lots:[...(wine.lots||[]),newLot],
@@ -4272,7 +4353,7 @@ function confermaRicezioneGlobale(){
 
       newMovsGlob.push({id:uid(),wineId:wine.id,wineName:wine.nome,produttore:wine.produttore,nazione:wine.nazione||"",
         tipo:"carico",qty,data:dataArrivo,fattura,prezzoAcqLotto:pAcq,
-        fornitore:ordine.fornitore||"",note:"Da ordine "+ordine.dataOrdine,ts:Date.now()});
+        fornitore:fornitureName,note:"Da ordine "+ordine.dataOrdine,ts:Date.now()});
       totRef++;
     });
     // Mutazione locale accettabile sull'oggetto ordine (non è nell'array wines)
@@ -4381,12 +4462,16 @@ function stampaOrdine(id) {
   const o = _getOrdineById(id);
   if(!o){ notify("Salva prima l'ordine per stamparlo","err"); return; }
   const ref = o.referenze || [];
+  const sconto = parseFloat(o.sconto)||0;
   const totQty = ref.reduce((s,r) => s+(parseInt(r.qty)||0), 0);
-  const totVal = ref.reduce((s,r) => (parseFloat(r.prezzoAcq)||0)*(1+(parseInt(r.iva)||22)/100)*(parseInt(r.qty)||0)+s, 0);
+  const totLordo = ref.reduce((s,r) => (parseFloat(r.prezzoAcq)||0)*(1+(parseInt(r.iva)||22)/100)*(parseInt(r.qty)||0)+s, 0);
+  const importoSconto = totLordo*sconto/100;
+  const totNetto = totLordo - importoSconto;
 
   const righe = ref.map(r => {
     const pIva = (parseFloat(r.prezzoAcq)||0)*(1+(parseInt(r.iva)||22)/100);
     const tot = pIva*(parseInt(r.qty)||0);
+    const totNettaRiga = tot*(1-sconto/100);
     return `<tr>
       <td>${h(r.produttore||'—')}</td>
       <td>${h(r.nomeVino)}</td>
@@ -4400,8 +4485,24 @@ function stampaOrdine(id) {
       <td style="text-align:right">${pIva ? '€ '+pIva.toFixed(2) : '—'}</td>
       <td style="text-align:center;font-weight:600">${r.qty||0}</td>
       <td style="text-align:right;font-weight:600">${tot ? '€ '+tot.toFixed(2) : '—'}</td>
+      ${sconto>0?`<td style="text-align:right;font-weight:600;color:#1a6b35">${tot ? '€ '+totNettaRiga.toFixed(2) : '—'}</td>`:''}
     </tr>`;
   }).join("");
+
+  const scontoColHead = sconto>0 ? `<th class="r">Netto (${sconto}%)</th>` : '';
+  const scontoTfootRows = sconto>0 ? `
+    <tr style="background:#fff8e1">
+      <td colspan="10" style="text-align:right;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#888">Sconto ${sconto}%</td>
+      <td style="text-align:center;color:#c0392b">−${totQty} bt</td>
+      <td style="text-align:right;color:#c0392b">− € ${importoSconto.toFixed(2)}</td>
+      ${sconto>0?'<td></td>':''}
+    </tr>
+    <tr>
+      <td colspan="10" style="text-align:right;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#666;font-weight:700">TOTALE NETTO</td>
+      <td style="text-align:center;font-weight:700">${totQty} bt</td>
+      <td style="text-align:right;font-weight:700">€ ${totNetto.toFixed(2)}</td>
+      ${sconto>0?'<td></td>':''}
+    </tr>` : '';
 
   const html = `<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8">
   <title>Ordine ${h(o.fornitore)} — ${h(o.dataOrdine)}</title>
@@ -4446,6 +4547,7 @@ function stampaOrdine(id) {
         <span class="meta-label">Fornitore</span><span class="meta-val">${h(o.fornitore||'—')}</span>
         <span class="meta-label">Data ordine</span><span class="meta-val">${h(o.dataOrdine)}</span>
         <span class="meta-label">N° referenze</span><span class="meta-val">${ref.length}</span>
+        ${sconto>0?`<span class="meta-label">Sconto</span><span class="meta-val" style="color:#c0392b">${sconto}%</span>`:''}
         ${o.note?`<span class="meta-label">Note</span><span class="meta-val">${h(o.note)}</span>`:''}
       </div>
     </div>
@@ -4455,18 +4557,23 @@ function stampaOrdine(id) {
       <th>Produttore</th><th>Nome Vino</th><th>Vitigni</th>
       <th class="c">Annata</th><th>Tipologia</th><th>Regione</th><th>Nazione</th>
       <th class="r">P.Acq excl.</th><th class="c">IVA</th><th class="r">P.Acq+IVA</th>
-      <th class="c">Qty</th><th class="r">Totale</th>
+      <th class="c">Qty</th><th class="r">Totale</th>${scontoColHead}
     </tr></thead>
     <tbody>${righe}</tbody>
-    <tfoot><tr>
-      <td colspan="10" style="text-align:right;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#666">Totale ordine</td>
-      <td style="text-align:center">${totQty} bt</td>
-      <td style="text-align:right">€ ${totVal.toFixed(2)}</td>
-    </tr></tfoot>
+    <tfoot>
+      <tr>
+        <td colspan="10" style="text-align:right;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#666">Totale lordo IVA incl.</td>
+        <td style="text-align:center">${totQty} bt</td>
+        <td style="text-align:right">€ ${totLordo.toFixed(2)}</td>
+        ${sconto>0?'<td></td>':''}
+      </tr>
+      ${scontoTfootRows}
+    </tfoot>
   </table>
   <div class="total-box">
-    <div class="total-label">Totale IVA inclusa</div>
-    <div class="total-val">€ ${totVal.toFixed(2)}</div>
+    <div class="total-label">${sconto>0?'Totale Netto':'Totale IVA inclusa'}</div>
+    <div class="total-val">€ ${(sconto>0?totNetto:totLordo).toFixed(2)}</div>
+    ${sconto>0?`<div style="font-size:9px;color:#c0392b;margin-top:2px">Sconto ${sconto}% (− € ${importoSconto.toFixed(2)})</div>`:''}
     <div style="font-size:9px;color:#888;margin-top:4px">${totQty} bottiglie · ${ref.length} referenze</div>
   </div>
   <div class="note">
@@ -4489,19 +4596,28 @@ async function emailOrdine(id) {
   const o = _getOrdineById(id);
   if(!o){ notify("Salva prima l'ordine per inviarlo","err"); return; }
   const ref = o.referenze || [];
+  const sconto = parseFloat(o.sconto)||0;
   const totQty = ref.reduce((s,r) => s+(parseInt(r.qty)||0), 0);
-  const totVal = ref.reduce((s,r) => (parseFloat(r.prezzoAcq)||0)*(1+(parseInt(r.iva)||22)/100)*(parseInt(r.qty)||0)+s, 0);
+  const totLordo = ref.reduce((s,r) => (parseFloat(r.prezzoAcq)||0)*(1+(parseInt(r.iva)||22)/100)*(parseInt(r.qty)||0)+s, 0);
+  const importoSconto = totLordo*sconto/100;
+  const totNetto = totLordo - importoSconto;
 
   const righeText = ref.map((r,i) => {
     const pIva = (parseFloat(r.prezzoAcq)||0)*(1+(parseInt(r.iva)||22)/100);
+    const totRiga = pIva*(r.qty||0);
+    const totRigaNetto = totRiga*(1-sconto/100);
     return `${i+1}. ${r.produttore||'—'} — ${r.nomeVino}${r.annata?' ('+r.annata+')':''}`
       + `\n   Tipologia: ${r.tipologia||'—'} | Regione: ${r.regione||'—'} | Nazione: ${r.nazione||'—'}`
       + `\n   P.Acq: € ${parseFloat(r.prezzoAcq||0).toFixed(2)} + IVA ${r.iva||22}% = € ${pIva.toFixed(2)}/bt`
-      + `\n   Quantità: ${r.qty||0} bottiglie — Totale: € ${(pIva*(r.qty||0)).toFixed(2)}`
+      + `\n   Quantità: ${r.qty||0} bottiglie — Totale lordo: € ${totRiga.toFixed(2)}`
+      + (sconto>0 ? ` → Netto: € ${totRigaNetto.toFixed(2)}` : '')
       + (r.note ? `\n   Note: ${r.note}` : '');
   }).join('\n\n');
 
   const subject = encodeURIComponent(`Ordine del ${o.dataOrdine} — ${NOME_LOCALE}`);
+  const scontoBlock = sconto>0
+    ? `Sconto concordato: ${sconto}%\nImporto sconto: − € ${importoSconto.toFixed(2)}\nTOTALE NETTO: € ${totNetto.toFixed(2)}\n`
+    : `TOTALE IVA INCLUSA: € ${totLordo.toFixed(2)}\n`;
   const body = encodeURIComponent(
     `Gentili ${o.fornitore||'Fornitori'},\n\n` +
     `Vi inviamo il nostro ordine del ${o.dataOrdine}:\n\n` +
@@ -4511,14 +4627,15 @@ async function emailOrdine(id) {
     righeText +
     `\n\n──────────────────────────────────\n` +
     `RIEPILOGO: ${ref.length} referenze · ${totQty} bottiglie\n` +
-    `TOTALE IVA INCLUSA: € ${totVal.toFixed(2)}\n` +
+    (sconto>0 ? `Totale lordo IVA incl.: € ${totLordo.toFixed(2)}\n` : '') +
+    scontoBlock +
     `──────────────────────────────────\n` +
     (o.note ? `\nNote: ${o.note}\n` : '') +
     `\nCordiali saluti,\n${NOME_LOCALE}`
   );
 
   const fornEmail=_getFornEmail(o.fornitore||"");
-  const loc=_loadLocale(); // rilegge sempre fresco da localStorage
+  const loc=_loadLocale();
   const addrLine=[loc.cap,loc.citta,loc.provincia?"("+loc.provincia+")":""].filter(Boolean).join(" ");
   const mittente=[
     loc.nome||NOME_LOCALE,
@@ -4532,10 +4649,8 @@ async function emailOrdine(id) {
   ].filter(Boolean).join("\n");
   const consegnaBlock=loc.noteConsegna?"\n\n──────────────────────────────────\nINDICAZIONI CONSEGNA:\n"+loc.noteConsegna:"";
   const fullBody=encodeURIComponent(decodeURIComponent(body)+consegnaBlock+"\n\n──────────────────────────────────\n"+mittente);
-  // PATCH: flush Supabase prima di navigare via (window.location.href annulla saveTimer)
   if(_sb && saveTimer){ clearTimeout(saveTimer); await _flushSave(); }
   window.location.href=`mailto:${encodeURIComponent(fornEmail)}?subject=${subject}&body=${fullBody}`;
-  // Segna l'ordine come inviato via email
   const _oe = orders.find(x => x.id === id);
   if(_oe){ _oe.inviatoVia = _oe.inviatoVia === 'whatsapp' ? 'entrambi' : 'email'; _oe.dataInvio = _oe.dataInvio || today(); scheduleSave(); render(); }
 }
@@ -4546,22 +4661,27 @@ function whatsappOrdine(id) {
 
   const tel = _getFornTelefono(o.fornitore||"");
   const ref = o.referenze || [];
+  const sconto = parseFloat(o.sconto)||0;
   const totQty = ref.reduce((s,r) => s+(parseInt(r.qty)||0), 0);
-  const loc = _loadLocale(); // rilegge sempre fresco da localStorage
+  const totLordo = ref.reduce((s,r) => (parseFloat(r.prezzoAcq)||0)*(1+(parseInt(r.iva)||22)/100)*(parseInt(r.qty)||0)+s, 0);
+  const totNetto = totLordo*(1-sconto/100);
+  const loc = _loadLocale();
 
-  // Testo ottimizzato per WhatsApp: conciso, leggibile su mobile
   const righeWa = ref.map((r,i) =>
     `${i+1}. *${r.produttore||'—'} — ${r.nomeVino}*${r.annata?' ('+r.annata+')':''} × ${r.qty||0} bt`
   ).join('\n');
 
   const mittente = [loc.nome||NOME_LOCALE, loc.telefono?'Tel: '+loc.telefono:''].filter(Boolean).join(' · ');
   const consegna = loc.noteConsegna ? '\n\n📦 *Consegna:* '+loc.noteConsegna : '';
+  const totaleWa = sconto>0
+    ? `*Totale lordo: ${fmt(totLordo)}* — Sconto ${sconto}% → *Netto: ${fmt(totNetto)}*`
+    : `*Totale: ${totQty} bottiglie*`;
 
   const testo =
     `Gentili ${o.fornitore||'Fornitori'},\n\n` +
     `Vi inviamo il nostro ordine del *${o.dataOrdine}*:\n\n` +
     righeWa +
-    `\n\n*Totale: ${totQty} bottiglie*` +
+    `\n\n${totaleWa}` +
     (o.note ? `\n📝 Note: ${o.note}` : '') +
     consegna +
     `\n\nCordiali saluti,\n${mittente}`;
@@ -4569,7 +4689,6 @@ function whatsappOrdine(id) {
   const url = `https://wa.me/${tel?_waNum(tel):''}?text=${encodeURIComponent(testo)}`;
 
   if(!tel){
-    // Nessun telefono salvato — apri WhatsApp senza numero (l'utente sceglie la chat)
     notify("⚠️ Nessun telefono per questo fornitore — aggiungi il numero in Impostazioni → Rubrica Fornitori","err");
     window.open(`https://web.whatsapp.com/send?text=${encodeURIComponent(testo)}`,'_blank');
     const _owb = orders.find(x => x.id === id);
@@ -4577,7 +4696,6 @@ function whatsappOrdine(id) {
     return;
   }
   window.open(url, '_blank');
-  // Segna l'ordine come inviato via whatsapp
   const _ow = orders.find(x => x.id === id);
   if(_ow){ _ow.inviatoVia = _ow.inviatoVia === 'email' ? 'entrambi' : 'whatsapp'; _ow.dataInvio = _ow.dataInvio || today(); scheduleSave(); render(); }
 }
@@ -4853,6 +4971,26 @@ function openWineDetail(id){
 
   const giacenzaColor = isEmpty?'#FF453A':isAlert?'#fb923c':'var(--amber)';
 
+  // Crea il modal se manca nel DOM (es. index.html non aggiornato)
+  if (!document.getElementById('wine-detail-backdrop')) {
+    const bd = document.createElement('div');
+    bd.id = 'wine-detail-backdrop';
+    bd.className = 'modal-backdrop hidden';
+    bd.onclick = closeWineDetail;
+    bd.innerHTML = `<div class="modal" style="max-width:820px;overflow-y:auto;max-height:88vh" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h2>🍾 Scheda Vino</h2>
+        <button style="font-size:18px;color:var(--txt3)" onclick="closeWineDetail()">✕</button>
+      </div>
+      <div class="modal-body" id="wine-detail-body"></div>
+      <div class="modal-footer">
+        <button class="btn-outline" onclick="closeWineDetail()">Chiudi</button>
+        <button class="btn-primary" onclick="closeWineDetail();openWineModal(document.getElementById('wine-detail-backdrop').dataset.wineId)">✏️ Modifica</button>
+      </div>
+    </div>`;
+    document.body.appendChild(bd);
+  }
+  // Popola il body DOPO che il nodo è nel DOM
   document.getElementById('wine-detail-body').innerHTML = `
     <!-- Header identità -->
     <div style="display:flex;align-items:flex-start;gap:20px;margin-bottom:24px;flex-wrap:wrap">
@@ -4906,27 +5044,6 @@ function openWineDetail(id){
     ${movsHtml}
     ${histHtml}
   `;
-  // Crea il modal se manca nel DOM (es. index.html non aggiornato)
-  if (!document.getElementById('wine-detail-backdrop')) {
-    const bd = document.createElement('div');
-    bd.id = 'wine-detail-backdrop';
-    bd.className = 'modal-backdrop hidden';
-    bd.onclick = closeWineDetail;
-    bd.innerHTML = `<div class="modal" style="max-width:820px;overflow-y:auto;max-height:88vh" onclick="event.stopPropagation()">
-      <div class="modal-header">
-        <h2>🍾 Scheda Vino</h2>
-        <button style="font-size:18px;color:var(--txt3)" onclick="closeWineDetail()">✕</button>
-      </div>
-      <div class="modal-body" id="wine-detail-body"></div>
-      <div class="modal-footer">
-        <button class="btn-outline" onclick="closeWineDetail()">Chiudi</button>
-        <button class="btn-primary" onclick="closeWineDetail();openWineModal(document.getElementById('wine-detail-backdrop').dataset.wineId)">✏️ Modifica</button>
-      </div>
-    </div>`;
-    document.body.appendChild(bd);
-    // ora ri-setta il body con il contenuto già generato
-    document.getElementById('wine-detail-body').innerHTML = document.getElementById('wine-detail-body')?.innerHTML || '';
-  }
   document.getElementById('wine-detail-backdrop').dataset.wineId = id;
   document.getElementById('wine-detail-backdrop').classList.remove('hidden');
 }
