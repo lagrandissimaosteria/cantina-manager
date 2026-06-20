@@ -3504,8 +3504,17 @@ function _rollbackOrdine(ordine){
   (ordine.referenze||[]).forEach(r=>{
     const rFmt=String(parseFloat(r.formato)||0.75);
     const sameFmt=w=>String(parseFloat(w.formato)||0.75)===rFmt;
-    let wine = r.wineId ? wines.find(w=>w.id===r.wineId) : null;
-    if(!wine) wine = wines.find(w=>w.nome.toLowerCase()===r.nomeVino.toLowerCase()&&sameFmt(w));
+    const sameAnnata=w=>(w.annata||"").toLowerCase().trim()===(r.annata||"").toLowerCase().trim();
+    // Cerca per wineId con validazione annata (stesso fix di confermaRicezioneOrdine)
+    let wine = r.wineId ? wines.find(w=>w.id===r.wineId&&sameFmt(w)&&sameAnnata(w)) : null;
+    // fallback NV: se non ha annata, il wineId è affidabile senza check annata
+    if(!wine && r.wineId && !(r.annata||"").trim()) wine = wines.find(w=>w.id===r.wineId&&sameFmt(w));
+    // fallback nome+produttore+annata
+    if(!wine){
+      const nn=r.nomeVino.toLowerCase(), rp=(r.produttore||"").toLowerCase(), ra=(r.annata||"").toLowerCase().trim();
+      if(ra) wine=wines.find(w=>w.nome.toLowerCase()===nn&&(w.produttore||"").toLowerCase()===rp&&(w.annata||"").toLowerCase().trim()===ra&&sameFmt(w));
+      else wine=wines.find(w=>w.nome.toLowerCase()===nn&&(w.produttore||"").toLowerCase()===rp&&sameFmt(w));
+    }
     if(!wine) return;
     const qtyToRemove=parseInt(r.qtyArr??r.qty)||0;
     if(!qtyToRemove) return;
@@ -4227,13 +4236,25 @@ function confermaRicezioneOrdine(){
     // NON deve matchare la voce 0.75 dello stesso vino. Default formato: 0.75.
     const rFmt=String(parseFloat(r.formato)||0.75);
     const sameFmt=w=>String(parseFloat(w.formato)||0.75)===rFmt;
-    let existingIdx = r.wineId ? wines.findIndex(w=>w.id===r.wineId&&sameFmt(w)) : -1;
+    const sameAnnata=w=>(w.annata||"").toLowerCase().trim()===(r.annata||"").toLowerCase().trim();
+
+    console.log(`[Ricezione] matching "${r.nomeVino}" annata="${r.annata||'NV'}" prod="${r.produttore||''}" fmt=${rFmt} wineId="${r.wineId||'—'}"`);
+
+    // Prima cerca per wineId — ma valida ANCHE annata e formato per evitare di caricare
+    // su un vino omonimo di annata diversa (es. ordine Syrah 2023 con wineId che punta a Syrah 2021)
+    let existingIdx = r.wineId ? wines.findIndex(w=>w.id===r.wineId&&sameFmt(w)&&sameAnnata(w)) : -1;
+
+    // Se wineId c'è ma annata/formato non combaciano, tenta comunque il match per id ignorando annata
+    // SOLO se la referenza non ha annata (NV): in quel caso il wineId è affidabile
+    if(existingIdx<0 && r.wineId && !(r.annata||"").trim()){
+      existingIdx=wines.findIndex(w=>w.id===r.wineId&&sameFmt(w));
+    }
+
     if(existingIdx < 0){
-      const nn=r.nomeVino.toLowerCase(), rp=(r.produttore||"").toLowerCase(), ra=(r.annata||"").toLowerCase();
-      // FIX ANNATA: se l'ordine ha un'annata, il match senza annata è vietato —
-      // evita di caricare "Syrah 2023" sull'entry "Syrah 2021" già esistente.
-      if(rp&&ra) existingIdx=wines.findIndex(w=>w.nome.toLowerCase()===nn&&(w.produttore||"").toLowerCase()===rp&&(w.annata||"").toLowerCase()===ra&&sameFmt(w));
-      // fallback nome+produttore SOLO se l'ordine non ha annata (NV)
+      const nn=r.nomeVino.toLowerCase(), rp=(r.produttore||"").toLowerCase(), ra=(r.annata||"").toLowerCase().trim();
+      // Match nome+produttore+annata (caso principale con annata)
+      if(rp&&ra) existingIdx=wines.findIndex(w=>w.nome.toLowerCase()===nn&&(w.produttore||"").toLowerCase()===rp&&(w.annata||"").toLowerCase().trim()===ra&&sameFmt(w));
+      // fallback nome+produttore SOLO se la referenza è NV e il vino in inventario è NV
       if(existingIdx<0&&rp&&!ra) existingIdx=wines.findIndex(w=>w.nome.toLowerCase()===nn&&(w.produttore||"").toLowerCase()===rp&&!(w.annata||"").trim()&&sameFmt(w));
       // ultimo fallback nome solo se né produttore né annata specificati
       if(existingIdx<0&&!rp&&!ra) existingIdx=wines.findIndex(w=>w.nome.toLowerCase()===nn&&sameFmt(w));
@@ -4244,8 +4265,10 @@ function confermaRicezioneOrdine(){
     const fornitureName = ordine?.fornitore||"";
 
     if(!wine){
-      // Nuovo vino: crea oggetto e inserisce immutabilmente
-      // FIX FORMATO: include il campo formato dalla referenza dell'ordine
+      // Nessun match trovato — crea nuovo vino in inventario
+      // Log visibile: avvisa l'utente che è stato creato un nuovo vino (non aggiornato uno esistente)
+      console.warn(`[Ricezione] Nessun match per "${r.nomeVino}" ${r.annata||'NV'} (wineId=${r.wineId||'—'}, fmt=${rFmt}) — creato come nuovo vino`);
+      notify(`➕ Nuovo vino creato: ${r.nomeVino}${r.annata?' '+r.annata:''}`, "info");
       const newWine = {id:uid(),nome:r.nomeVino,produttore:r.produttore||"",distributore:fornitureName,
         annata:r.annata||"",vitigni:r.vitigni||"",tipologia:r.tipologia||"Bianco",regione:r.regione||"",nazione:r.nazione||"Italia",zona:r.zona||"",
         formato:parseFloat(r.formato)||0.75,
