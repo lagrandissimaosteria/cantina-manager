@@ -3313,10 +3313,11 @@ function renderOrdini(){
     <tr id="det-${o.id}" class="hidden" style="background:rgba(28,28,30,.6)">
       <td colspan="9" style="padding:0 14px 10px">
         <table style="width:100%;font-size:10px;border-collapse:collapse">
-          <tr style="color:var(--txt4)">${["Produttore","Vino","Vitigni","Tipo","Ord.","Arriv.","P.Acq"].map(c=>`<td style="padding:4px 8px">${c}</td>`).join("")}</tr>
+          <tr style="color:var(--txt4)">${["Produttore","Vino","Annata","Vitigni","Tipo","Ord.","Arriv.","P.Acq"].map(c=>`<td style="padding:4px 8px">${c}</td>`).join("")}</tr>
           ${ref.map(r=>`<tr style="border-top:1px solid var(--border)">
             <td style="padding:4px 8px;color:var(--txt3)">${h(r.produttore||'—')}</td>
             <td style="padding:4px 8px">${h(r.nomeVino)}</td>
+            <td style="padding:4px 8px;color:var(--amber);font-family:'Montserrat',sans-serif;font-size:10px;text-align:center">${r.annata?h(r.annata):'<span style="color:var(--txt4)">N.V.</span>'}</td>
             <td style="padding:4px 8px;color:var(--txt3);font-size:10px">${h(r.vitigni||'—')}</td>
             <td style="padding:4px 8px">${badge(r.tipologia)}</td>
             <td style="padding:4px 8px;color:var(--txt2)">${r.qty}</td>
@@ -3734,7 +3735,7 @@ function apriOrdineModal(idOrNull){
 }
 
 function _newRef(produttore="",nomeVino="",annata="",tipologia="Rosso",prezzoAcq="",iva=22,qty=6,regione="",zona="",nazione="Italia",prezzoCarta="",formato="",wineId=""){
-  return {id:uid(),wineId,produttore,nomeVino,annata,tipologia,prezzoAcq,iva,qty,regione,zona,nazione,prezzoCarta,formato};
+  return {id:uid(),wineId,produttore,nomeVino,annata,tipologia,prezzoAcq,iva,qty,regione,zona,nazione,prezzoCarta,formato,scontoRef:0};
 }
 
 function _renderOrdineModalBody(allFornitori, allProduttori, allNomi){
@@ -3791,6 +3792,7 @@ function _renderOrdineModalBody(allFornitori, allProduttori, allNomi){
             <td style="padding:6px 8px;min-width:90px">P.Acq+IVA</td>
             <td style="padding:6px 8px;min-width:80px">P.Carta</td>
             <td style="padding:6px 8px;min-width:56px">Qty</td>
+            <td style="padding:6px 8px;min-width:64px;text-align:center;background:rgba(255,69,58,.04)">Sc.%</td>
             <td style="padding:6px 8px;min-width:80px;text-align:right;background:rgba(48,209,88,.04)">Tot. riga</td>
             <td style="padding:6px 8px;min-width:28px"></td>
           </tr>
@@ -3809,14 +3811,23 @@ function _refRowHtml(r,i,tipoOpts,ivaOpts,allProduttori,allNomi){
   const selTipo=_tipoOptsHtml(r.tipologia);
   const selIva=IVA_OPTIONS.map(v=>`<option value="${v}"${v===r.iva?" selected":""}>${v}%</option>`).join("");
   const ivaIncl = r.prezzoAcq ? (parseFloat(r.prezzoAcq)*(1+(parseInt(r.iva)||22)/100)) : 0;
-  const totRiga = ivaIncl * (parseInt(r.qty)||0);
-  const sconto = parseFloat(ordineModalData?.sconto)||0;
-  const totRigaNetto = totRiga * (1 - sconto/100);
+  const scontoRef = parseFloat(r.scontoRef)||0;
+  const scontoOrd = parseFloat(ordineModalData?.sconto)||0;
+  // Sconto cumulativo: prima sconto referenza, poi sconto ordine sul residuo
+  const fattore = (1-scontoRef/100)*(1-scontoOrd/100);
+  const totRiga = ivaIncl*(parseInt(r.qty)||0);
+  const totRigaNetto = totRiga*fattore;
+  const hasDiscount = scontoRef>0||scontoOrd>0;
+  const isOmaggio = scontoRef>=100;
   const totRigaHtml = totRiga
-    ? (sconto>0
-        ? `<span style="color:var(--txt4);text-decoration:line-through;font-size:10px">${fmtRound(totRiga)}</span><br><span style="color:#30D158">${fmtRound(totRigaNetto)}</span>`
-        : `<span style="color:var(--txt2)">${fmtRound(totRiga)}</span>`)
+    ? (isOmaggio
+        ? `<span style="color:#30D158;font-weight:600;font-size:10px">🎁 OMAGGIO</span>`
+        : hasDiscount
+          ? `<span style="color:var(--txt4);text-decoration:line-through;font-size:10px">${fmtRound(totRiga)}</span><br><span style="color:#30D158">${fmtRound(totRigaNetto)}</span>`
+          : `<span style="color:var(--txt2)">${fmtRound(totRiga)}</span>`)
     : "—";
+  // Colore sfondo cella sconto referenza
+  const scBg = scontoRef>=100 ? "rgba(48,209,88,.12)" : scontoRef>0 ? "rgba(255,69,58,.06)" : "transparent";
   return `<tr data-ref-id="${r.id}" style="border-top:1px solid var(--border)">
     <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;min-width:110px;width:100%" list="omd-prod-dl" autocomplete="off" value="${h(r.produttore)}" placeholder="Produttore" onchange="_refChange('${r.id}','produttore',this.value)"></td>
     <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;min-width:110px;width:100%" list="omd-wine-dl" autocomplete="off" value="${h(r.nomeVino)}" placeholder="Nome vino" onchange="_refChange('${r.id}','nomeVino',this.value);_showRefGiacenza('${r.id}',this.value)"><div id="ref-giac-${r.id}" style="font-size:9px;margin-top:2px"></div></td>
@@ -3834,6 +3845,12 @@ function _refRowHtml(r,i,tipoOpts,ivaOpts,allProduttori,allNomi){
     <td style="padding:5px 6px;text-align:right;font-size:12px;color:var(--amber);font-weight:600;white-space:nowrap;background:rgba(255,159,10,.06);border-left:1px solid rgba(255,159,10,.12)" id="ref-ivaincl-${r.id}">${ivaIncl?fmtRound(ivaIncl):"—"}</td>
     <td style="padding:5px 6px"><input type="number" id="ref-carta-inp-${r.id}" class="form-input" style="font-size:11px;text-align:right;min-width:72px;width:100%" value="${r.prezzoCarta||''}" step="1" min="0" placeholder="0" onchange="_refChange('${r.id}','prezzoCarta',parseFloat(this.value)||0)"><div id="ref-carta-hint-${r.id}" style="font-size:9px;margin-top:2px;white-space:nowrap"></div></td>
     <td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:12px;text-align:center;min-width:52px;width:100%" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" value="${r.qty||6}" min="1" step="1" oninput="_refChange('${r.id}','qty',parseInt(this.value)||1);_updateOrdineModalTotale()"></td>
+    <td style="padding:3px 4px;background:${scBg};border-left:1px solid rgba(255,69,58,.15)">
+      <input type="number" class="form-input" id="ref-sc-${r.id}" style="font-size:11px;text-align:center;min-width:52px;width:100%;background:transparent;border-color:rgba(255,69,58,.2)" min="0" max="100" step="1" value="${scontoRef||''}" placeholder="0"
+        oninput="_refChange('${r.id}','scontoRef',parseFloat(this.value)||0)"
+        title="Sconto referenza % (100 = omaggio)">
+      ${scontoRef>=100?`<div style="font-size:8px;color:#30D158;text-align:center;margin-top:1px">🎁</div>`:scontoRef>0?`<div style="font-size:8px;color:#FF453A;text-align:center;margin-top:1px">−${scontoRef}%</div>`:''}
+    </td>
     <td id="ref-tot-${r.id}" style="padding:5px 8px;text-align:right;font-size:11px;white-space:nowrap;background:rgba(48,209,88,.04);border-left:1px solid rgba(48,209,88,.12)">${totRigaHtml}</td>
     <td style="padding:5px 6px;text-align:right"><button onclick="_removeRefRow('${r.id}')" style="color:var(--txt4);font-size:13px;background:none;border:none;cursor:pointer" title="Rimuovi">✕</button></td>
   </tr>`;
@@ -3945,30 +3962,49 @@ function _updateOrdineModalTotale(){
   const el=document.getElementById("omd-totale");
   if(!el) return;
   if(!ordineModalData?.referenze){el.textContent="";return;}
-  const sconto=parseFloat(ordineModalData.sconto)||0;
-  let totQty=0,totLordo=0;
+  const scontoOrd=parseFloat(ordineModalData.sconto)||0;
+  let totQty=0,totLordo=0,totNetto=0;
   ordineModalData.referenze.forEach(r=>{
     const q=parseInt(r.qty)||0;
     const p=parseFloat(r.prezzoAcq)||0;
     const iva=(parseInt(r.iva)||22);
+    const scontoRef=parseFloat(r.scontoRef)||0;
+    const fattore=(1-scontoRef/100)*(1-scontoOrd/100);
     const rigaLorda=p*(1+iva/100)*q;
+    const rigaNetta=rigaLorda*fattore;
     totQty+=q;
     totLordo+=rigaLorda;
-    // aggiorna cella tot riga in tempo reale
+    totNetto+=rigaNetta;
+    // Aggiorna cella tot riga
     const rigaEl=document.getElementById(`ref-tot-${r.id}`);
     if(rigaEl){
-      const rigaNetta=rigaLorda*(1-sconto/100);
+      const isOmaggio=scontoRef>=100;
+      const hasDiscount=scontoRef>0||scontoOrd>0;
       rigaEl.innerHTML = rigaLorda
-        ? (sconto>0
-            ? `<span style="color:var(--txt4);text-decoration:line-through;font-size:10px">${fmtRound(rigaLorda)}</span><br><span style="color:#30D158">${fmtRound(rigaNetta)}</span>`
-            : `<span style="color:var(--txt2)">${fmtRound(rigaLorda)}</span>`)
+        ? (isOmaggio
+            ? `<span style="color:#30D158;font-weight:600;font-size:10px">🎁 OMAGGIO</span>`
+            : hasDiscount
+              ? `<span style="color:var(--txt4);text-decoration:line-through;font-size:10px">${fmtRound(rigaLorda)}</span><br><span style="color:#30D158">${fmtRound(rigaNetta)}</span>`
+              : `<span style="color:var(--txt2)">${fmtRound(rigaLorda)}</span>`)
         : "—";
     }
+    // Aggiorna mini-badge sotto input sconto referenza
+    const scEl=document.getElementById(`ref-sc-${r.id}`);
+    if(scEl){
+      const badge=scEl.nextElementSibling;
+      if(badge){
+        badge.innerHTML=scontoRef>=100
+          ?`<div style="font-size:8px;color:#30D158;text-align:center;margin-top:1px">🎁</div>`
+          :scontoRef>0
+            ?`<div style="font-size:8px;color:#FF453A;text-align:center;margin-top:1px">−${scontoRef}%</div>`
+            :'';
+      }
+    }
   });
-  const importoSconto=totLordo*sconto/100;
-  const totNetto=totLordo-importoSconto;
-  const scontoHtml=sconto>0
-    ? `<span style="color:#FF453A;margin:0 6px">− ${sconto}% (${fmt(importoSconto)})</span><span style="color:var(--txt4)">→</span> <strong style="color:#30D158;font-size:13px;margin-left:6px">${fmt(totNetto)}</strong> netto`
+  const importoSconto=totLordo-totNetto;
+  const hasAnyDiscount=totLordo>totNetto;
+  const scontoHtml=hasAnyDiscount
+    ? ` <span style="color:#FF453A;margin:0 6px">− ${fmt(importoSconto)}</span><span style="color:var(--txt4)">→</span> <strong style="color:#30D158;font-size:13px;margin-left:6px">${fmt(totNetto)}</strong> netto`
     : '';
   el.innerHTML=`Lordo IVA incl.: <span style="color:var(--amber)">${fmt(totLordo)}</span>${scontoHtml} · <span style="color:var(--txt2)">${totQty} bottiglie</span>`;
 }
@@ -4003,7 +4039,8 @@ function salvaOrdine(){
       prezzoAcq:parseFloat(r.prezzoAcq)||0,
       iva:parseInt(r.iva)||22,
       prezzoCarta:parseFloat(r.prezzoCarta)||0,
-      qty:parseInt(r.qty)||1
+      qty:parseInt(r.qty)||1,
+      scontoRef:parseFloat(r.scontoRef)||0
     });
   });
   if(!ok){notify("⚠️ Inserisci il nome vino per tutte le referenze","err");return;}
@@ -4074,6 +4111,8 @@ function _renderRicezioneModalBody(ordine, allForn, allProd, allNomi){
     <tr data-ric-id="${r.id}" style="border-top:1px solid var(--border)">
       <td style="padding:5px 8px;color:var(--txt3)">${h(r.produttore||'—')}</td>
       <td style="padding:5px 8px">${h(r.nomeVino)}</td>
+      <td style="padding:5px 8px;color:var(--amber);font-family:'Montserrat',sans-serif;text-align:center;font-size:11px;white-space:nowrap">${r.annata?h(r.annata):'<span style="color:var(--txt4)">N.V.</span>'}</td>
+      <td style="padding:5px 8px;color:var(--txt4);font-size:10px;text-align:center;white-space:nowrap">${parseFloat(r.formato)||0.75}L</td>
       <td style="padding:5px 8px;color:var(--txt3);font-size:10px">${h(r.vitigni||'—')}</td>
       <td style="padding:5px 8px">${badge(r.tipologia)}</td>
       <td style="padding:5px 8px;color:var(--txt2);text-align:center">${r.qty}</td>
@@ -4107,6 +4146,8 @@ function _renderRicezioneModalBody(ordine, allForn, allProd, allNomi){
         <thead><tr style="font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt4)">
           <td style="padding:6px 8px">Produttore</td>
           <td style="padding:6px 8px">Nome Vino</td>
+          <td style="padding:6px 8px;text-align:center;color:var(--amber)">Annata</td>
+          <td style="padding:6px 8px;text-align:center">Formato</td>
           <td style="padding:6px 8px">Vitigni</td>
           <td style="padding:6px 8px">Tipo</td>
           <td style="padding:6px 8px;text-align:center">Ordinato</td>
@@ -4279,7 +4320,7 @@ function apriModalRicezioneGlobale(){
       const totQty=ref.reduce((s,r)=>s+(parseInt(r.qty)||0),0);
       return `<div style="padding:8px 0;border-bottom:1px solid var(--border)">
         <div style="font-weight:600;color:var(--txt2);margin-bottom:4px">${h(o.fornitore)} <span style="color:var(--txt4);font-weight:400;font-size:10px">(${h(o.dataOrdine)})</span></div>
-        ${ref.map(r=>`<div style="padding:2px 8px;font-size:10px;display:flex;justify-content:space-between"><span>${h(r.nomeVino)}</span><span style="color:var(--txt3)">× ${r.qty} bt.</span></div>`).join("")}
+        ${ref.map(r=>`<div style="padding:2px 8px;font-size:10px;display:flex;justify-content:space-between"><span>${h(r.nomeVino)}${r.annata?` <span style="color:var(--amber)">${h(r.annata)}</span>`:''}</span><span style="color:var(--txt3)">× ${r.qty} bt.</span></div>`).join("")}
         <div style="font-size:10px;color:var(--amber);text-align:right;margin-top:2px">${totQty} bottiglie totali</div>
       </div>`;}).join("");
   }
@@ -4462,16 +4503,34 @@ function stampaOrdine(id) {
   const o = _getOrdineById(id);
   if(!o){ notify("Salva prima l'ordine per stamparlo","err"); return; }
   const ref = o.referenze || [];
-  const sconto = parseFloat(o.sconto)||0;
+  const scontoOrd = parseFloat(o.sconto)||0;
   const totQty = ref.reduce((s,r) => s+(parseInt(r.qty)||0), 0);
-  const totLordo = ref.reduce((s,r) => (parseFloat(r.prezzoAcq)||0)*(1+(parseInt(r.iva)||22)/100)*(parseInt(r.qty)||0)+s, 0);
-  const importoSconto = totLordo*sconto/100;
-  const totNetto = totLordo - importoSconto;
+
+  // Calcola totali considerando sia scontoRef che scontoOrd
+  let totLordo=0, totNetto=0;
+  ref.forEach(r=>{
+    const pIva=(parseFloat(r.prezzoAcq)||0)*(1+(parseInt(r.iva)||22)/100);
+    const lordo=pIva*(parseInt(r.qty)||0);
+    const scontoRef=parseFloat(r.scontoRef)||0;
+    const fattore=(1-scontoRef/100)*(1-scontoOrd/100);
+    totLordo+=lordo;
+    totNetto+=lordo*fattore;
+  });
+  const importoScontoTot=totLordo-totNetto;
+  const hasAnyDiscount=importoScontoTot>0.001;
+
+  // Mostra colonna Sc.% e Netto riga solo se almeno una referenza ha sconto o c'è sconto ordine
+  const hasRefDiscount=ref.some(r=>parseFloat(r.scontoRef)>0);
+  const showExtraCol=hasRefDiscount||scontoOrd>0;
 
   const righe = ref.map(r => {
     const pIva = (parseFloat(r.prezzoAcq)||0)*(1+(parseInt(r.iva)||22)/100);
     const tot = pIva*(parseInt(r.qty)||0);
-    const totNettaRiga = tot*(1-sconto/100);
+    const scontoRef=parseFloat(r.scontoRef)||0;
+    const fattore=(1-scontoRef/100)*(1-scontoOrd/100);
+    const totNettaRiga=tot*fattore;
+    const isOmaggio=scontoRef>=100;
+    const scLabel=scontoRef>0?(isOmaggio?'🎁 100%':`${scontoRef}%`):(scontoOrd>0?`ord.${scontoOrd}%`:'—');
     return `<tr>
       <td>${h(r.produttore||'—')}</td>
       <td>${h(r.nomeVino)}</td>
@@ -4484,24 +4543,23 @@ function stampaOrdine(id) {
       <td style="text-align:center">${r.iva||22}%</td>
       <td style="text-align:right">${pIva ? '€ '+pIva.toFixed(2) : '—'}</td>
       <td style="text-align:center;font-weight:600">${r.qty||0}</td>
-      <td style="text-align:right;font-weight:600">${tot ? '€ '+tot.toFixed(2) : '—'}</td>
-      ${sconto>0?`<td style="text-align:right;font-weight:600;color:#1a6b35">${tot ? '€ '+totNettaRiga.toFixed(2) : '—'}</td>`:''}
+      <td style="text-align:right;font-weight:600">${isOmaggio?'<span style="color:#1a6b35">OMAGGIO</span>':tot?'€ '+tot.toFixed(2):'—'}</td>
+      ${showExtraCol?`<td style="text-align:center;font-size:10px;color:#c0392b">${scLabel}</td><td style="text-align:right;font-weight:600;color:#1a6b35">${isOmaggio?'€ 0.00':totNettaRiga?'€ '+totNettaRiga.toFixed(2):'—'}</td>`:''}
     </tr>`;
   }).join("");
 
-  const scontoColHead = sconto>0 ? `<th class="r">Netto (${sconto}%)</th>` : '';
-  const scontoTfootRows = sconto>0 ? `
+  const scontoColHead = showExtraCol ? `<th class="c">Sc.%</th><th class="r">Netto riga</th>` : '';
+  const colspan=showExtraCol?14:12;
+  const scontoTfootRows = hasAnyDiscount ? `
     <tr style="background:#fff8e1">
-      <td colspan="10" style="text-align:right;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#888">Sconto ${sconto}%</td>
-      <td style="text-align:center;color:#c0392b">−${totQty} bt</td>
-      <td style="text-align:right;color:#c0392b">− € ${importoSconto.toFixed(2)}</td>
-      ${sconto>0?'<td></td>':''}
+      <td colspan="${colspan-2}" style="text-align:right;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#888">Sconti totali (righe + ordine)</td>
+      <td style="text-align:center;color:#c0392b">${totQty} bt</td>
+      <td style="text-align:right;color:#c0392b">− € ${importoScontoTot.toFixed(2)}</td>
     </tr>
     <tr>
-      <td colspan="10" style="text-align:right;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#666;font-weight:700">TOTALE NETTO</td>
+      <td colspan="${colspan-2}" style="text-align:right;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#666;font-weight:700">TOTALE NETTO</td>
       <td style="text-align:center;font-weight:700">${totQty} bt</td>
       <td style="text-align:right;font-weight:700">€ ${totNetto.toFixed(2)}</td>
-      ${sconto>0?'<td></td>':''}
     </tr>` : '';
 
   const html = `<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8">
@@ -4557,15 +4615,14 @@ function stampaOrdine(id) {
       <th>Produttore</th><th>Nome Vino</th><th>Vitigni</th>
       <th class="c">Annata</th><th>Tipologia</th><th>Regione</th><th>Nazione</th>
       <th class="r">P.Acq excl.</th><th class="c">IVA</th><th class="r">P.Acq+IVA</th>
-      <th class="c">Qty</th><th class="r">Totale</th>${scontoColHead}
+      <th class="c">Qty</th><th class="r">Totale lordo</th>${scontoColHead}
     </tr></thead>
     <tbody>${righe}</tbody>
     <tfoot>
       <tr>
-        <td colspan="10" style="text-align:right;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#666">Totale lordo IVA incl.</td>
+        <td colspan="${colspan-2}" style="text-align:right;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#666">Totale lordo IVA incl.</td>
         <td style="text-align:center">${totQty} bt</td>
         <td style="text-align:right">€ ${totLordo.toFixed(2)}</td>
-        ${sconto>0?'<td></td>':''}
       </tr>
       ${scontoTfootRows}
     </tfoot>
@@ -4596,27 +4653,33 @@ async function emailOrdine(id) {
   const o = _getOrdineById(id);
   if(!o){ notify("Salva prima l'ordine per inviarlo","err"); return; }
   const ref = o.referenze || [];
-  const sconto = parseFloat(o.sconto)||0;
+  const scontoOrd = parseFloat(o.sconto)||0;
   const totQty = ref.reduce((s,r) => s+(parseInt(r.qty)||0), 0);
-  const totLordo = ref.reduce((s,r) => (parseFloat(r.prezzoAcq)||0)*(1+(parseInt(r.iva)||22)/100)*(parseInt(r.qty)||0)+s, 0);
-  const importoSconto = totLordo*sconto/100;
-  const totNetto = totLordo - importoSconto;
+  let totLordo=0, totNetto=0;
+  ref.forEach(r=>{ const l=(parseFloat(r.prezzoAcq)||0)*(1+(parseInt(r.iva)||22)/100)*(parseInt(r.qty)||0); const sr=parseFloat(r.scontoRef)||0; totLordo+=l; totNetto+=l*(1-sr/100)*(1-scontoOrd/100); });
+  const importoSconto = totLordo-totNetto;
 
   const righeText = ref.map((r,i) => {
     const pIva = (parseFloat(r.prezzoAcq)||0)*(1+(parseInt(r.iva)||22)/100);
     const totRiga = pIva*(r.qty||0);
-    const totRigaNetto = totRiga*(1-sconto/100);
+    const scontoRef=parseFloat(r.scontoRef)||0;
+    const fattore=(1-scontoRef/100)*(1-scontoOrd/100);
+    const totRigaNetto = totRiga*fattore;
+    const isOmaggio=scontoRef>=100;
     return `${i+1}. ${r.produttore||'—'} — ${r.nomeVino}${r.annata?' ('+r.annata+')':''}`
       + `\n   Tipologia: ${r.tipologia||'—'} | Regione: ${r.regione||'—'} | Nazione: ${r.nazione||'—'}`
       + `\n   P.Acq: € ${parseFloat(r.prezzoAcq||0).toFixed(2)} + IVA ${r.iva||22}% = € ${pIva.toFixed(2)}/bt`
-      + `\n   Quantità: ${r.qty||0} bottiglie — Totale lordo: € ${totRiga.toFixed(2)}`
-      + (sconto>0 ? ` → Netto: € ${totRigaNetto.toFixed(2)}` : '')
+      + (isOmaggio
+          ? `\n   Quantità: ${r.qty||0} bottiglie — OMAGGIO (100%)`
+          : `\n   Quantità: ${r.qty||0} bottiglie — Lordo: € ${totRiga.toFixed(2)}`
+            + (scontoRef>0||scontoOrd>0 ? ` → Netto: € ${totRigaNetto.toFixed(2)}`+(scontoRef>0?` (sc.ref ${scontoRef}%`+(scontoOrd>0?`+ord ${scontoOrd}%`:'')+')':'') : ''))
       + (r.note ? `\n   Note: ${r.note}` : '');
   }).join('\n\n');
 
   const subject = encodeURIComponent(`Ordine del ${o.dataOrdine} — ${NOME_LOCALE}`);
-  const scontoBlock = sconto>0
-    ? `Sconto concordato: ${sconto}%\nImporto sconto: − € ${importoSconto.toFixed(2)}\nTOTALE NETTO: € ${totNetto.toFixed(2)}\n`
+  const hasDiscount=importoSconto>0.001;
+  const scontoBlock = hasDiscount
+    ? `Totale lordo IVA incl.: € ${totLordo.toFixed(2)}\nSconti totali: − € ${importoSconto.toFixed(2)}\nTOTALE NETTO: € ${totNetto.toFixed(2)}\n`
     : `TOTALE IVA INCLUSA: € ${totLordo.toFixed(2)}\n`;
   const body = encodeURIComponent(
     `Gentili ${o.fornitore||'Fornitori'},\n\n` +
@@ -4627,7 +4690,7 @@ async function emailOrdine(id) {
     righeText +
     `\n\n──────────────────────────────────\n` +
     `RIEPILOGO: ${ref.length} referenze · ${totQty} bottiglie\n` +
-    (sconto>0 ? `Totale lordo IVA incl.: € ${totLordo.toFixed(2)}\n` : '') +
+    (hasDiscount ? `Totale lordo IVA incl.: € ${totLordo.toFixed(2)}\n` : '') +
     scontoBlock +
     `──────────────────────────────────\n` +
     (o.note ? `\nNote: ${o.note}\n` : '') +
@@ -4661,20 +4724,24 @@ function whatsappOrdine(id) {
 
   const tel = _getFornTelefono(o.fornitore||"");
   const ref = o.referenze || [];
-  const sconto = parseFloat(o.sconto)||0;
+  const scontoOrd = parseFloat(o.sconto)||0;
   const totQty = ref.reduce((s,r) => s+(parseInt(r.qty)||0), 0);
-  const totLordo = ref.reduce((s,r) => (parseFloat(r.prezzoAcq)||0)*(1+(parseInt(r.iva)||22)/100)*(parseInt(r.qty)||0)+s, 0);
-  const totNetto = totLordo*(1-sconto/100);
+  let totLordo=0, totNetto=0;
+  ref.forEach(r=>{ const l=(parseFloat(r.prezzoAcq)||0)*(1+(parseInt(r.iva)||22)/100)*(parseInt(r.qty)||0); const sr=parseFloat(r.scontoRef)||0; totLordo+=l; totNetto+=l*(1-sr/100)*(1-scontoOrd/100); });
+  const hasAnyDiscount=totLordo>totNetto+0.001;
   const loc = _loadLocale();
 
-  const righeWa = ref.map((r,i) =>
-    `${i+1}. *${r.produttore||'—'} — ${r.nomeVino}*${r.annata?' ('+r.annata+')':''} × ${r.qty||0} bt`
-  ).join('\n');
+  const righeWa = ref.map((r,i) => {
+    const scontoRef=parseFloat(r.scontoRef)||0;
+    const isOmaggio=scontoRef>=100;
+    const scTag=isOmaggio?' 🎁 OMAGGIO':scontoRef>0?` (−${scontoRef}%)`:'';
+    return `${i+1}. *${r.produttore||'—'} — ${r.nomeVino}*${r.annata?' ('+r.annata+')':''} × ${r.qty||0} bt${scTag}`;
+  }).join('\n');
 
   const mittente = [loc.nome||NOME_LOCALE, loc.telefono?'Tel: '+loc.telefono:''].filter(Boolean).join(' · ');
   const consegna = loc.noteConsegna ? '\n\n📦 *Consegna:* '+loc.noteConsegna : '';
-  const totaleWa = sconto>0
-    ? `*Totale lordo: ${fmt(totLordo)}* — Sconto ${sconto}% → *Netto: ${fmt(totNetto)}*`
+  const totaleWa = hasAnyDiscount
+    ? `*Lordo: ${fmt(totLordo)}* — sconti applicati → *Netto: ${fmt(totNetto)}* · ${totQty} bottiglie`
     : `*Totale: ${totQty} bottiglie*`;
 
   const testo =
