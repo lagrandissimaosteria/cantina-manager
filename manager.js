@@ -30,17 +30,20 @@ function _addTipologiaInline(sel, onNewTipo){
   if(onNewTipo) onNewTipo(nuova);
 }
 const IVA_OPTIONS = [4,10,22];
-const FALLATA_MOTIVI = ["Tappo difettoso (TCA)","Bottiglia rotta","Ossidazione","Rifermentazione anomala","Vino ridotto","Deterioramento","Altro difetto"];
+const FALLATA_MOTIVI = ["Tappo difettoso (TCA)","Bottiglia rotta","Ossidazione","Rifermentazione anomala","Vino ridotto","Deterioramento","Degustazione didattica","Altro difetto"];
 const PIE_COLORS = ["#FF9F0A","#007AFF","#30D158","#BF5AF2","#FF375F","#32ADE6","#FF6B0A","#34C759","#FF9500"];
 
 // ─── STATE ────────────────────────────────────────────────────────────────────
 let wines = [], movements = [], fallate = [], alertSoglie = {}, orders = [];
 let _bozzeSb = []; // bozze da ordini_testata+righe, caricate in background
 let section = "dashboard";
-let search = "", filterTipo = "tutti", filterVitigno = "tutti", filterFormato = "tutti", invSort = "tipologia";
+let search = "", filterTipo = "tutti", filterVitigno = "tutti", filterFormato = "tutti",
+    filterDistrib = "tutti", filterProduttore = "tutti", filterRegione = "tutti", filterNazione = "tutti",
+    filterGiacenza = "tutti", // "tutti"|"esaurito"|"basso"|"ok"
+    invSort = "tipologia", invSortDir = 1; // 1=asc, -1=desc
 let analyticsRegione = "", analyticsTipo = "", analyticsAcquistiPeriodo = "mese";
 let movForm = {wineId:"",tipo:"carico",qty:1,data:today(),fattura:"",fornitore:"",note:"",prezzoAcqLotto:"",_wineText:"",_newProduttore:"",_newTipologia:"Rosso",_newPrezzoCarta:"",_newVitigni:"",_newZona:"",_newAnnata:"",_newRegione:"",_newNazione:"Italia",_newIva:22,_newDistributore:"",_tipologia:"",_newMode:false};
-let fallForm = {wineId:"",qty:1,motivo:FALLATA_MOTIVI[0],data:today(),note:""};
+let fallForm = {wineId:"",qty:1,motivo:"Tappo difettoso (TCA)",data:today(),note:""};
 // ─── PRICE SUGGESTION (FASCE PREZZO CARTA) ───────────────────────────────────
 // Fascia su prezzoAcq (ex IVA):
 //   < €12        → ×3.0
@@ -436,7 +439,7 @@ async function testDbConnection(){
     if(error) throw error;
     el.innerHTML='<span style="color:#30D158">✅ Connessione OK — tabella cm_wines trovata</span>';
   }catch(e){
-    el.innerHTML=`<span style="color:#FF453A">❌ ${e.message||"Connessione fallita"}</span>`;
+    el.innerHTML=`<span style="color:#FF453A">❌ ${h(e.message||"Connessione fallita")}</span>`;
   }
 }
 function _sanitizeSupabaseUrl(url){
@@ -830,12 +833,39 @@ function togglePw(){
   const i=document.getElementById("pw-input");
   i.type=i.type==="password"?"text":"password";
 }
+
+// Rate limiting: 3 tentativi falliti → lockout 30s (raddoppia ad ogni ciclo, max 10min)
+const _loginRL = { attempts:0, lockedUntil:0, cooldown:30 };
+function _isLoginLocked(){
+  if(_loginRL.lockedUntil && Date.now() < _loginRL.lockedUntil) return true;
+  if(_loginRL.lockedUntil && Date.now() >= _loginRL.lockedUntil){
+    _loginRL.lockedUntil=0; _loginRL.attempts=0;
+  }
+  return false;
+}
+function _loginLockoutTick(){
+  const err=document.getElementById("pw-err");
+  const btn=document.querySelector(".login-box button[onclick*='doLogin']")||document.querySelector(".login-box button:last-of-type");
+  const remaining=Math.ceil((_loginRL.lockedUntil-Date.now())/1000);
+  if(remaining<=0){
+    if(err) err.textContent="Password errata.";
+    if(btn){ btn.disabled=false; btn.textContent="Accedi"; btn.style.opacity=""; }
+    return;
+  }
+  if(err) err.textContent=`Troppi tentativi. Riprova tra ${remaining}s`;
+  if(btn) btn.textContent=`Attendi ${remaining}s`;
+  setTimeout(_loginLockoutTick, 1000);
+}
+
 async function doLogin(){
+  if(_isLoginLocked()){ _loginLockoutTick(); return; }
+
   const pw=document.getElementById("pw-input").value;
   const enc=new TextEncoder();
   const buf=await crypto.subtle.digest("SHA-256",enc.encode(pw));
   const hash=Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
   if(hash===PASSWORD_HASH){
+    _loginRL.attempts=0; _loginRL.lockedUntil=0; _loginRL.cooldown=30;
     sessionStorage.setItem("cm_logged","1");
     document.getElementById("login-screen").style.display="none";
     _applySidebarState();
@@ -849,10 +879,21 @@ async function doLogin(){
       loadData(); go("dashboard");
     }
   } else {
+    _loginRL.attempts++;
     const err=document.getElementById("pw-err"); err.classList.remove("hidden");
     const box=document.querySelector(".login-box");
     box.classList.add("shake"); setTimeout(()=>box.classList.remove("shake"),400);
     document.getElementById("pw-input").value="";
+    if(_loginRL.attempts>=3){
+      _loginRL.lockedUntil=Date.now()+(_loginRL.cooldown*1000);
+      _loginRL.cooldown=Math.min(_loginRL.cooldown*2, 600); // max 10min
+      _loginRL.attempts=0;
+      const btn=document.querySelector(".login-box button[onclick*='doLogin']")||document.querySelector(".login-box button:last-of-type");
+      if(btn){ btn.disabled=true; btn.style.opacity="0.5"; }
+      _loginLockoutTick();
+    } else {
+      err.textContent=`Password errata. Tentativo ${_loginRL.attempts}/3.`;
+    }
   }
 }
 document.getElementById("pw-input").addEventListener("keydown",e=>{if(e.key==="Enter")doLogin()});
@@ -912,7 +953,7 @@ const SECTION_TITLES={dashboard:"Dashboard",inventario:"Inventario Vini","scaric
 function go(s){
   section=s;
   if(selMode) exitSel(); // NAV-03: resetta selezione multipla al cambio sezione
-  if(s!=="inventario"){ filterVitigno="tutti"; filterFormato="tutti"; _hideTopbarActions(); }
+  if(s!=="inventario"){ filterTipo="tutti"; filterVitigno="tutti"; filterFormato="tutti"; filterDistrib="tutti"; filterProduttore="tutti"; filterRegione="tutti"; filterNazione="tutti"; filterGiacenza="tutti"; _hideTopbarActions(); }
   document.querySelectorAll(".nav-btn").forEach(b=>b.classList.toggle("active",b.dataset.section===s));
   document.getElementById("topbar-title").textContent=SECTION_TITLES[s]||s;
   document.getElementById("btn-add-wine").classList.add("hidden");
@@ -988,6 +1029,72 @@ function _tbaRett(){
   if(!_selectedWineId) return;
   openRettificaGiacenza(_selectedWineId);
 }
+
+// ─── INVENTORY ROW DOUBLE-CLICK DROPDOWN ─────────────────────────────────────
+(function _setupInvDropdown(){
+  const menu = document.createElement('div');
+  menu.id = 'inv-row-menu';
+  menu.style.cssText = [
+    'position:fixed','z-index:9999','min-width:160px',
+    'background:var(--bg2,#1c1917)','border:1px solid var(--border2,rgba(68,64,60,.6))',
+    'border-radius:8px','box-shadow:0 8px 24px rgba(0,0,0,.55)',
+    'padding:4px 0','display:none','user-select:none'
+  ].join(';');
+  menu.innerHTML = `
+    <div data-action="edit" style="padding:9px 16px;cursor:pointer;font-size:12px;color:var(--txt2,#e7e5e4);display:flex;align-items:center;gap:8px;transition:background .12s">
+      ✏️ <span>Modifica scheda</span>
+    </div>
+    <div style="height:1px;background:var(--border,rgba(68,64,60,.4));margin:3px 8px"></div>
+    <div data-action="delete" style="padding:9px 16px;cursor:pointer;font-size:12px;color:#FF453A;display:flex;align-items:center;gap:8px;transition:background .12s">
+      🗑️ <span>Elimina voce</span>
+    </div>
+  `;
+  document.body.appendChild(menu);
+
+  let _targetId = null;
+
+  menu.querySelectorAll('[data-action]').forEach(item => {
+    item.addEventListener('mouseenter', () => item.style.background = 'rgba(255,255,255,.06)');
+    item.addEventListener('mouseleave', () => item.style.background = '');
+  });
+
+  function closeMenu(){ menu.style.display='none'; _targetId=null; }
+
+  menu.addEventListener('click', e => {
+    const action = e.target.closest('[data-action]')?.dataset.action;
+    if(!action || !_targetId) return;
+    closeMenu();
+    if(action === 'edit')   openWineModal(_targetId);
+    if(action === 'delete') deleteWine(_targetId);
+  });
+
+  document.addEventListener('click', e => {
+    if(menu.style.display !== 'none' && !menu.contains(e.target)) closeMenu();
+  }, true);
+
+  document.addEventListener('keydown', e => { if(e.key==='Escape') closeMenu(); });
+
+  document.addEventListener('dblclick', e => {
+    const tr = e.target.closest('.inv-table tr[data-wine-id]');
+    if(!tr) return;
+    if(e.target.closest('button,input,select,textarea')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    _targetId = tr.dataset.wineId;
+
+    const VW = window.innerWidth, VH = window.innerHeight;
+    const MW = 168, MH = 80;
+    let x = e.clientX, y = e.clientY;
+    if(x + MW > VW) x = VW - MW - 8;
+    if(y + MH > VH) y = VH - MH - 8;
+
+    menu.style.left = x + 'px';
+    menu.style.top  = y + 'px';
+    menu.style.display = 'block';
+
+    selectWineRow(_targetId);
+  });
+})();
 
 function openRettificaGiacenza(id){
   const w=wines.find(x=>x.id===id);
@@ -1283,23 +1390,66 @@ function _applyShortcutTitles(){
 function _buildInventarioList(){
   const q=search.toLowerCase();
   let list=wines.filter(w=>{
-    const mq=!q||[w.nome,w.produttore,w.distributore,w.regione,w.vitigni,w.annata].some(f=>(f||"").toLowerCase().includes(q));
+    const mq=!q||[w.nome,w.produttore,w.distributore,w.regione,w.vitigni,w.annata,w.nazione].some(f=>(f||"").toLowerCase().includes(q));
     const mt=filterTipo==="tutti"||w.tipologia===filterTipo;
     const mv=filterVitigno==="tutti"||(w.vitigni||"").toLowerCase().includes(filterVitigno.toLowerCase());
     const mf=filterFormato==="tutti"||(parseFloat(w.formato)||0.75)===parseFloat(filterFormato);
-    return mq&&mt&&mv&&mf;
+    const md=filterDistrib==="tutti"||(w.distributore||"")===filterDistrib;
+    const mp=filterProduttore==="tutti"||(w.produttore||"")===filterProduttore;
+    const mr=filterRegione==="tutti"||(w.regione||"")===filterRegione;
+    const mn=filterNazione==="tutti"||(w.nazione||"")===filterNazione;
+    const mg=filterGiacenza==="tutti"
+      ||(filterGiacenza==="esaurito"&&(w.giacenza||0)===0)
+      ||(filterGiacenza==="basso"&&(w.giacenza||0)>0&&(w.giacenza||0)<=(w.soglia||3))
+      ||(filterGiacenza==="ok"&&(w.giacenza||0)>(w.soglia||3));
+    return mq&&mt&&mv&&mf&&md&&mp&&mr&&mn&&mg;
   });
+  const d=invSortDir;
   const tipoIdxMap=Object.fromEntries(TIPOLOGIE.map((t,i)=>[t,i]));
   const tipoIdx=t=>tipoIdxMap[t]??999;
-  if(invSort==="nome") list.sort((a,b)=>a.nome.localeCompare(b.nome));
-  else if(invSort==="produttore") list.sort((a,b)=>(a.produttore||"").localeCompare(b.produttore||"")||a.nome.localeCompare(b.nome));
-  else if(invSort==="regione") list.sort((a,b)=>(a.regione||"").localeCompare(b.regione||"")||a.nome.localeCompare(b.nome));
-  else if(invSort==="giacenza") list.sort((a,b)=>b.giacenza-a.giacenza);
-  else if(invSort==="prezzoAcq") list.sort((a,b)=>b.prezzoAcq-a.prezzoAcq);
-  else if(invSort==="distributore") list.sort((a,b)=>(a.distributore||"").localeCompare(b.distributore||"")||a.nome.localeCompare(b.nome));
-  else list.sort((a,b)=>tipoIdx(a.tipologia)-tipoIdx(b.tipologia)||a.nome.localeCompare(b.nome));
+  if(invSort==="nome") list.sort((a,b)=>d*a.nome.localeCompare(b.nome));
+  else if(invSort==="produttore") list.sort((a,b)=>d*((a.produttore||"").localeCompare(b.produttore||"")||a.nome.localeCompare(b.nome)));
+  else if(invSort==="regione") list.sort((a,b)=>d*((a.regione||"").localeCompare(b.regione||"")||a.nome.localeCompare(b.nome)));
+  else if(invSort==="nazione") list.sort((a,b)=>d*((a.nazione||"").localeCompare(b.nazione||"")||a.nome.localeCompare(b.nome)));
+  else if(invSort==="giacenza") list.sort((a,b)=>d*(b.giacenza-a.giacenza));
+  else if(invSort==="prezzoAcq") list.sort((a,b)=>d*(b.prezzoAcq-a.prezzoAcq));
+  else if(invSort==="prezzoCarta") list.sort((a,b)=>d*(b.prezzoCarta-a.prezzoCarta));
+  else if(invSort==="distributore") list.sort((a,b)=>d*((a.distributore||"").localeCompare(b.distributore||"")||a.nome.localeCompare(b.nome)));
+  else if(invSort==="annata") list.sort((a,b)=>d*((parseInt(a.annata)||0)-(parseInt(b.annata)||0)));
+  else list.sort((a,b)=>d*(tipoIdx(a.tipologia)-tipoIdx(b.tipologia)||a.nome.localeCompare(b.nome)));
   return list;
 }
+
+function _resetInvFilters(){
+  filterTipo="tutti"; filterVitigno="tutti"; filterFormato="tutti";
+  filterDistrib="tutti"; filterProduttore="tutti"; filterRegione="tutti";
+  filterNazione="tutti"; filterGiacenza="tutti";
+  renderInventarioOnly();
+}
+function _hasActiveFilters(){
+  return filterTipo!=="tutti"||filterVitigno!=="tutti"||filterFormato!=="tutti"
+    ||filterDistrib!=="tutti"||filterProduttore!=="tutti"||filterRegione!=="tutti"
+    ||filterNazione!=="tutti"||filterGiacenza!=="tutti";
+}
+function _toggleInvFilterPanel(){
+  const p=document.getElementById("inv-filter-panel");
+  if(!p) return;
+  const open=p.style.display==="block";
+  p.style.display=open?"none":"block";
+  const btn=document.getElementById("inv-filter-btn");
+  if(btn) btn.style.background=open?"":"rgba(191,95,255,.15)";
+}
+function _closeInvFilterPanel(e){
+  const p=document.getElementById("inv-filter-panel");
+  const btn=document.getElementById("inv-filter-btn");
+  if(!p||p.style.display!=="block") return;
+  if(!p.contains(e.target)&&e.target!==btn&&!btn.contains(e.target)){
+    p.style.display="none";
+    btn.style.background="";
+  }
+}
+// Chiudi pannello al click fuori
+document.addEventListener("click", _closeInvFilterPanel);
 
 let _searchDebounce=null;
 function renderInventarioOnly(){
@@ -1577,36 +1727,62 @@ function renderInventario(){
   const tipoCountMap=Object.fromEntries(TIPOLOGIE.map(t=>[t, list.filter(x=>x.tipologia===t).length]));
   const activeVitigni=[...new Set(wines.flatMap(w=>(w.vitigni||"").split(/[,;/&+]+/).map(v=>v.trim())).filter(v=>v.length>1&&v.length<30))].sort();
   const activeFormati=[...new Set(wines.map(w=>parseFloat(w.formato)||0.75).filter(f=>f>0.75))].sort((a,b)=>a-b);
-  
-  html+=`<div class="card" style="padding:0">
+  const activeDistrib=[...new Set(wines.map(w=>w.distributore||"").filter(Boolean))].sort();
+  const activeProd=[...new Set(wines.map(w=>w.produttore||"").filter(Boolean))].sort();
+  const activeRegioni=[...new Set(wines.map(w=>w.regione||"").filter(Boolean))].sort();
+  const activeNazioni=[...new Set(wines.map(w=>w.nazione||"").filter(Boolean))].sort();
+
+  const activeCount=[filterTipo,filterVitigno,filterFormato,filterDistrib,filterProduttore,filterRegione,filterNazione,filterGiacenza].filter(f=>f!=="tutti").length;
+
+  // Opzioni sort
+  const sortOpts=[
+    {v:"tipologia",label:"Tipologia"},{v:"nome",label:"Nome vino"},
+    {v:"produttore",label:"Produttore"},{v:"annata",label:"Annata"},
+    {v:"regione",label:"Regione"},{v:"nazione",label:"Nazione"},
+    {v:"giacenza",label:"Giacenza"},{v:"prezzoAcq",label:"P. Acquisto"},
+    {v:"prezzoCarta",label:"P. Carta"},{v:"distributore",label:"Fornitore"},
+  ];
+  const sortLabel=sortOpts.find(o=>o.v===invSort)?.label||"Tipo";
+  const dirIcon=invSortDir===1?"↑":"↓";
+
+  // Helper per sezioni filtro nel pannello
+  function _fSection(title, opts, current, setter){
+    return `<div style="margin-bottom:14px">
+      <div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--txt4);font-weight:600;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid var(--border)">${title}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px">
+        ${opts.map(o=>`<button onclick="${setter}('${o.v.replace(/'/g,"\\'")}');renderInventarioOnly()" style="padding:3px 9px;border-radius:20px;font-size:10px;cursor:pointer;border:1px solid ${current===o.v?'var(--purple)':'var(--border2)'};background:${current===o.v?'rgba(191,95,255,.18)':'var(--bg)'};color:${current===o.v?'#bf5fff':'var(--txt3)'};white-space:nowrap">${h(o.label)}</button>`).join("")}
+      </div>
+    </div>`;
+  }
+
+  html+=`<div class="card" style="padding:0;position:relative">
     ${selMode==='wines'?renderBulkBar('wines', list.map(w=>w.id)):''}
     <div class="tbl-header" id="inv-filter-bar" style="flex-wrap:nowrap;gap:6px;align-items:center;position:sticky;top:${selMode==='wines'?'110px':'57px'};z-index:18;background:var(--bg2);border-bottom:1px solid var(--border)">
-      <div class="search-wrap" style="flex-shrink:0"><span class="search-icon">🔍</span><input id="inv-search" class="form-input" style="width:180px;padding-left:28px" placeholder="Cerca vino…" value="${h(search)}" oninput="search=this.value;renderInventarioOnly()"></div>
+
+      <div class="search-wrap" style="flex-shrink:0"><span class="search-icon">🔍</span><input id="inv-search" class="form-input" style="width:180px;padding-left:28px" placeholder="Cerca vino…  [/]" value="${h(search)}" oninput="search=this.value;renderInventarioOnly()"></div>
+
       ${selMode!=='wines'?`<button class="btn-outline btn-sm" onclick="enterSel('wines')" style="border-color:rgba(59,130,246,.5);color:#93c5fd;flex-shrink:0;white-space:nowrap">☑ Multipla</button>`:''}
-      <div style="display:flex;align-items:center;gap:5px;flex:1;min-width:0;overflow:hidden">
-        <select class="form-select" style="width:auto;min-width:120px;max-width:160px;font-size:10px;padding:4px 8px;border-color:${filterTipo!=='tutti'?'var(--amber3)':'var(--border2)'};color:${filterTipo!=='tutti'?'var(--amber)':'var(--txt2)'};background:${filterTipo!=='tutti'?'rgba(255,159,10,.1)':'var(--bg)'}" onchange="filterTipo=this.value;renderInventarioOnly()">
-          <option value="tutti" ${filterTipo==='tutti'?'selected':''}>🍷 Tipologia</option>
-          ${activeTipi.map(t=>`<option value="${h(t)}" ${filterTipo===t?'selected':''}>${h(t)}</option>`).join('')}
-        </select>
-        ${activeVitigni.length>0?`<select class="form-select" style="width:auto;min-width:110px;max-width:150px;font-size:10px;padding:4px 8px;border-color:${filterVitigno!=='tutti'?'var(--amber3)':'var(--border2)'};color:${filterVitigno!=='tutti'?'var(--amber)':'var(--txt2)'};background:${filterVitigno!=='tutti'?'rgba(255,159,10,.1)':'var(--bg)'}" onchange="filterVitigno=this.value;renderInventarioOnly()">
-          <option value="tutti" ${filterVitigno==='tutti'?'selected':''}>🍇 Vitigni</option>
-          ${activeVitigni.map(v=>`<option value="${h(v)}" ${filterVitigno===v?'selected':''}>${h(v)}</option>`).join('')}
-        </select>`:''}
-        ${activeFormati.length>0?`<select class="form-select" style="width:auto;min-width:100px;max-width:130px;font-size:10px;padding:4px 8px;border-color:${filterFormato!=='tutti'?'rgba(0,122,255,.4)':'var(--border2)'};color:${filterFormato!=='tutti'?'#60a5fa':'var(--txt2)'};background:${filterFormato!=='tutti'?'rgba(0,122,255,.1)':'var(--bg)'}" onchange="filterFormato=this.value;renderInventarioOnly()">
-          <option value="tutti" ${filterFormato==='tutti'?'selected':''}>📐 Formati</option>
-          ${activeFormati.map(f=>`<option value="${f}" ${parseFloat(filterFormato)===f?'selected':''}>${f}L</option>`).join('')}
-        </select>`:''}
-        ${filterTipo!=='tutti'||filterVitigno!=='tutti'||filterFormato!=='tutti'?`<button class="btn-outline btn-sm" onclick="filterTipo='tutti';filterVitigno='tutti';filterFormato='tutti';renderInventarioOnly()" style="border-color:rgba(239,68,68,.4);color:#FF453A;font-size:9px;flex-shrink:0">✕</button>`:''}
-        <select class="form-select" style="width:auto;min-width:90px;font-size:10px;padding:4px 8px;border-color:${invSort!=='tipologia'?'rgba(0,122,255,.4)':'var(--border2)'};color:${invSort!=='tipologia'?'#007AFF':'var(--txt3)'}" onchange="invSort=this.value;renderInventarioOnly()">
-          <option value="tipologia" ${invSort==='tipologia'?'selected':''}>↕ Tipo</option>
-          <option value="nome" ${invSort==='nome'?'selected':''}>↕ Nome</option>
-          <option value="produttore" ${invSort==='produttore'?'selected':''}>↕ Produttore</option>
-          <option value="regione" ${invSort==='regione'?'selected':''}>↕ Regione</option>
-          <option value="giacenza" ${invSort==='giacenza'?'selected':''}>↕ Giacenza</option>
-          <option value="prezzoAcq" ${invSort==='prezzoAcq'?'selected':''}>↕ P.Acq</option>
-          <option value="distributore" ${invSort==='distributore'?'selected':''}>↕ Fornitore</option>
-        </select>
+
+      <div style="display:flex;align-items:center;gap:5px;flex:1;min-width:0">
+
+        <!-- Bottone filtri unificato -->
+        <button id="inv-filter-btn" onclick="_toggleInvFilterPanel()" style="display:flex;align-items:center;gap:5px;padding:4px 10px;border-radius:6px;border:1px solid ${activeCount>0?'rgba(191,95,255,.5)':'var(--border2)'};background:${activeCount>0?'rgba(191,95,255,.12)':'var(--bg)'};color:${activeCount>0?'#bf5fff':'var(--txt2)'};font-size:10px;cursor:pointer;white-space:nowrap;flex-shrink:0">
+          <span>⚙ Filtri</span>
+          ${activeCount>0?`<span style="background:#bf5fff;color:#fff;border-radius:10px;padding:0 5px;font-size:9px;font-weight:700;line-height:16px">${activeCount}</span>`:''}
+        </button>
+
+        ${activeCount>0?`<button onclick="_resetInvFilters()" title="Rimuovi tutti i filtri" style="padding:3px 7px;border-radius:5px;border:1px solid rgba(239,68,68,.35);background:rgba(239,68,68,.07);color:#FF453A;font-size:9px;cursor:pointer;flex-shrink:0">✕ Reset</button>`:''}
+
+        <!-- Sort: label cliccabile cambia criterio, freccia inverte direzione -->
+        <div style="display:flex;align-items:center;gap:0;flex-shrink:0;border:1px solid ${invSort!=='tipologia'?'rgba(0,122,255,.4)':'var(--border2)'};border-radius:6px;overflow:hidden">
+          <select onchange="invSort=this.value;renderInventarioOnly()" style="padding:4px 6px;font-size:10px;border:none;background:${invSort!=='tipologia'?'rgba(0,122,255,.08)':'var(--bg)'};color:${invSort!=='tipologia'?'#60a5fa':'var(--txt3)'};outline:none;cursor:pointer;max-width:100px">
+            ${sortOpts.map(o=>`<option value="${o.v}" ${invSort===o.v?'selected':''}>${o.label}</option>`).join('')}
+          </select>
+          <button onclick="invSortDir*=-1;renderInventarioOnly()" title="${invSortDir===1?'Ordine crescente — clicca per invertire':'Ordine decrescente — clicca per invertire'}" style="padding:4px 7px;border:none;border-left:1px solid ${invSort!=='tipologia'?'rgba(0,122,255,.25)':'var(--border)'};background:${invSort!=='tipologia'?'rgba(0,122,255,.08)':'var(--bg)'};color:${invSortDir===1?'#60a5fa':'var(--amber)'};font-size:12px;cursor:pointer;line-height:1">${dirIcon}</button>
+        </div>
+
       </div>
+
       <span style="font-size:10px;color:var(--txt4);letter-spacing:.05em;flex-shrink:0;white-space:nowrap">${list.length}/${wines.length}</span>
       <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
         <button class="topbar-action-btn edit" id="tba-edit" onclick="_tbaEdit()" title="Modifica vino selezionato">✏️ Modifica</button>
@@ -1614,6 +1790,59 @@ function renderInventario(){
         <button class="topbar-action-btn" id="tba-rett" onclick="_tbaRett()" title="Rettifica giacenza" style="background:rgba(48,209,88,.1);border:1px solid rgba(48,209,88,.25);color:#30D158">⚖️ Rettifica</button>
         <button class="topbar-action-btn del"  id="tba-del"  onclick="_tbaDel()"  title="Elimina vino selezionato">🗑️</button>
       </div>
+    </div>
+
+    <!-- Pannello filtri a tendina -->
+    <div id="inv-filter-panel" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:200;background:var(--bg2);border:1px solid var(--border);border-top:none;border-radius:0 0 10px 10px;box-shadow:0 8px 32px rgba(0,0,0,.45);padding:16px 20px 12px;max-height:70vh;overflow-y:auto">
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:0 24px">
+
+        ${_fSection("🍷 Tipologia",
+          [{v:"tutti",label:"Tutte"}, ...activeTipi.map(t=>({v:t,label:t}))],
+          filterTipo, "filterTipo="
+        )}
+
+        ${_fSection("🍇 Vitigno",
+          [{v:"tutti",label:"Tutti"}, ...activeVitigni.map(v=>({v,label:v}))],
+          filterVitigno, "filterVitigno="
+        )}
+
+        ${_fSection("📐 Formato",
+          [{v:"tutti",label:"Tutti"}, ...activeFormati.map(f=>({v:String(f),label:f+"L"}))],
+          filterFormato, "filterFormato="
+        )}
+
+        ${_fSection("🏭 Distributore",
+          [{v:"tutti",label:"Tutti"}, ...activeDistrib.map(d=>({v:d,label:d}))],
+          filterDistrib, "filterDistrib="
+        )}
+
+        ${_fSection("👤 Produttore",
+          [{v:"tutti",label:"Tutti"}, ...activeProd.map(p=>({v:p,label:p}))],
+          filterProduttore, "filterProduttore="
+        )}
+
+        ${_fSection("🗺 Regione",
+          [{v:"tutti",label:"Tutte"}, ...activeRegioni.map(r=>({v:r,label:r}))],
+          filterRegione, "filterRegione="
+        )}
+
+        ${_fSection("🌍 Nazione",
+          [{v:"tutti",label:"Tutte"}, ...activeNazioni.map(n=>({v:n,label:n}))],
+          filterNazione, "filterNazione="
+        )}
+
+        ${_fSection("📦 Giacenza",
+          [{v:"tutti",label:"Tutte"},{v:"esaurito",label:"⚫ Esaurite"},{v:"basso",label:"🔴 Scorta bassa"},{v:"ok",label:"🟢 OK"}],
+          filterGiacenza, "filterGiacenza="
+        )}
+
+      </div>
+
+      ${activeCount>0?`<div style="border-top:1px solid var(--border);margin-top:8px;padding-top:10px;text-align:right">
+        <button onclick="_resetInvFilters();_toggleInvFilterPanel()" style="padding:5px 14px;border-radius:6px;border:1px solid rgba(239,68,68,.35);background:rgba(239,68,68,.07);color:#FF453A;font-size:10px;cursor:pointer">✕ Rimuovi tutti i filtri</button>
+      </div>`:''}
+
     </div>
     <div class="tbl-wrap">
       <table class="inv-table">
@@ -5238,7 +5467,7 @@ function deleteWine(id){
       delete alertSoglie[id];
       delete scaricoSerata.qtys[id];
       _selectedWineId=null;
-      scheduleSave();
+      _updateTopbarActions(null);
       // PATCH: flush immediato — eliminazione irreversibile
       clearTimeout(saveTimer); _flushSave();
       notify("🗑️ Vino eliminato"); render();
@@ -6048,7 +6277,7 @@ function importNazioniDaFile(event){
       let msg=`✅ Nazioni aggiornate: ${updated} (exact) + ${updatedFallback} (solo nome)`;
       if(notFound.length) msg+=` | ⚠️ Non trovati: ${notFound.length} (${notFound.slice(0,3).join(", ")}${notFound.length>3?"…":""})`;
       notify(msg, (updated+updatedFallback)>0?"ok":"warn");
-      if(notFound.length) console.log("Vini non trovati nell'import nazioni:", notFound);
+      if(notFound.length) notify(`⚠️ Non trovati nell'import: ${notFound.slice(0,5).join(", ")}${notFound.length>5?"…":""}`, "warn");
     }catch(err){notify("❌ Errore lettura file: "+err.message,"err");}
   };
   reader.readAsArrayBuffer(file);
@@ -6124,24 +6353,106 @@ let _dupGroupIdx = 0; // gruppo attualmente visualizzato nel modal
 
 function _normDup(s){
   return String(s||"").toLowerCase().trim()
-    .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g,"")  // rimuovi accenti
+    .replace(/[-_''.]/g," ")                           // punteggiatura → spazio
+    .replace(/\b(le|la|il|lo|i|gli|le|di|del|della|dei|degli|delle|de|du|von|van|the|domaine|chateau|clos|mas|finca)\b/g,"") // stopword vino
     .replace(/[^a-z0-9 ]/g," ").replace(/\s+/g," ").trim();
 }
 
-function _dupKey(w){
-  // Chiave di raggruppamento: norm(produttore) + "|" + norm(nome) + "|" + norm(annata)
+// Trigram similarity [0..1] tra due stringhe normalizzate
+function _trigramSim(a, b){
+  if(!a && !b) return 1;
+  if(!a || !b) return 0;
+  const tg = s => {
+    const p = "  "+s+"  ";
+    const set = new Set();
+    for(let i=0;i<p.length-2;i++) set.add(p.slice(i,i+3));
+    return set;
+  };
+  const ta = tg(a), tb = tg(b);
+  let inter = 0;
+  ta.forEach(t => { if(tb.has(t)) inter++; });
+  return (2*inter) / (ta.size + tb.size);
+}
+
+// Soglia fuzzy: 0.82 = ~82% di trigram in comune (empiricamente calibrato su nomi vino)
+const _DUP_FUZZY_THRESHOLD = 0.82;
+
+function _dupExactKey(w){
   return _normDup(w.produttore) + "|" + _normDup(w.nome) + "|" + _normDup(w.annata||"nv");
 }
 
 function _findDuplicateGroups(){
-  const map = new Map();
+  // ── PASS 1: match esatto su chiave normalizzata ──────────────────────────────
+  const exactMap = new Map();
   wines.forEach(w => {
-    const k = _dupKey(w);
-    if(!map.has(k)) map.set(k,[]);
-    map.get(k).push(w);
+    const k = _dupExactKey(w);
+    if(!exactMap.has(k)) exactMap.set(k,[]);
+    exactMap.get(k).push(w);
   });
-  // Tieni solo gruppi con 2+ vini
-  return [...map.values()].filter(g => g.length >= 2);
+  const exactGroups = [...exactMap.values()].filter(g => g.length >= 2);
+
+  // Set degli ID già raggruppati in pass1
+  const grouped = new Set(exactGroups.flatMap(g => g.map(w => w.id)));
+
+  // Arricchisci ogni gruppo con metadata match
+  const result = exactGroups.map(g => ({ wines: g, score: 1, matchType: "exact" }));
+
+  // ── PASS 2: fuzzy — confronta coppie tra vini non ancora raggruppati ────────
+  const ungrouped = wines.filter(w => !grouped.has(w.id));
+
+  // Chiave di pre-bucket: stessa tipologia O primo trigram produttore — riduce O(n²)
+  // Usiamo il primo token di produttore normalizzato come bucket approssimativo
+  const buckets = new Map();
+  ungrouped.forEach(w => {
+    const prod = _normDup(w.produttore);
+    // Bucket = prime 3 lettere produttore (fallback "???" per vuoto)
+    const bk = prod.slice(0,3) || "???";
+    if(!buckets.has(bk)) buckets.set(bk,[]);
+    buckets.get(bk).push(w);
+  });
+
+  const fuzzyGrouped = new Set();
+  const fuzzyGroups = [];
+
+  // Confronto dentro ogni bucket + bucket adiacenti (single-char tolerance)
+  const allBuckets = [...buckets.keys()];
+  allBuckets.forEach(bk => {
+    const candidates = buckets.get(bk);
+    // includi bucket che differiscono di 1 char nella prima lettera (es "mon"/"bon")
+    // ma per sicurezza confrontiamo solo dentro lo stesso bucket
+    for(let i=0;i<candidates.length;i++){
+      for(let j=i+1;j<candidates.length;j++){
+        const wi = candidates[i], wj = candidates[j];
+        if(fuzzyGrouped.has(wi.id) || fuzzyGrouped.has(wj.id)) continue;
+
+        const normNomeI = _normDup(wi.nome), normNomeJ = _normDup(wj.nome);
+        const normProdI = _normDup(wi.produttore), normProdJ = _normDup(wj.produttore);
+
+        // Produttore deve essere simile (≥0.75) — filtro forte per evitare falsi positivi
+        const prodSim = _trigramSim(normProdI, normProdJ);
+        if(prodSim < 0.75) continue;
+
+        // Nome: trigram similarity principale
+        const nomeSim = _trigramSim(normNomeI, normNomeJ);
+
+        // Score composito: nome pesa 70%, produttore 30%
+        const score = nomeSim * 0.7 + prodSim * 0.3;
+        if(score < _DUP_FUZZY_THRESHOLD) continue;
+
+        // Annata: se entrambe presenti e diverse, abbassa lo score (non blocca)
+        const annI = (wi.annata||"").trim(), annJ = (wj.annata||"").trim();
+        const annataConflict = annI && annJ && annI !== annJ;
+        if(annataConflict && score < 0.91) continue; // annate diverse → soglia più alta
+
+        fuzzyGrouped.add(wi.id);
+        fuzzyGrouped.add(wj.id);
+        fuzzyGroups.push({ wines: [wi, wj], score: Math.round(score*100)/100, matchType: "fuzzy" });
+      }
+    }
+  });
+
+  return [...result, ...fuzzyGroups];
 }
 
 function openDuplicatiModal(){
@@ -6164,12 +6475,19 @@ function closeDuplicatiModal(e){
 
 function _renderDupModal(){
   const total = _dupGroups.length;
-  const group = _dupGroups[_dupGroupIdx];
+  const grp = _dupGroups[_dupGroupIdx];
+  const group = grp.wines;
+  const matchType = grp.matchType;
+  const score = grp.score;
 
   // Header contatore
   document.getElementById("dup-counter").textContent = `Gruppo ${_dupGroupIdx+1} di ${total}`;
   document.getElementById("dup-prev-btn").disabled = _dupGroupIdx === 0;
   document.getElementById("dup-next-btn").disabled = _dupGroupIdx === total-1;
+
+  const badgeHtml = matchType === "exact"
+    ? `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;background:rgba(48,209,88,.15);color:#30D158;letter-spacing:.06em">✓ ESATTO</span>`
+    : `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;background:rgba(255,159,10,.15);color:var(--amber);letter-spacing:.06em">~ FUZZY ${Math.round(score*100)}%</span>`;
 
   // Corpo: tabella dei vini nel gruppo con campi selezionabili
   const fields = [
@@ -6241,9 +6559,10 @@ function _renderDupModal(){
   rows += `</tr>`;
 
   document.getElementById("dup-modal-body").innerHTML = `
-    <div style="margin-bottom:12px;padding:10px 14px;background:rgba(191,95,255,.08);border:1px solid rgba(191,95,255,.2);border-radius:8px;font-size:11px;color:var(--txt3);line-height:1.7">
-      Seleziona per ogni campo il valore da tenere nel vino risultante.<br>
-      <span style="color:var(--amber)">Giacenze e lotti FIFO</span> vengono sempre <strong style="color:var(--txt)">sommati automaticamente</strong>. Movimenti e fallate vengono riepilogati sul vino tenuto.
+    <div style="margin-bottom:12px;padding:10px 14px;background:rgba(191,95,255,.08);border:1px solid rgba(191,95,255,.2);border-radius:8px;font-size:11px;color:var(--txt3);line-height:1.7;display:flex;align-items:flex-start;gap:10px">
+      <div style="flex:1">Seleziona per ogni campo il valore da tenere nel vino risultante.<br>
+      <span style="color:var(--amber)">Giacenze e lotti FIFO</span> vengono sempre <strong style="color:var(--txt)">sommati automaticamente</strong>. Movimenti e fallate vengono riepilogati sul vino tenuto.</div>
+      <div style="flex-shrink:0;padding-top:2px">${badgeHtml}</div>
     </div>
     <div style="overflow-x:auto;max-height:55vh;overflow-y:auto">
       <table style="border-collapse:collapse;width:100%;min-width:500px">
@@ -6261,8 +6580,9 @@ function dupNext(){
 }
 
 function mergeDuplicati(){
-  const group = _dupGroups[_dupGroupIdx];
-  if(!group || group.length < 2){ notify("Gruppo non valido","err"); return; }
+  const grp = _dupGroups[_dupGroupIdx];
+  if(!grp || !grp.wines || grp.wines.length < 2){ notify("Gruppo non valido","err"); return; }
+  const group = grp.wines;
 
   const fields = ["produttore","nome","annata","tipologia","regione","nazione","zona","vitigni","distributore","prezzoAcq","prezzoCarta","iva"];
 
