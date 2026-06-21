@@ -973,6 +973,27 @@ if(sessionStorage.getItem("cm_logged")==="1"){
   document.getElementById("login-screen").style.display="none";
   _applySidebarState();
   _initSupabase();
+  // FIX MODAL: assicura che tutti i backdrop esistenti nell'HTML chiudano solo
+  // al click sul backdrop stesso, non propagato dall'interno
+  document.querySelectorAll(".modal-backdrop").forEach(bd=>{
+    if(bd._patchedClose) return;
+    bd._patchedClose = true;
+    const origOnclick = bd.getAttribute("onclick");
+    if(origOnclick){
+      // Rimuovi onclick inline e rimpiazza con addEventListener filtrato
+      const closeFnName = origOnclick.replace(/\(.*\)/, "").trim();
+      bd.removeAttribute("onclick");
+      bd.addEventListener("click", e => {
+        if(e.target === bd && window[closeFnName]) window[closeFnName]();
+      });
+    }
+    // Assicura stopPropagation su .modal figlio
+    const inner = bd.querySelector(".modal");
+    if(inner && !inner._patchedStop){
+      inner._patchedStop = true;
+      inner.addEventListener("click", e => e.stopPropagation());
+    }
+  });
   if(_isMobile()){
     enterMobileMode();
     loadData();
@@ -2510,8 +2531,12 @@ function renderScaricoSerataPage(){
           const overLimit=qNum>w.giacenza;
           const hasVal=qNum>0;
           return `<tr data-wid="${w.id}" style="${hasVal?"background:rgba(255,69,58,.06)":""}">
-            <td style="${hasVal?"color:var(--txt)":""}">${h(w.nome)}${w.annata?` <span style="color:var(--txt4);font-size:10px">${h(w.annata)}</span>`:""}</td>
-            <td style="color:var(--txt3);font-size:11px">${h(w.produttore)}</td>
+            <td style="word-break:break-word;white-space:normal;min-width:90px">
+              <div style="font-size:13px;${hasVal?"color:var(--txt)":"color:var(--txt2)"};word-break:break-word;white-space:normal;line-height:1.35">${h(w.nome)}</div>
+              ${w.annata?`<div style="font-size:10px;color:var(--amber);margin-top:1px">${h(w.annata)}</div>`:''}
+              <div style="font-size:10px;color:var(--txt4);margin-top:1px" class="ssp-prod-mobile">${h(w.produttore)}</div>
+            </td>
+            <td style="color:var(--txt3);font-size:11px" class="ssp-col-desktop">${h(w.produttore)}</td>
             <td style="text-align:center">${badge(w.tipologia)}</td>
             <td class="ssp-giac" style="text-align:center;font-family:'Montserrat',sans-serif;font-size:1.1rem;color:var(--amber3);background:rgba(255,159,10,.05)">${w.giacenza}</td>
             <td style="text-align:center;background:rgba(255,69,58,.04)">
@@ -2557,7 +2582,26 @@ function renderScaricoSerataPage(){
       ${_reportInlineOpen ? _renderReportBody(reportSerataData) : ""}
     </div>
   </div>
+  <div class="card" style="margin-bottom:16px">
+    <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;padding:4px 0"
+      onclick="(function(){const b=document.getElementById('sc-hist-body');const a=document.getElementById('sc-hist-arrow');if(!b)return;const open=b.style.display!=='none';b.style.display=open?'none':'block';a.style.transform=open?'rotate(0deg)':'rotate(180deg)';if(!open&&b.dataset.rendered==='0'){b.dataset.rendered='1';_renderStoricoScarichi();}})()">
+      <div style="font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--txt3)">🗂 Storico Scarichi</div>
+      <span id="sc-hist-arrow" style="color:var(--txt4);font-size:12px;transition:transform .2s">▼</span>
+    </div>
+    <div id="sc-hist-body" style="display:none;margin-top:12px" data-rendered="0"></div>
+  </div>
+  <style>
+    @media(min-width:600px){
+      .ssp-col-desktop{display:table-cell!important}
+      .ssp-prod-mobile{display:none!important}
+    }
+    @media(max-width:599px){
+      .ssp-col-desktop{display:none!important}
+      .ssp-prod-mobile{display:block!important}
+    }
+  </style>
 </div>`;
+
 }
 let reportSerataData = today();
 let _reportInlineOpen = false;
@@ -2635,6 +2679,86 @@ function exportReportSerataCSV(data){
   rows.push(["","","","","TOTALE",scarichi.reduce((s,m)=>s+m.qty,0),"",fmtN(totRic),fmtN(totCos),fmtN(totRic-totCos),""]);
   dlCSV(toCSV([headers,...rows]),`report_serata_${data}.csv`);
   notify("Serata esportata");
+}
+
+function _renderStoricoScarichi(){
+  const body=document.getElementById("sc-hist-body");
+  if(!body) return;
+  const wineMap=Object.fromEntries(wines.map(w=>[w.id,w]));
+  const scarichiRecenti=movements.filter(m=>m.tipo==="scarico").sort((a,b)=>(b.ts||0)-(a.ts||0)||(b.data||"").localeCompare(a.data||"")).slice(0,80);
+  const dateConScarichi=[...new Set(scarichiRecenti.map(m=>m.data))].sort((a,b)=>b.localeCompare(a));
+  if(scarichiRecenti.length===0){
+    body.innerHTML=`<div style="text-align:center;padding:24px;color:var(--txt4)">Nessuno scarico registrato</div>`;
+    return;
+  }
+  let filtroData="";
+  const aggiorna=()=>{
+    const lista=filtroData?scarichiRecenti.filter(m=>m.data===filtroData):scarichiRecenti;
+    document.getElementById("sc-hist-list").innerHTML=lista.map(m=>{
+      const w=wineMap[m.wineId];
+      const ric=calcRicavoMovimento(m,w);
+      return `<div class="sc-hist-row" data-mid="${m.id}" style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border);flex-wrap:wrap">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:500;color:var(--txt);word-break:break-word;white-space:normal;line-height:1.35">${h(m.wineName||'—')}${w?.annata?` <span style="color:var(--amber);font-size:11px">${h(w.annata)}</span>`:''}</div>
+          <div style="font-size:11px;color:var(--txt4);margin-top:2px">${h(m.produttore||w?.produttore||'—')} · <span style="color:var(--txt3)">${m.data||'—'}</span></div>
+          ${m.note?`<div style="font-size:11px;color:var(--txt3);margin-top:2px;font-style:italic">${h(m.note)}</div>`:''}
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
+          <div style="text-align:right">
+            <div style="font-family:'Montserrat',sans-serif;font-size:1.1rem;color:#FF6B6B;white-space:nowrap">−${m.qty} bt</div>
+            ${ric?`<div style="font-size:11px;color:var(--amber)">${fmt(ric)}</div>`:''}
+          </div>
+          <button onclick="_eliminaScarico('${m.id}')"
+            style="width:34px;height:34px;border-radius:8px;border:1px solid rgba(255,69,58,.3);background:rgba(255,69,58,.1);color:#FF453A;font-size:15px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center"
+            title="Elimina scarico e ripristina giacenza">🗑</button>
+        </div>
+      </div>`;
+    }).join("");
+  };
+  body.innerHTML=`
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px" id="sc-hist-filters">
+      <button onclick="filtroData='';document.querySelectorAll('#sc-hist-filters button').forEach(b=>b.style.opacity='.6');this.style.opacity='1';aggiornaSH()" style="font-size:11px;padding:4px 10px;border:1px solid var(--border2);color:var(--amber);background:rgba(255,159,10,.08);cursor:pointer;border-radius:6px;font-family:inherit;opacity:1">Tutti</button>
+      ${dateConScarichi.slice(0,7).map(d=>`<button onclick="filtroData='${d}';document.querySelectorAll('#sc-hist-filters button').forEach(b=>b.style.opacity='.6');this.style.opacity='1';aggiornaSH()" style="font-size:11px;padding:4px 10px;border:1px solid var(--border2);color:var(--txt3);background:none;cursor:pointer;border-radius:6px;font-family:inherit;opacity:.6">${d}</button>`).join("")}
+    </div>
+    <div id="sc-hist-list"></div>`;
+  // Espone aggiornaSH nel scope globale per gli onclick inline
+  window.aggiornaSH = aggiorna;
+  window.filtroData = filtroData;
+  aggiorna();
+}
+
+function _eliminaScarico(movId){
+  const mov=movements.find(m=>m.id===movId);
+  if(!mov){notify("Movimento non trovato","err");return;}
+  _confirmModal(
+    `Eliminare lo scarico di <strong>${mov.qty} bt</strong> — <strong>${h(mov.wineName)}</strong> del ${mov.data}?<br><span style="color:var(--txt3);font-size:11px">La giacenza verrà ripristinata e il FIFO aggiornato.</span>`,
+    ()=>{
+      // Ripristina giacenza e lotti FIFO
+      const wine=wines.find(w=>w.id===mov.wineId);
+      if(wine){
+        // Ricrea il lotto consumato (approssimazione: aggiunge la qty al lotto più recente)
+        const newGiac=(parseInt(wine.giacenza)||0)+mov.qty;
+        const lots=(wine.lots||[]).slice();
+        // Tenta di trovare il lotto che aveva prezzoAcqLotto uguale e ripristinarlo
+        const lotIdx=lots.findIndex(l=>l.prezzoAcq===(mov.prezzoAcqLotto||0)&&l.qtyRimanente<l.qtyCaricata);
+        if(lotIdx>=0){
+          lots[lotIdx]={...lots[lotIdx],qtyRimanente:(lots[lotIdx].qtyRimanente||0)+mov.qty};
+        } else {
+          // Fallback: crea micro-lotto di ripristino
+          lots.push({id:uid(),data:mov.data,fattura:"",fornitore:mov.fornitore||"",
+            prezzoAcq:mov.prezzoAcqLotto||wine.prezzoAcq||0,iva:wine.iva||22,
+            qtyCaricata:mov.qty,qtyRimanente:mov.qty,_ripristino:true});
+        }
+        wines=wines.map(w=>w.id===wine.id?{...w,giacenza:newGiac,lots}:w);
+      }
+      movements=movements.filter(m=>m.id!==movId);
+      scheduleSave();
+      clearTimeout(saveTimer);
+      _flushSave();
+      notify(`✅ Scarico eliminato — giacenza ripristinata`);
+      render();
+    }
+  );
 }
 
 function _movTipologiaChange(val){
@@ -5066,16 +5190,17 @@ function openWineDetail(id){
     const bd = document.createElement('div');
     bd.id = 'wine-detail-backdrop';
     bd.className = 'modal-backdrop hidden';
-    bd.onclick = closeWineDetail;
-    bd.innerHTML = `<div class="modal" style="max-width:820px;overflow-y:auto;max-height:88vh" onclick="event.stopPropagation()">
-      <div class="modal-header">
-        <h2>🍾 Scheda Vino</h2>
-        <button style="font-size:18px;color:var(--txt3)" onclick="closeWineDetail()">✕</button>
+    // FIX: chiudi SOLO se il click è sul backdrop stesso, non su nessun figlio
+    bd.addEventListener('click', e => { if(e.target === bd) closeWineDetail(); });
+    bd.innerHTML = `<div class="modal" style="max-width:820px;width:calc(100% - 24px);overflow-y:auto;max-height:92dvh;overscroll-behavior:contain" onclick="event.stopPropagation()">
+      <div class="modal-header" style="position:sticky;top:0;z-index:1;background:var(--bg2);border-bottom:1px solid var(--border)">
+        <h2 id="wine-detail-title" style="font-size:clamp(13px,3.5vw,17px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0">🍾 Scheda Vino</h2>
+        <button style="font-size:22px;color:var(--txt3);background:none;border:none;cursor:pointer;padding:4px 8px;flex-shrink:0;line-height:1" onclick="closeWineDetail()" aria-label="Chiudi">✕</button>
       </div>
-      <div class="modal-body" id="wine-detail-body"></div>
-      <div class="modal-footer">
+      <div class="modal-body" id="wine-detail-body" style="padding-bottom:8px"></div>
+      <div class="modal-footer" style="position:sticky;bottom:0;z-index:1;background:var(--bg2);border-top:1px solid var(--border);gap:10px">
         <button class="btn-outline" onclick="closeWineDetail()">Chiudi</button>
-        <button class="btn-primary" onclick="closeWineDetail();openWineModal(document.getElementById('wine-detail-backdrop').dataset.wineId)">✏️ Modifica</button>
+        <button class="btn-primary" id="wine-detail-edit-btn" onclick="closeWineDetail();openWineModal(document.getElementById('wine-detail-backdrop').dataset.wineId)">✏️ Modifica</button>
       </div>
     </div>`;
     document.body.appendChild(bd);
@@ -5137,9 +5262,8 @@ function openWineDetail(id){
   document.getElementById('wine-detail-backdrop').dataset.wineId = id;
   document.getElementById('wine-detail-backdrop').classList.remove('hidden');
 }
-function closeWineDetail(e){
-  if(e && e.target !== document.getElementById('wine-detail-backdrop')) return;
-  document.getElementById('wine-detail-backdrop').classList.add('hidden');
+function closeWineDetail(){
+  document.getElementById('wine-detail-backdrop')?.classList.add('hidden');
 }
 
 // ─── WINE MODAL ───────────────────────────────────────────────────────────────
@@ -5164,6 +5288,28 @@ function openWineModal(idOrNull){
   } else {
     if(delBtn) delBtn.remove();
   }
+
+  // FIX: assicura che il .modal interno blocchi la propagazione al backdrop,
+  // indipendentemente da come è scritto index.html
+  const backdrop = document.getElementById("wine-modal-backdrop");
+  if(backdrop){
+    // Rimuovi il vecchio handler onclick sull'backdrop e usa addEventListener
+    // per poter filtrare correttamente solo i click sul backdrop stesso
+    if(!backdrop._patchedClose){
+      backdrop._patchedClose = true;
+      backdrop.removeAttribute("onclick");
+      backdrop.addEventListener("click", e => {
+        if(e.target === backdrop) closeWineModal();
+      });
+    }
+    // Assicura che il .modal figlio blocchi propagazione
+    const innerModal = backdrop.querySelector(".modal");
+    if(innerModal && !innerModal._patchedStop){
+      innerModal._patchedStop = true;
+      innerModal.addEventListener("click", e => e.stopPropagation());
+    }
+  }
+
   document.getElementById("wine-modal-backdrop").classList.remove("hidden");
   updateModalCalc();
 }
