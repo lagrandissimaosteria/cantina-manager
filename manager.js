@@ -94,7 +94,7 @@ let selMode = null; // 'wines' | 'movimenti' | 'ordini'
 let selIds  = new Set();
 let _selAllIds = []; // IDs di tutte le righe visibili, aggiornato dal render
 function enterSel(mode){ selMode=mode; selIds=new Set(); render(); }
-function exitSel(){ selMode=null; selIds=new Set(); render(); }
+function exitSel(){ selMode=null; selIds=new Set(); const bm=document.getElementById('inv-bulk-menu'); if(bm) bm.style.display='none'; render(); }
 function toggleSel(id){ if(selIds.has(id)) selIds.delete(id); else selIds.add(id); _updateBulkBar(); }
 function toggleSelAll(ids){ const list=ids&&ids.length?ids:_selAllIds; const all=list.length>0&&list.every(id=>selIds.has(id)); list.forEach(id=>all?selIds.delete(id):selIds.add(id)); _updateBulkBar(); }
 function _updateBulkBar(){
@@ -1020,100 +1020,155 @@ function selectWineRow(id){
   _updateTopbarActions(id);
 }
 
-function _updateTopbarActions(id){
-  const btnEdit=document.getElementById("tba-edit");
-  const btnNote=document.getElementById("tba-note");
-  const btnRett=document.getElementById("tba-rett");
-  const btnDel =document.getElementById("tba-del");
-  if(!btnEdit) return;
-  if(!id){
-    [btnEdit,btnNote,btnRett,btnDel].forEach(b=>b.classList.remove("enabled","has-note")); return;
-  }
-  const w=wines.find(x=>x.id===id);
-  [btnEdit,btnNote,btnRett,btnDel].forEach(b=>b.classList.add("enabled"));
-  btnNote.classList.toggle("has-note", !!(w&&w.noteVeloce));
-}
-
-function _tbaEdit(){
-  if(!_selectedWineId) return;
-  openWineModal(_selectedWineId);
-}
-function _tbaNote(){
-  if(!_selectedWineId) return;
-  openNoteVeloce(_selectedWineId);
-}
-function _tbaDel(){
-  if(!_selectedWineId) return;
-  deleteWine(_selectedWineId);
-}
-function _tbaRett(){
-  if(!_selectedWineId) return;
-  openRettificaGiacenza(_selectedWineId);
-}
+function _updateTopbarActions(id){ /* tba buttons removed — noop */ }
 
 // ─── INVENTORY ROW DOUBLE-CLICK DROPDOWN ─────────────────────────────────────
+// ─── SORT CYCLE ───────────────────────────────────────────────────────────────
+function _cycleInvSort(){
+  const sortOpts=['tipologia','nome','produttore','annata','regione','nazione','giacenza','prezzoAcq','prezzoCarta','distributore'];
+  const idx = sortOpts.indexOf(invSort);
+  if(idx === -1 || idx === sortOpts.length-1){ invSort=sortOpts[0]; }
+  else { invSort=sortOpts[idx+1]; }
+  invSortDir=1;
+  renderInventarioOnly();
+}
+
+// ─── INVENTORY CONTEXT MENUS (single-row double-click + bulk right-click) ─────
 (function _setupInvDropdown(){
+  // ── Single-row menu (double-click) ──────────────────────────────────────────
   const menu = document.createElement('div');
   menu.id = 'inv-row-menu';
-  menu.style.cssText = [
-    'position:fixed','z-index:9999','min-width:160px',
-    'background:var(--bg2,#1c1917)','border:1px solid var(--border2,rgba(68,64,60,.6))',
-    'border-radius:8px','box-shadow:0 8px 24px rgba(0,0,0,.55)',
-    'padding:4px 0','display:none','user-select:none'
-  ].join(';');
+  menu.style.cssText = 'position:fixed;z-index:9999;min-width:172px;background:var(--bg2,#1c1917);border:1px solid var(--border2,rgba(68,64,60,.6));border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.04);padding:4px 0;display:none;user-select:none';
   menu.innerHTML = `
-    <div data-action="edit" style="padding:9px 16px;cursor:pointer;font-size:12px;color:var(--txt2,#e7e5e4);display:flex;align-items:center;gap:8px;transition:background .12s">
-      ✏️ <span>Modifica scheda</span>
-    </div>
+    <div data-action="edit"  style="padding:9px 14px;cursor:pointer;font-size:12px;color:var(--txt2,#e7e5e4);display:flex;align-items:center;gap:9px;transition:background .1s">✏️ <span>Modifica scheda</span></div>
+    <div data-action="note"  style="padding:9px 14px;cursor:pointer;font-size:12px;color:var(--txt2,#e7e5e4);display:flex;align-items:center;gap:9px;transition:background .1s">📝 <span>Nota veloce</span></div>
+    <div data-action="rett"  style="padding:9px 14px;cursor:pointer;font-size:12px;color:#30D158;display:flex;align-items:center;gap:9px;transition:background .1s">⚖️ <span>Rettifica giacenza</span></div>
     <div style="height:1px;background:var(--border,rgba(68,64,60,.4));margin:3px 8px"></div>
-    <div data-action="delete" style="padding:9px 16px;cursor:pointer;font-size:12px;color:#FF453A;display:flex;align-items:center;gap:8px;transition:background .12s">
-      🗑️ <span>Elimina voce</span>
-    </div>
+    <div data-action="delete" style="padding:9px 14px;cursor:pointer;font-size:12px;color:#FF453A;display:flex;align-items:center;gap:9px;transition:background .1s">🗑️ <span>Elimina voce</span></div>
   `;
   document.body.appendChild(menu);
 
+  // ── Bulk-selection menu (right-click when selIds.size > 0) ──────────────────
+  const bulkMenu = document.createElement('div');
+  bulkMenu.id = 'inv-bulk-menu';
+  bulkMenu.style.cssText = 'position:fixed;z-index:9999;min-width:200px;background:var(--bg2,#1c1917);border:1px solid var(--border2,rgba(68,64,60,.6));border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.04);padding:4px 0;display:none;user-select:none';
+  document.body.appendChild(bulkMenu);
+
+  function _rebuildBulkMenu(){
+    const n = selIds.size;
+    bulkMenu.innerHTML = `
+      <div style="padding:6px 14px 4px;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--txt4,#a8a29e);font-weight:700">${n} vino${n===1?'':'i'} selezionat${n===1?'o':'i'}</div>
+      <div style="height:1px;background:var(--border,rgba(68,64,60,.4));margin:3px 8px 5px"></div>
+      <div data-bulk="edit"    style="padding:9px 14px;cursor:pointer;font-size:12px;color:var(--txt2,#e7e5e4);display:flex;align-items:center;gap:9px;transition:background .1s">✏️ <span>Modifica campi</span></div>
+      <div data-bulk="ordine"  style="padding:9px 14px;cursor:pointer;font-size:12px;color:#30D158;display:flex;align-items:center;gap:9px;transition:background .1s">🛒 <span>Crea basi ordine</span></div>
+      <div style="height:1px;background:var(--border,rgba(68,64,60,.4));margin:3px 8px"></div>
+      <div data-bulk="delete"  style="padding:9px 14px;cursor:pointer;font-size:12px;color:#FF453A;display:flex;align-items:center;gap:9px;transition:background .1s">🗑️ <span>Elimina selezionati</span></div>
+      <div style="height:1px;background:var(--border,rgba(68,64,60,.4));margin:3px 8px"></div>
+      <div data-bulk="cancel"  style="padding:8px 14px;cursor:pointer;font-size:12px;color:var(--txt4,#a8a29e);display:flex;align-items:center;gap:9px;transition:background .1s">✕ <span>Annulla selezione</span></div>
+    `;
+    // hover via delegation — no listener accumulation (click handler is on bulkMenu, set once below)
+    bulkMenu.querySelectorAll('[data-bulk]').forEach(item=>{
+      item.addEventListener('mouseenter',()=>item.style.background='rgba(255,255,255,.06)');
+      item.addEventListener('mouseleave',()=>item.style.background='');
+    });
+  }
+
+  // Bulk menu click — delegated, attached ONCE to the container
+  bulkMenu.addEventListener('click', e=>{
+    const action = e.target.closest('[data-bulk]')?.dataset.bulk;
+    if(!action) return;
+    closeBulkMenu();
+    if(action==='edit')   openBulkEditModal('wines');
+    if(action==='ordine') creaBasiOrdineDatiSelezionati();
+    if(action==='delete') bulkDeleteWines();
+    if(action==='cancel') exitSel();
+  });
+
   let _targetId = null;
 
-  menu.querySelectorAll('[data-action]').forEach(item => {
-    item.addEventListener('mouseenter', () => item.style.background = 'rgba(255,255,255,.06)');
-    item.addEventListener('mouseleave', () => item.style.background = '');
-  });
-
+  function positionMenu(el, x, y){
+    el.style.display='block';
+    const r=el.getBoundingClientRect();
+    const VW=window.innerWidth, VH=window.innerHeight;
+    if(x+r.width>VW) x=VW-r.width-8;
+    if(y+r.height>VH) y=VH-r.height-8;
+    el.style.left=x+'px'; el.style.top=y+'px';
+  }
   function closeMenu(){ menu.style.display='none'; _targetId=null; }
+  function closeBulkMenu(){ bulkMenu.style.display='none'; }
 
-  menu.addEventListener('click', e => {
-    const action = e.target.closest('[data-action]')?.dataset.action;
-    if(!action || !_targetId) return;
-    closeMenu();
-    if(action === 'edit')   openWineModal(_targetId);
-    if(action === 'delete') deleteWine(_targetId);
+  menu.querySelectorAll('[data-action]').forEach(item=>{
+    item.addEventListener('mouseenter',()=>item.style.background='rgba(255,255,255,.06)');
+    item.addEventListener('mouseleave',()=>item.style.background='');
   });
 
-  document.addEventListener('click', e => {
-    if(menu.style.display !== 'none' && !menu.contains(e.target)) closeMenu();
+  menu.addEventListener('click', e=>{
+    const action=e.target.closest('[data-action]')?.dataset.action;
+    if(!action||!_targetId) return;
+    closeMenu();
+    if(action==='edit')   openWineModal(_targetId);
+    if(action==='note')   openNoteVeloce(_targetId);
+    if(action==='rett')   openRettificaGiacenza(_targetId);
+    if(action==='delete') deleteWine(_targetId);
+  });
+
+  document.addEventListener('click', e=>{
+    if(menu.style.display!=='none'&&!menu.contains(e.target)) closeMenu();
+    if(bulkMenu.style.display!=='none'&&!bulkMenu.contains(e.target)) closeBulkMenu();
   }, true);
 
-  document.addEventListener('keydown', e => { if(e.key==='Escape') closeMenu(); });
+  document.addEventListener('keydown', e=>{ if(e.key==='Escape'){ closeMenu(); closeBulkMenu(); }});
 
-  document.addEventListener('dblclick', e => {
-    const tr = e.target.closest('.inv-table tr[data-wine-id]');
+  // Double-click → single-row menu
+  document.addEventListener('dblclick', e=>{
+    const tr=e.target.closest('.inv-table tr[data-wine-id]');
     if(!tr) return;
     if(e.target.closest('button,input,select,textarea')) return;
+    e.preventDefault(); e.stopPropagation();
+    closeBulkMenu();
+    _targetId=tr.dataset.wineId;
+    selectWineRow(_targetId);
+    positionMenu(menu, e.clientX, e.clientY);
+  });
+
+  // Right-click on inv table row
+  document.addEventListener('contextmenu', e=>{
+    const tr=e.target.closest('.inv-table tr[data-wine-id]');
+    if(!tr) return;
+    e.preventDefault();
+    const wineId=tr.dataset.wineId;
+    if(selMode==='wines' && selIds.size>0){
+      // Bulk menu: se il right-click è su una riga non selezionata, aggiungila
+      if(!selIds.has(wineId)){ toggleSel(wineId); _updateBulkBar(); }
+      closeMenu();
+      _rebuildBulkMenu();
+      positionMenu(bulkMenu, e.clientX, e.clientY);
+    } else {
+      // Nessuna selezione attiva: comporta come double-click (single-row menu)
+      closeBulkMenu();
+      _targetId=wineId;
+      selectWineRow(_targetId);
+      positionMenu(menu, e.clientX, e.clientY);
+    }
+  });
+
+  // Ctrl+Click (Mac: Cmd+Click) → entra in selezione multipla e seleziona riga
+  document.addEventListener('click', e=>{
+    const tr=e.target.closest('.inv-table tr[data-wine-id]');
+    if(!tr) return;
+    if(e.target.closest('button,input,select,textarea,.cb-col')) return;
+    if(!(e.ctrlKey||e.metaKey)) return;
     e.preventDefault();
     e.stopPropagation();
-    _targetId = tr.dataset.wineId;
-
-    const VW = window.innerWidth, VH = window.innerHeight;
-    const MW = 168, MH = 80;
-    let x = e.clientX, y = e.clientY;
-    if(x + MW > VW) x = VW - MW - 8;
-    if(y + MH > VH) y = VH - MH - 8;
-
-    menu.style.left = x + 'px';
-    menu.style.top  = y + 'px';
-    menu.style.display = 'block';
-
-    selectWineRow(_targetId);
+    const wineId=tr.dataset.wineId;
+    if(selMode!=='wines'){
+      // enterSel fa render() — aggiunge l'id prima così la checkbox risulta checked
+      selIds.add(wineId);
+      selMode='wines';
+      render();
+    } else {
+      toggleSel(wineId); _updateBulkBar();
+    }
   });
 })();
 
@@ -1212,11 +1267,7 @@ function _confirmRettifica(id, giacAttuale){
   render();
 }
 
-// Nascondi bottoni topbar quando si esce dall'inventario
-function _hideTopbarActions(){
-  _selectedWineId=null;
-  document.querySelectorAll(".topbar-action-btn").forEach(b=>b.classList.remove("enabled"));
-}
+function _hideTopbarActions(){ _selectedWineId=null; }
 
 // ─── COLUMN RESIZE ───────────────────────────────────────────────────────────
 const _colWidths = {};
@@ -1389,21 +1440,8 @@ function afterRender(){
 
 // Aggiorna i title dei bottoni topbar con hint shortcut da tastiera
 function _applyShortcutTitles(){
-  const map = {
-    "btn-add-wine": "Aggiungi Vino  [N]",
-    "tba-edit":     "Modifica vino selezionato  [E]",
-    "tba-note":     "Nota veloce  [P]",
-    "tba-del":      "Elimina vino selezionato  [Canc]",
-  };
-  Object.entries(map).forEach(([id, title]) => {
-    const el = document.getElementById(id);
-    if(el) el.title = title;
-  });
-  // Aggiorna anche il placeholder della barra di ricerca inventario con hint "/"
-  const invSearch = document.getElementById("inv-search");
-  if(invSearch && !invSearch.placeholder.includes("[/]")){
-    invSearch.placeholder = "Cerca vino…  [/]";
-  }
+  const el = document.getElementById("btn-add-wine");
+  if(el) el.title = "Aggiungi Vino  [N]";
 }
 
 // Funzione pura: filtra e ordina wines secondo i filtri/ordinamento correnti.
@@ -1453,24 +1491,121 @@ function _hasActiveFilters(){
     ||filterNazione!=="tutti"||filterGiacenza!=="tutti";
 }
 function _toggleInvFilterPanel(){
-  const p=document.getElementById("inv-filter-panel");
-  if(!p) return;
-  const open=p.style.display==="block";
-  p.style.display=open?"none":"block";
-  const btn=document.getElementById("inv-filter-btn");
-  if(btn) btn.style.background=open?"":"rgba(191,95,255,.15)";
+  const panel = document.getElementById("inv-filter-panel");
+  if(!panel) return;
+  const isOpen = panel.classList.contains("inv-panel-open");
+  if(isOpen){ _closeInvFilterPanel(); return; }
+
+  // Posiziona il popover sotto il bottone "Filtri avanzati"
+  const btn = document.getElementById("inv-filter-btn");
+  const bar = document.getElementById("inv-filter-bar");
+  if(btn){
+    const btnRect = btn.getBoundingClientRect();
+    const barRect = bar ? bar.getBoundingClientRect() : btnRect;
+    // Posiziona a destra del bottone, sotto la barra — non a full-width
+    const left = Math.min(btnRect.left, window.innerWidth - 340);
+    panel.style.top = barRect.bottom + "px";
+    panel.style.left = Math.max(8, left) + "px";
+    panel.style.right = "auto";
+    panel.style.width = "320px";
+  }
+
+  panel.style.display = "block";
+  panel.classList.add("inv-panel-open");
+  btn && (btn.dataset.open = "1");
+
+  // Crea overlay leggero se non esiste
+  let overlay = document.getElementById("inv-filter-overlay");
+  if(!overlay){
+    overlay = document.createElement("div");
+    overlay.id = "inv-filter-overlay";
+    overlay.style.cssText = "position:fixed;inset:0;z-index:299";
+    overlay.addEventListener("click", ()=>_closeInvFilterPanel());
+    document.body.appendChild(overlay);
+  }
+  overlay.style.display = "block";
+
+  panel.style.opacity = "0"; panel.style.transform = "translateY(-4px) scale(.98)";
+  requestAnimationFrame(()=>{
+    panel.style.transition = "opacity .15s ease, transform .15s ease";
+    panel.style.opacity = "1"; panel.style.transform = "translateY(0) scale(1)";
+  });
 }
-function _closeInvFilterPanel(e){
-  const p=document.getElementById("inv-filter-panel");
-  const btn=document.getElementById("inv-filter-btn");
-  if(!p||p.style.display!=="block") return;
-  if(!p.contains(e.target)&&e.target!==btn&&!btn.contains(e.target)){
-    p.style.display="none";
-    btn.style.background="";
+function _closeInvFilterPanel(){
+  const p = document.getElementById("inv-filter-panel");
+  const overlay = document.getElementById("inv-filter-overlay");
+  const btn = document.getElementById("inv-filter-btn");
+  if(p){ p.style.opacity="0"; p.style.transform="translateY(-4px) scale(.98)";
+    setTimeout(()=>{ if(p){ p.style.display="none"; p.classList.remove("inv-panel-open"); p.style.transition=""; p.style.opacity=""; p.style.transform=""; } }, 130); }
+  if(overlay) overlay.style.display = "none";
+  if(btn) delete btn.dataset.open;
+}
+document.addEventListener("click", function(e){
+  const p = document.getElementById("inv-filter-panel");
+  const btn = document.getElementById("inv-filter-btn");
+  if(!p || !p.classList.contains("inv-panel-open")) return;
+  if(p.contains(e.target) || (btn && btn.contains(e.target))) return;
+  _closeInvFilterPanel();
+});
+
+// Aggiorna lo stato visivo dei bottoni filtro inline (segmented + tipo chips)
+// senza ricostruire l'intera filter bar. Chiamata dal path chirurgico di renderInventarioOnly.
+function _syncInvFilterBar(){
+  // Segmented control giacenza
+  document.querySelectorAll("#inv-filter-bar button[data-seg]").forEach(btn=>{
+    const act = btn.dataset.seg === filterGiacenza;
+    btn.style.background = act ? "var(--bg3)" : "transparent";
+    btn.style.color = act ? "var(--txt1)" : "var(--txt4)";
+    btn.style.fontWeight = act ? "700" : "500";
+    btn.style.boxShadow = act ? "0 1px 4px rgba(0,0,0,.4)" : "none";
+  });
+  // Tipo chips
+  document.querySelectorAll("#inv-filter-bar button[data-tipo]").forEach(btn=>{
+    const act = btn.dataset.tipo === filterTipo;
+    btn.style.borderColor = act ? "var(--amber)" : "var(--border2)";
+    btn.style.background = act ? "rgba(255,159,10,.18)" : "var(--bg3)";
+    btn.style.color = act ? "var(--amber)" : "var(--txt4)";
+    btn.style.fontWeight = act ? "700" : "500";
+  });
+  // Badge e colore bottone filtri avanzati
+  const advBtn = document.getElementById("inv-filter-btn");
+  if(advBtn){
+    const advCount=[filterVitigno,filterFormato,filterDistrib,filterProduttore,filterRegione,filterNazione].filter(f=>f!=="tutti").length;
+    const hasAdv = advCount>0;
+    advBtn.style.borderColor = hasAdv ? "rgba(191,95,255,.55)" : "var(--border2)";
+    advBtn.style.background = hasAdv ? "rgba(191,95,255,.12)" : "var(--bg3)";
+    advBtn.style.color = hasAdv ? "#cf8fff" : "var(--txt3)";
+    let badge = advBtn.querySelector("span[data-adv-badge]");
+    if(hasAdv){
+      if(!badge){ badge=document.createElement("span"); badge.dataset.advBadge="1"; badge.style.cssText="background:#bf5fff;color:#fff;border-radius:10px;padding:0 5px;font-size:8px;font-weight:700;line-height:15px;min-width:15px;text-align:center"; advBtn.appendChild(badge); }
+      badge.textContent=advCount;
+    } else { badge && badge.remove(); }
+  }
+  // Sort pill — aggiorna label e freccia senza full render
+  const sortPill = document.getElementById("inv-sort-pill");
+  if(sortPill){
+    const _sortOpts=[
+      {v:"tipologia",label:"Tipologia"},{v:"nome",label:"Nome vino"},
+      {v:"produttore",label:"Produttore"},{v:"annata",label:"Annata"},
+      {v:"regione",label:"Regione"},{v:"nazione",label:"Nazione"},
+      {v:"giacenza",label:"Giacenza"},{v:"prezzoAcq",label:"P. Acquisto"},
+      {v:"prezzoCarta",label:"P. Carta"},{v:"distributore",label:"Fornitore"},
+    ];
+    const lbl = _sortOpts.find(o=>o.v===invSort)?.label||"Tipo";
+    const dir = invSortDir===1?"↑":"↓";
+    sortPill.innerHTML = `${lbl} <span style="font-size:9px;opacity:.8">${dir}</span>`;
+  }
+  // Clear btn — crea/rimuove secondo stato filtri (il wrapper è sempre presente)
+  const clearWrap = document.getElementById("inv-clear-wrap");
+  if(clearWrap){
+    const hasAny = _hasActiveFilters();
+    if(hasAny && !clearWrap.querySelector('[data-clear-btn]')){
+      clearWrap.innerHTML = `<button data-clear-btn="1" onclick="_resetInvFilters()" title="Cancella tutti i filtri" style="display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:8px;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.07);color:#FF453A;font-size:10px;font-weight:600;cursor:pointer;flex-shrink:0;white-space:nowrap;transition:all .15s ease">✕</button>`;
+    } else if(!hasAny){
+      clearWrap.innerHTML = '';
+    }
   }
 }
-// Chiudi pannello al click fuori
-document.addEventListener("click", _closeInvFilterPanel);
 
 let _searchDebounce=null;
 function renderInventarioOnly(){
@@ -1492,9 +1627,8 @@ function renderInventarioOnly(){
       const tipoCountMap2=Object.fromEntries(TIPOLOGIE.map(t=>[t, list.filter(x=>x.tipologia===t).length]));
 
       // Aggiorna contatore referenze
-      const countEl=document.querySelector("#content span[style*='referenze']") ||
-        [...document.querySelectorAll("#content span")].find(el=>el.textContent.includes("referenze"));
-      if(countEl) countEl.textContent=`${list.length} / ${wines.length} referenze`;
+      const countEl=document.getElementById("inv-count");
+      if(countEl) countEl.innerHTML=`${list.length}<span style="color:var(--txt5);font-weight:400"> / ${wines.length}</span>`;
 
       // Genera solo le righe <tbody>
       if(list.length===0){
@@ -1510,6 +1644,9 @@ function renderInventarioOnly(){
 
       // B6: aggiorna _selAllIds con la lista filtrata corrente
       if(selMode==='wines') _selAllIds = list.map(w=>w.id);
+
+      // Sincronizza stato visivo bottoni filtro inline (chip tipo, segmented, badge)
+      _syncInvFilterBar();
 
       // Ripristina selezione, resize handles, scroll e focus
       if(_selectedWineId){
@@ -1533,7 +1670,7 @@ function renderInventarioOnly(){
     window.scrollTo(0,sy);
     afterRender();
     const newEl=document.getElementById("inv-search");
-    if(newEl){newEl.focus();try{if(pos!==null)newEl.setSelectionRange(pos,pos);}catch{}}
+    if(newEl){newEl.focus();}
   },120);
 }
 
@@ -1703,14 +1840,14 @@ function _renderWineRow(w){
     ${cbHtml}
     <td class="col-fornitore" style="color:var(--txt3);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:90px">${h(w.distributore||'—')}</td>
     <td style="color:var(--txt2);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(w.produttore)}</td>
-    <td ondblclick="inlineEdit(event,'nome','${w.id}','${nomeEsc}')"><div style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px">${h(w.nome)}${fmtBadge}</div>${zonaHtml}</td>
-    <td class="col-annata" ondblclick="inlineEdit(event,'annata','${w.id}','${w.annata||''}')"><span style="color:var(--amber);font-family:'Montserrat',sans-serif;white-space:nowrap;font-size:11px">${annataHtml}</span></td>
+    <td><div style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px">${h(w.nome)}${fmtBadge}</div>${zonaHtml}</td>
+    <td class="col-annata"><span style="color:var(--amber);font-family:'Montserrat',sans-serif;white-space:nowrap;font-size:11px">${annataHtml}</span></td>
     <td class="col-vitigni" style="color:var(--txt3);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100px">${h(w.vitigni||'—')}</td>
     <td>${badge(w.tipologia)}</td>
     <td class="col-regione" style="color:var(--txt3);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:110px">${regioneHtml}</td>
-    <td class="r" ondblclick="inlineEdit(event,'prezzoAcq','${w.id}','${w.prezzoAcq||0}')" style="border-left:1px solid var(--border);white-space:nowrap">${fmt(w.prezzoAcq)}</td>
+    <td class="r" style="border-left:1px solid var(--border);white-space:nowrap">${fmt(w.prezzoAcq)}</td>
     <td class="r col-ivaincl" style="color:var(--txt3);white-space:nowrap">${fmtRound(calcCostoIvaBottiglia(w))}</td>
-    <td class="r col-pcarta" ondblclick="inlineEdit(event,'prezzoCarta','${w.id}','${w.prezzoCarta||0}')" style="white-space:nowrap;${!w.prezzoCarta?'color:var(--txt4)':''}">${w.prezzoCarta?fmt(w.prezzoCarta):'—'}</td>
+    <td class="r col-pcarta" style="white-space:nowrap;${!w.prezzoCarta?'color:var(--txt4)':''}">${w.prezzoCarta?fmt(w.prezzoCarta):'—'}</td>
     <td class="r col-margperc"><span style="color:${mpColor}">${mp===null?'—':`${fmtN(mp,1)}%`}</span></td>
     <td class="c" style="border-left:1px solid rgba(255,159,10,.12);background:rgba(255,159,10,.04);position:relative">
       <div style="display:flex;flex-direction:column;align-items:center;gap:1px">
@@ -1734,13 +1871,19 @@ function renderInventario(){
   let tfG=0;
   list.forEach(w=>{tfG+=w.giacenza});
 
-  let html=`<div class="kpi-grid g4" style="margin-bottom:14px">
-    ${[{label:"Referenze",v:s.referenze,sub:"vini in lista",cls:"c-amber"},{label:"Giacenza Totale",v:s.giacenzaTot,sub:"bottiglie",cls:"c-amber3"},{label:"Scorte Basse",v:s.scoreBasse,sub:`+ ${s.esaurite} esaurite`,cls:(s.scoreBasse>0||s.esaurite>0)?"c-red":"c-green"},{label:"Fallate Totali",v:s.fallateTot,sub:"bottiglie perse",cls:"c-orange"}].map(k=>`<div class="kpi-card"><div class="kpi-label">${k.label}</div><div class="kpi-val ${k.cls}">${k.v}</div><div class="kpi-sub">${k.sub}</div></div>`).join("")}
-  </div>
-  <div class="kpi-grid g3" style="margin-bottom:14px">
-    <div class="kpi-card card-amber"><div class="kpi-label">Valore al Costo</div><div class="kpi-val c-amber">${fmt(s.valoreTot)}</div><div class="kpi-sub">costo acquisto × giacenza (escl. IVA)</div></div>
-    <div class="kpi-card card-green"><div class="kpi-label">Valore Potenziale Vendita</div><div class="kpi-val c-green">${fmt(s.valoreCarta)}</div><div class="kpi-sub">prezzo in carta × giacenza</div></div>
-    <div class="kpi-card card-blue"><div class="kpi-label">Margine Lordo Potenziale</div><div class="kpi-val c-blue">${fmt(s.margineLordoTot)}</div><div class="kpi-sub">carta − (costo + IVA) × giacenza</div></div>
+  let html=`<div style="display:flex;gap:1px;margin-bottom:14px;border-radius:var(--radius);overflow:hidden;border:1px solid var(--border)">
+    ${[
+      {label:"Referenze",     v:s.referenze,          sub:"vini in lista",    cls:"c-amber"},
+      {label:"Giacenza",      v:s.giacenzaTot,        sub:"bottiglie",        cls:"c-amber3"},
+      {label:"Scorte Basse",  v:s.scoreBasse,         sub:`+${s.esaurite} esaurite`, cls:(s.scoreBasse>0||s.esaurite>0)?"c-red":"c-green"},
+      {label:"Valore Costo",  v:fmt(s.valoreTot),     sub:"excl. IVA",        cls:"c-amber"},
+      {label:"Potenziale",    v:fmt(s.valoreCarta),   sub:"valore carta",     cls:"c-green"},
+      {label:"Margine",       v:fmt(s.margineLordoTot),sub:"lordo potenz.",   cls:"c-blue"},
+    ].map(k=>`<div style="flex:1;min-width:0;padding:10px 14px;background:var(--bg2)">
+      <div style="font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--txt4);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${k.label}</div>
+      <div style="font-size:15px;font-weight:700;font-family:'Montserrat',sans-serif;margin:3px 0 1px" class="${k.cls}">${k.v}</div>
+      <div style="font-size:9px;color:var(--txt5)">${k.sub}</div>
+    </div>`).join("")}
   </div>`;
 
   const tipiPresenti=new Set(wines.map(w=>w.tipologia));
@@ -1754,6 +1897,8 @@ function renderInventario(){
   const activeNazioni=[...new Set(wines.map(w=>w.nazione||"").filter(Boolean))].sort();
 
   const activeCount=[filterTipo,filterVitigno,filterFormato,filterDistrib,filterProduttore,filterRegione,filterNazione,filterGiacenza].filter(f=>f!=="tutti").length;
+  // advCount: solo filtri nel popover avanzato (esclude Tipo e Giacenza che sono inline)
+  const advCount=[filterVitigno,filterFormato,filterDistrib,filterProduttore,filterRegione,filterNazione].filter(f=>f!=="tutti").length;
 
   // Opzioni sort
   const sortOpts=[
@@ -1766,104 +1911,125 @@ function renderInventario(){
   const sortLabel=sortOpts.find(o=>o.v===invSort)?.label||"Tipo";
   const dirIcon=invSortDir===1?"↑":"↓";
 
-  // Helper per sezioni filtro nel pannello
   function _fSection(title, opts, current, setter){
-    return `<div style="margin-bottom:14px">
-      <div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--txt4);font-weight:600;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid var(--border)">${title}</div>
+    return `<div>
+      <div style="font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--txt4);font-weight:700;margin-bottom:6px">${title}</div>
       <div style="display:flex;flex-wrap:wrap;gap:4px">
-        ${opts.map(o=>`<button onclick="${setter}('${o.v.replace(/'/g,"\\'")}');renderInventarioOnly()" style="padding:3px 9px;border-radius:20px;font-size:10px;cursor:pointer;border:1px solid ${current===o.v?'var(--purple)':'var(--border2)'};background:${current===o.v?'rgba(191,95,255,.18)':'var(--bg)'};color:${current===o.v?'#bf5fff':'var(--txt3)'};white-space:nowrap">${h(o.label)}</button>`).join("")}
+        ${opts.map(o=>{
+          const active = current===o.v;
+          return `<button onclick="${setter}('${o.v.replace(/'/g,"\\'")}');renderInventarioOnly()" style="padding:3px 10px;border-radius:20px;font-size:10px;cursor:pointer;border:1px solid ${active?'rgba(191,95,255,.55)':'var(--border2)'};background:${active?'rgba(191,95,255,.16)':'rgba(255,255,255,.04)'};color:${active?'#cf8fff':'var(--txt3)'};font-weight:${active?'700':'400'};white-space:nowrap;transition:all .12s ease">${h(o.label)}</button>`;
+        }).join("")}
       </div>
     </div>`;
   }
 
   html+=`<div class="card" style="padding:0;position:relative">
     ${selMode==='wines'?renderBulkBar('wines', list.map(w=>w.id)):''}
-    <div class="tbl-header" id="inv-filter-bar" style="flex-wrap:nowrap;gap:6px;align-items:center;position:sticky;top:${selMode==='wines'?'110px':'57px'};z-index:18;background:var(--bg2);border-bottom:1px solid var(--border)">
+    <div id="inv-filter-bar" style="position:sticky;top:${selMode==='wines'?'110px':'57px'};z-index:18;background:var(--bg2);border-bottom:1px solid var(--border)">
 
-      <div class="search-wrap" style="flex-shrink:0"><span class="search-icon">🔍</span><input id="inv-search" class="form-input" style="width:180px;padding-left:28px" placeholder="Cerca vino…  [/]" value="${h(search)}" oninput="search=this.value;renderInventarioOnly()"></div>
+      <!-- SINGLE ROW: search · count · segmented · tipo chips · sort · filtri · multipla -->
+      <div style="display:flex;align-items:center;gap:6px;padding:7px 12px;min-height:44px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch">
 
-      ${selMode!=='wines'?`<button class="btn-outline btn-sm" onclick="enterSel('wines')" style="border-color:rgba(59,130,246,.5);color:#93c5fd;flex-shrink:0;white-space:nowrap">☑ Multipla</button>`:''}
+        <!-- Search -->
+        <div class="search-wrap" style="flex-shrink:0;width:200px"><span class="search-icon">🔍</span><input id="inv-search" class="form-input" style="width:100%;padding-left:28px" placeholder="Cerca vino…  [/]" value="${h(search)}" oninput="search=this.value;renderInventarioOnly()"></div>
 
-      <div style="display:flex;align-items:center;gap:5px;flex:1;min-width:0">
+        <!-- Count -->
+        <span id="inv-count" style="font-size:10px;color:var(--txt4);letter-spacing:.05em;white-space:nowrap;flex-shrink:0">${list.length}<span style="color:var(--txt5);font-weight:400"> / ${wines.length}</span></span>
 
-        <!-- Bottone filtri unificato -->
-        <button id="inv-filter-btn" onclick="_toggleInvFilterPanel()" style="display:flex;align-items:center;gap:5px;padding:4px 10px;border-radius:6px;border:1px solid ${activeCount>0?'rgba(191,95,255,.5)':'var(--border2)'};background:${activeCount>0?'rgba(191,95,255,.12)':'var(--bg)'};color:${activeCount>0?'#bf5fff':'var(--txt2)'};font-size:10px;cursor:pointer;white-space:nowrap;flex-shrink:0">
-          <span>⚙ Filtri</span>
-          ${activeCount>0?`<span style="background:#bf5fff;color:#fff;border-radius:10px;padding:0 5px;font-size:9px;font-weight:700;line-height:16px">${activeCount}</span>`:''}
-        </button>
+        <!-- Separatore -->
+        <div style="width:1px;height:18px;background:var(--border);flex-shrink:0"></div>
 
-        ${activeCount>0?`<button onclick="_resetInvFilters()" title="Rimuovi tutti i filtri" style="padding:3px 7px;border-radius:5px;border:1px solid rgba(239,68,68,.35);background:rgba(239,68,68,.07);color:#FF453A;font-size:9px;cursor:pointer;flex-shrink:0">✕ Reset</button>`:''}
-
-        <!-- Sort: label cliccabile cambia criterio, freccia inverte direzione -->
-        <div style="display:flex;align-items:center;gap:0;flex-shrink:0;border:1px solid ${invSort!=='tipologia'?'rgba(0,122,255,.4)':'var(--border2)'};border-radius:6px;overflow:hidden">
-          <select onchange="invSort=this.value;renderInventarioOnly()" style="padding:4px 6px;font-size:10px;border:none;background:${invSort!=='tipologia'?'rgba(0,122,255,.08)':'var(--bg)'};color:${invSort!=='tipologia'?'#60a5fa':'var(--txt3)'};outline:none;cursor:pointer;max-width:100px">
-            ${sortOpts.map(o=>`<option value="${o.v}" ${invSort===o.v?'selected':''}>${o.label}</option>`).join('')}
-          </select>
-          <button onclick="invSortDir*=-1;renderInventarioOnly()" title="${invSortDir===1?'Ordine crescente — clicca per invertire':'Ordine decrescente — clicca per invertire'}" style="padding:4px 7px;border:none;border-left:1px solid ${invSort!=='tipologia'?'rgba(0,122,255,.25)':'var(--border)'};background:${invSort!=='tipologia'?'rgba(0,122,255,.08)':'var(--bg)'};color:${invSortDir===1?'#60a5fa':'var(--amber)'};font-size:12px;cursor:pointer;line-height:1">${dirIcon}</button>
+        <!-- Segmented giacenza -->
+        <div style="display:inline-flex;background:rgba(255,255,255,.06);border:1px solid var(--border);border-radius:8px;padding:2px;gap:1px;flex-shrink:0">
+          ${[
+            {v:"tutti",   label:"Tutti"},
+            {v:"esaurito",label:"Esauriti"},
+            {v:"basso",   label:"Basse"},
+            {v:"ok",      label:"OK"},
+          ].map(seg=>{
+            const act = filterGiacenza===seg.v;
+            return `<button data-seg="${seg.v}" onclick="filterGiacenza='${seg.v}';renderInventarioOnly()" style="padding:3px 9px;border-radius:6px;border:none;font-size:10px;font-weight:${act?'700':'500'};cursor:pointer;white-space:nowrap;transition:all .15s ease;${act?'background:var(--bg3);color:var(--txt1);box-shadow:0 1px 4px rgba(0,0,0,.4)':'background:transparent;color:var(--txt4)'}">${seg.label}</button>`;
+          }).join('')}
         </div>
 
-      </div>
+        <!-- Separatore -->
+        <div style="width:1px;height:18px;background:var(--border);flex-shrink:0"></div>
 
-      <span style="font-size:10px;color:var(--txt4);letter-spacing:.05em;flex-shrink:0;white-space:nowrap">${list.length}/${wines.length}</span>
-      <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
-        <button class="topbar-action-btn edit" id="tba-edit" onclick="_tbaEdit()" title="Modifica vino selezionato">✏️ Modifica</button>
-        <button class="topbar-action-btn note" id="tba-note" onclick="_tbaNote()" title="Nota veloce">📝 Nota</button>
-        <button class="topbar-action-btn" id="tba-rett" onclick="_tbaRett()" title="Rettifica giacenza" style="background:rgba(48,209,88,.1);border:1px solid rgba(48,209,88,.25);color:#30D158">⚖️ Rettifica</button>
-        <button class="topbar-action-btn del"  id="tba-del"  onclick="_tbaDel()"  title="Elimina vino selezionato">🗑️</button>
+        <!-- Tipo chips scroll -->
+        <div style="display:flex;align-items:center;gap:4px;overflow-x:auto;scrollbar-width:none;flex:1;min-width:0">
+          ${[{v:"tutti",label:"Tutti"}, ...activeTipi.map(t=>({v:t,label:t}))].map(o=>{
+            const act = filterTipo===o.v;
+            return `<button data-tipo="${o.v.replace(/"/g,'&quot;')}" onclick="filterTipo='${o.v.replace(/'/g,"\\'")}';renderInventarioOnly()" style="flex-shrink:0;padding:3px 10px;border-radius:20px;font-size:10px;font-weight:${act?'700':'500'};cursor:pointer;white-space:nowrap;transition:all .15s ease;border:1px solid ${act?'var(--amber)':'var(--border2)'};background:${act?'rgba(255,159,10,.18)':'var(--bg3)'};color:${act?'var(--amber)':'var(--txt4)'}">${h(o.label)}</button>`;
+          }).join('')}
+        </div>
+
+        <!-- Separatore -->
+        <div style="width:1px;height:18px;background:var(--border);flex-shrink:0"></div>
+
+        <!-- Sort pill (current only, click → cycle) -->
+        <button id="inv-sort-pill" onclick="_cycleInvSort()" style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;border:1px solid rgba(0,122,255,.35);background:rgba(0,122,255,.08);color:#60a5fa;font-size:10px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;transition:all .15s ease" title="Clicca per cambiare ordinamento">${h(sortLabel)} <span style="font-size:9px;opacity:.8">${dirIcon}</span></button>
+
+        <!-- Filtri Avanzati -->
+        <div style="position:relative;flex-shrink:0">
+          <button id="inv-filter-btn" onclick="_toggleInvFilterPanel()" style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:8px;border:1px solid ${advCount>0?'rgba(191,95,255,.55)':'var(--border2)'};background:${advCount>0?'rgba(191,95,255,.12)':'var(--bg3)'};color:${advCount>0?'#cf8fff':'var(--txt3)'};font-size:10px;font-weight:600;cursor:pointer;white-space:nowrap;transition:all .15s ease;letter-spacing:.02em">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="3" r="1.5" stroke="currentColor" stroke-width="1.3"/><circle cx="6" cy="9" r="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M1 3h3.5M7.5 3H11M1 9h3.5M7.5 9H11" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+            Filtri${advCount>0?` <span style="background:#bf5fff;color:#fff;border-radius:10px;padding:0 5px;font-size:8px;font-weight:700;line-height:15px;min-width:15px;text-align:center">${advCount}</span>`:''}
+          </button>
+        </div>
+
+        <!-- Reset filtri (solo se attivi) -->
+        <span id="inv-clear-wrap">${_hasActiveFilters()?`<button data-clear-btn="1" onclick="_resetInvFilters()" title="Cancella tutti i filtri" style="display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:8px;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.07);color:#FF453A;font-size:10px;font-weight:600;cursor:pointer;flex-shrink:0;white-space:nowrap;transition:all .15s ease">✕</button>`:""}</span>
+
+        <!-- Selezione multipla -->
+        ${selMode!=='wines'?`<button class="btn-outline btn-sm" onclick="enterSel('wines')" style="border-color:rgba(59,130,246,.4);color:#93c5fd;flex-shrink:0;white-space:nowrap;font-size:10px;padding:3px 10px">☑ Multipla</button>`:''}
+
       </div>
     </div>
 
-    <!-- Pannello filtri a tendina -->
-    <div id="inv-filter-panel" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:200;background:var(--bg2);border:1px solid var(--border);border-top:none;border-radius:0 0 10px 10px;box-shadow:0 8px 32px rgba(0,0,0,.45);padding:16px 20px 12px;max-height:70vh;overflow-y:auto">
+    <!-- Popover Filtri Avanzati — position:fixed, compatto, contestuale -->
+    <div id="inv-filter-panel" style="display:none;position:fixed;z-index:300;background:var(--bg2);border:1px solid var(--border2);border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.05);padding:16px;width:320px;max-height:70vh;overflow-y:auto">
 
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:0 24px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <span style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--txt3)">Filtri avanzati</span>
+        <div style="display:flex;gap:6px;align-items:center">
+          ${advCount>0?`<button onclick="_resetInvFilters()" style="padding:3px 10px;border-radius:6px;border:1px solid rgba(239,68,68,.35);background:rgba(239,68,68,.07);color:#FF453A;font-size:9px;font-weight:600;cursor:pointer">✕ Reset</button>`:''}
+          <button onclick="_closeInvFilterPanel()" style="width:24px;height:24px;border-radius:6px;border:1px solid var(--border2);background:var(--bg3);color:var(--txt3);font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1">×</button>
+        </div>
+      </div>
 
-        ${_fSection("🍷 Tipologia",
-          [{v:"tutti",label:"Tutte"}, ...activeTipi.map(t=>({v:t,label:t}))],
-          filterTipo, "filterTipo="
-        )}
+      <div style="display:flex;flex-direction:column;gap:14px">
 
-        ${_fSection("🍇 Vitigno",
+        ${_fSection("Vitigno",
           [{v:"tutti",label:"Tutti"}, ...activeVitigni.map(v=>({v,label:v}))],
           filterVitigno, "filterVitigno="
         )}
 
-        ${_fSection("📐 Formato",
+        ${_fSection("Formato",
           [{v:"tutti",label:"Tutti"}, ...activeFormati.map(f=>({v:String(f),label:f+"L"}))],
           filterFormato, "filterFormato="
         )}
 
-        ${_fSection("🏭 Distributore",
+        ${_fSection("Distributore",
           [{v:"tutti",label:"Tutti"}, ...activeDistrib.map(d=>({v:d,label:d}))],
           filterDistrib, "filterDistrib="
         )}
 
-        ${_fSection("👤 Produttore",
+        ${_fSection("Produttore",
           [{v:"tutti",label:"Tutti"}, ...activeProd.map(p=>({v:p,label:p}))],
           filterProduttore, "filterProduttore="
         )}
 
-        ${_fSection("🗺 Regione",
+        ${_fSection("Regione",
           [{v:"tutti",label:"Tutte"}, ...activeRegioni.map(r=>({v:r,label:r}))],
           filterRegione, "filterRegione="
         )}
 
-        ${_fSection("🌍 Nazione",
+        ${_fSection("Nazione",
           [{v:"tutti",label:"Tutte"}, ...activeNazioni.map(n=>({v:n,label:n}))],
           filterNazione, "filterNazione="
         )}
 
-        ${_fSection("📦 Giacenza",
-          [{v:"tutti",label:"Tutte"},{v:"esaurito",label:"⚫ Esaurite"},{v:"basso",label:"🔴 Scorta bassa"},{v:"ok",label:"🟢 OK"}],
-          filterGiacenza, "filterGiacenza="
-        )}
-
       </div>
-
-      ${activeCount>0?`<div style="border-top:1px solid var(--border);margin-top:8px;padding-top:10px;text-align:right">
-        <button onclick="_resetInvFilters();_toggleInvFilterPanel()" style="padding:5px 14px;border-radius:6px;border:1px solid rgba(239,68,68,.35);background:rgba(239,68,68,.07);color:#FF453A;font-size:10px;cursor:pointer">✕ Rimuovi tutti i filtri</button>
-      </div>`:''}
-
     </div>
     <div class="tbl-wrap">
       <table class="inv-table">
@@ -2032,6 +2198,7 @@ function _updateScaricoCounts(){
 function _ieriStr(){ const d=new Date(); d.setDate(d.getDate()-1); return d.toISOString().split("T")[0]; }
 let scaricoSerata = {
   open: false,
+  listCollapsed: false,
   get data(){ return this._data || _ieriStr(); },
   set data(v){ this._data = v; },
   note: "",
@@ -2158,103 +2325,7 @@ function registraScaricaSingoloVino(wineId){
 function renderMovimenti(){
   const selW=wines.find(w=>w.id===movForm.wineId);
 
-  // ── Scarico Serata panel ──
-  const winiDisponibili = wines.filter(w => w.giacenza > 0)
-    .sort((a,b) => a.tipologia.localeCompare(b.tipologia) || a.nome.localeCompare(b.nome));
-  const totDaScarico = winiDisponibili.reduce((s,w) => s + (parseInt(scaricoSerata.qtys[w.id])||0), 0);
-  const righeValide = winiDisponibili.filter(w => (parseInt(scaricoSerata.qtys[w.id])||0) > 0).length;
-
-  const ieri = (() => { const d=new Date(); d.setDate(d.getDate()-1); return d.toISOString().split("T")[0]; })();
-
-  let scaricoPanelHtml = `
-  <div style="background:rgba(28,28,30,.8);border:1px solid rgba(255,159,10,.25);margin-bottom:20px">
-    <button onclick="toggleScaricoPannello()" style="width:100%;display:flex;align-items:center;justify-content:space-between;padding:14px 20px;background:none;border:none;cursor:pointer;font-family:inherit">
-      <div style="display:flex;align-items:center;gap:10px">
-        <span style="font-size:16px">🍾</span>
-        <div style="text-align:left">
-          <div style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--amber);font-family:inherit">Scarico Serata</div>
-          <div style="font-size:10px;color:var(--txt4);margin-top:2px">Scarica più vini in un colpo solo</div>
-        </div>
-      </div>
-      <span style="color:var(--txt3);font-size:12px">${scaricoSerata.open ? "▲ Chiudi" : "▼ Apri"}</span>
-    </button>`;
-
-  if(scaricoSerata.open){
-    scaricoPanelHtml += `
-    <div style="border-top:1px solid rgba(255,159,10,.12);padding:20px">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
-        <div>
-          <label class="form-label">Data consumo <span style="color:var(--txt4);font-size:9px;text-transform:none;letter-spacing:0">— default: ieri</span></label>
-          <input type="date" class="form-input" value="${scaricoSerata.data||ieri}"
-            onchange="scaricoSerata.data=this.value">
-        </div>
-        <div>
-          <label class="form-label">Note <span style="color:var(--txt4);font-size:9px;text-transform:none;letter-spacing:0">— opzionale</span></label>
-          <input type="text" class="form-input" value="${h(scaricoSerata.note)}" placeholder="es. Serata degustazione"
-            oninput="scaricoSerata.note=this.value">
-        </div>
-      </div>
-
-      ${winiDisponibili.length === 0
-        ? `<div style="text-align:center;padding:28px;color:var(--txt4);font-size:11px">Nessun vino con giacenza disponibile</div>`
-        : `<div style="margin-bottom:10px;position:relative">
-          <span style="position:absolute;left:9px;top:50%;transform:translateY(-50%);color:var(--txt3);pointer-events:none;font-size:12px">🔍</span>
-          <input type="text" class="form-input" style="padding-left:28px" placeholder="Cerca vino, produttore, annata…"
-            oninput="(function(v){document.querySelectorAll('#scarico-serata-table tbody tr').forEach(tr=>{const txt=tr.textContent.toLowerCase();tr.style.display=txt.includes(v.toLowerCase())?'':'none'})})(this.value)">
-        </div>
-        <div style="overflow-x:auto">
-        <table id="scarico-serata-table" style="width:100%;border-collapse:collapse">
-          <thead><tr>
-            <th style="padding:8px 12px;font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt3);text-align:left;background:rgba(41,37,36,.4);border-bottom:1px solid var(--border2)">Vino</th>
-            <th style="padding:8px 12px;font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt3);text-align:left;background:rgba(41,37,36,.4);border-bottom:1px solid var(--border2)">Produttore</th>
-            <th style="padding:8px 12px;font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt3);text-align:center;background:rgba(41,37,36,.4);border-bottom:1px solid var(--border2)">Tipo</th>
-            <th style="padding:8px 12px;font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--amber3);text-align:center;background:rgba(255,159,10,.08);border-bottom:1px solid var(--border2)">Giacenza</th>
-            <th style="padding:8px 12px;font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt);text-align:center;background:rgba(255,69,58,.08);border-bottom:1px solid var(--border2);min-width:100px">Scarico ✏️</th>
-          </tr></thead>
-          <tbody>
-            ${winiDisponibili.map(w => {
-              const qVal = scaricoSerata.qtys[w.id] || "";
-              const qNum = parseInt(qVal)||0;
-              const overLimit = qNum > w.giacenza;
-              const hasVal = qNum > 0;
-              return `<tr data-wid="${w.id}" style="${hasVal ? "background:rgba(255,69,58,.06)" : ""}">
-                <td style="padding:8px 12px;font-size:11px;border-bottom:1px solid rgba(41,37,36,.4);${hasVal?"color:var(--txt)":""}">${h(w.nome)}${w.annata?` <span style="color:var(--txt4);font-size:10px">${h(w.annata)}</span>`:""}</td>
-                <td style="padding:8px 12px;font-size:11px;color:var(--txt3);border-bottom:1px solid rgba(41,37,36,.4)">${h(w.produttore)}</td>
-                <td style="padding:8px 12px;text-align:center;border-bottom:1px solid rgba(41,37,36,.4)">${badge(w.tipologia)}</td>
-                <td style="padding:8px 12px;text-align:center;font-family:'Montserrat',sans-serif;font-size:1.1rem;color:var(--amber3);border-bottom:1px solid rgba(41,37,36,.4);background:rgba(255,159,10,.05)">${w.giacenza}</td>
-                <td style="padding:6px 12px;text-align:center;border-bottom:1px solid rgba(41,37,36,.4);background:rgba(255,69,58,.04)">
-                  <input type="number" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" min="0" max="${w.giacenza}" step="1"
-                    class="form-input"
-                    style="width:72px;text-align:center;font-family:'Montserrat',sans-serif;font-size:1rem;padding:4px 6px;${overLimit?"border-color:#ef4444;color:#FF453A":hasVal?"border-color:rgba(239,68,68,.5);color:#FF6B6B":""}"
-                    value="${qVal}"
-                    placeholder="0"
-                    oninput="scaricoSerata.qtys['${w.id}']=this.value;const cb=document.querySelector('#scarico-serata-table tr[data-wid=\\'${w.id}\\'] input[type=checkbox]');if(cb)cb.checked=(parseInt(this.value)||0)>0;_updateScaricoCounts()">
-                </td>
-              </tr>`;
-            }).join("")}
-          </tbody>
-        </table>
-      </div>`}
-
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:16px;padding-top:14px;border-top:1px solid rgba(255,159,10,.12)">
-        <div id="scarico-serata-count" style="font-size:11px;color:var(--txt3)">
-          ${righeValide > 0
-            ? `<span style="color:#FF6B6B">${righeValide} vin${righeValide===1?"o":"i"}</span> · <span style="color:var(--amber)">${totDaScarico} bottiglie</span> da scaricare`
-            : `<span style="color:var(--txt4)">Inserisci le quantità finite</span>`}
-        </div>
-        <button class="btn-primary"
-          style="background:${righeValide>0?"var(--amber3)":"rgba(58,58,60,.5)"};color:${righeValide>0?"#000":"var(--txt4)"};cursor:${righeValide>0?"pointer":"not-allowed"}"
-          ${righeValide===0?"disabled":""}
-          onclick="registraScaricaSerata()">
-          🍾 Registra ${righeValide>0?`${righeValide} scarich${righeValide===1?"o":"i"}`:"scarichi"}
-        </button>
-      </div>
-    </div>`;
-  }
-
-  scaricoPanelHtml += `</div>`;
-
-  let html = scaricoPanelHtml + `<div class="kpi-grid g2" style="margin-bottom:20px">
+  let html = `<div class="kpi-grid g2" style="margin-bottom:20px">
     <div class="card">
       <div class="section-label"><span>📦 Registra Movimento</span></div>
       <div class="form-grid g2" style="margin-bottom:8px">
@@ -2478,6 +2549,7 @@ function renderMovimenti(){
 // ─── SCARICO SERATA STANDALONE PAGE ──────────────────────────────────────────
 function renderScaricoSerataPage(){
   const sortKey = scaricoSerata.sort || 'nome';
+  const listCollapsed = scaricoSerata.listCollapsed || false;
   const winiBase = wines.filter(w => w.giacenza > 0);
   const winiDisponibili = winiBase.slice().sort((a,b) => {
     if(sortKey === 'giacenza') return b.giacenza - a.giacenza || a.nome.localeCompare(b.nome);
@@ -2486,109 +2558,133 @@ function renderScaricoSerataPage(){
   });
   const righeValide = winiDisponibili.filter(w=>(parseInt(scaricoSerata.qtys[w.id])||0)>0).length;
   const totDaScarico = winiDisponibili.reduce((s,w)=>s+(parseInt(scaricoSerata.qtys[w.id])||0),0);
+  const ricavoTot = winiDisponibili.reduce((s,w)=>{
+    const q=parseInt(scaricoSerata.qtys[w.id])||0;
+    return s+(q&&w.prezzoCarta?q*parseFloat(w.prezzoCarta):0);
+  },0);
   const sortBtn = (key, label) => {
     const active = sortKey === key;
     return `<button onclick="const _sy=window.scrollY;scaricoSerata.sort='${key}';render();requestAnimationFrame(()=>window.scrollTo(0,_sy))" style="font-size:10px;font-weight:${active?'700':'500'};padding:4px 12px;border:1px solid ${active?'rgba(255,159,10,.5)':'var(--border2)'};color:${active?'var(--amber)':'var(--txt3)'};background:${active?'rgba(255,159,10,.1)':'none'};cursor:pointer;font-family:inherit;border-radius:6px;transition:all .15s">${label}</button>`;
   };
-  return `<div class="card" style="margin-bottom:16px">
-    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:16px">
-      <div style="flex:1;min-width:200px">
-        <div style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt3);margin-bottom:6px">Data Serata</div>
-        <input type="date" class="form-input" style="max-width:200px" value="${scaricoSerata.data}"
-          oninput="scaricoSerata.data=this.value">
-      </div>
-      <div style="flex:2;min-width:200px">
-        <div style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt3);margin-bottom:6px">Note</div>
-        <input class="form-input" placeholder="Note serata..." value="${h(scaricoSerata.note||'')}"
-          oninput="scaricoSerata.note=this.value">
-      </div>
-    </div>
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
-      <span style="font-size:10px;color:var(--txt4);letter-spacing:.1em;text-transform:uppercase">Ordina:</span>
-      ${sortBtn('nome','↕ Nome')}
-      ${sortBtn('tipo','↕ Tipo')}
-      ${sortBtn('giacenza','↕ Giacenza ↓')}
-      <div style="flex:1;min-width:160px;position:relative;margin-left:8px">
-        <span style="position:absolute;left:9px;top:50%;transform:translateY(-50%);color:var(--txt3);pointer-events:none;font-size:12px">&#128269;</span>
-        <input type="text" class="form-input" style="padding-left:28px" placeholder="Cerca vino, produttore, annata..."
-          oninput="(function(v){document.querySelectorAll('#ssp-table tbody tr').forEach(tr=>{const txt=tr.textContent.toLowerCase();tr.style.display=txt.includes(v.toLowerCase())?'':'none'})})(this.value)">
-      </div>
-    </div>
-    <div style="overflow-x:auto"><table id="ssp-table" style="width:100%;border-collapse:collapse">
-      <thead><tr>
-        <th style="text-align:left">Vino</th>
-        <th style="text-align:left">Produttore</th>
-        <th style="text-align:center">${badge('Tipo')}</th>
-        <th style="text-align:center;color:var(--amber3);background:rgba(255,159,10,.08);cursor:pointer" onclick="const _sy=window.scrollY;scaricoSerata.sort='giacenza';render();requestAnimationFrame(()=>window.scrollTo(0,_sy))" title="Ordina per giacenza">Giacenza${sortKey==='giacenza'?' ↓':''}</th>
-        <th style="text-align:center;color:var(--txt);background:rgba(255,69,58,.08);min-width:110px">Scarico</th>
-        <th style="text-align:right;color:#30D158;background:rgba(48,209,88,.06);min-width:80px">Ricavo</th>
-        <th style="width:52px;background:rgba(255,69,58,.08)"></th>
-      </tr></thead>
-      <tbody>
-        ${winiDisponibili.map(w=>{
-          const qVal=scaricoSerata.qtys[w.id]||"";
-          const qNum=parseInt(qVal)||0;
-          const overLimit=qNum>w.giacenza;
-          const hasVal=qNum>0;
-          return `<tr data-wid="${w.id}" style="${hasVal?"background:rgba(255,69,58,.06)":""}">
-            <td style="word-break:break-word;white-space:normal;min-width:90px">
-              <div style="font-size:13px;${hasVal?"color:var(--txt)":"color:var(--txt2)"};word-break:break-word;white-space:normal;line-height:1.35">${h(w.nome)}</div>
-              ${w.annata?`<div style="font-size:10px;color:var(--amber);margin-top:1px">${h(w.annata)}</div>`:''}
-              <div style="font-size:10px;color:var(--txt4);margin-top:1px" class="ssp-prod-mobile">${h(w.produttore)}</div>
-            </td>
-            <td style="color:var(--txt3);font-size:11px" class="ssp-col-desktop">${h(w.produttore)}</td>
-            <td style="text-align:center">${badge(w.tipologia)}</td>
-            <td class="ssp-giac" style="text-align:center;font-family:'Montserrat',sans-serif;font-size:1.1rem;color:var(--amber3);background:rgba(255,159,10,.05)">${w.giacenza}</td>
-            <td style="text-align:center;background:rgba(255,69,58,.04)">
-              <input type="number" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" min="0" max="${w.giacenza}" step="1" class="form-input"
-                style="width:80px;text-align:center;font-family:'Montserrat',sans-serif;font-size:1.1rem;padding:4px 8px;${overLimit?"border-color:#ef4444;color:#FF453A":hasVal?"border-color:rgba(239,68,68,.5);color:#FF6B6B":""}"
-                value="${qVal}" placeholder="0"
-                oninput="scaricoSerata.qtys['${w.id}']=this.value;const cb=document.querySelector('#ssp-table tr[data-wid=\\'${w.id}\\'] input[type=checkbox]');if(cb)cb.checked=(parseInt(this.value)||0)>0;_updateScaricoCounts()">
-            </td>
-            <td class="ssp-ricavo-${w.id}" style="text-align:right;font-size:11px;color:${hasVal&&w.prezzoCarta?'#30D158':'var(--txt4)'};background:rgba(48,209,88,.04);padding:4px 10px;white-space:nowrap">
-              ${hasVal&&w.prezzoCarta?fmt(qNum*parseFloat(w.prezzoCarta)):'—'}
-            </td>
-            <td style="text-align:center;padding:4px 6px;background:rgba(255,69,58,.04)">
-              <button onclick="registraScaricaSingoloVino('${w.id}')"
-                style="width:40px;height:40px;border-radius:8px;border:1px solid rgba(255,69,58,.4);background:rgba(255,69,58,.15);color:#FF6B6B;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s"
-                onmouseover="if((parseInt(scaricoSerata.qtys['${w.id}'])||0)>0){this.style.background='rgba(255,69,58,.35)';this.style.color='#fff'}"
-                onmouseout="this.style.background='rgba(255,69,58,.15)';this.style.color='#FF6B6B'"
-                title="Scarica ora questo vino">✓</button>
-            </td>
-          </tr>`;
-        }).join("")}
-      </tbody>
-    </table></div>
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,159,10,.12)">
+
+  // ── sticky action bar (sempre visibile, anche a lista collassata) ──
+  const actionBarHtml = `
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;background:rgba(28,28,30,.95);border-top:1px solid rgba(255,159,10,.18);position:sticky;bottom:0;z-index:10;backdrop-filter:blur(8px)">
       <div id="scarico-serata-count" style="font-size:12px;color:var(--txt3)">
         ${righeValide>0
-          ? `<span style="color:#FF6B6B;font-family:'Montserrat',sans-serif;font-size:1.1rem">${righeValide}</span> vini - <span style="color:var(--amber);font-family:'Montserrat',sans-serif;font-size:1.1rem">${totDaScarico}</span> bottiglie`
-          : `<span style="color:var(--txt4)">Inserisci le quantita finite</span>`}
+          ? `<span style="color:#FF6B6B;font-family:'Montserrat',sans-serif;font-size:1.1rem">${righeValide}</span> vin${righeValide===1?'o':'i'} · <span style="color:var(--amber);font-family:'Montserrat',sans-serif;font-size:1.1rem">${totDaScarico}</span> bottigli${totDaScarico===1?'a':'e'}${ricavoTot>0?` · <span style="color:#30D158;font-family:'Montserrat',sans-serif">${fmt(ricavoTot)}</span>`:''}`
+          : `<span style="color:var(--txt4)">Inserisci le quantità finite</span>`}
       </div>
       <button class="btn-primary"
         style="background:${righeValide>0?"var(--amber3)":"rgba(58,58,60,.5)"};color:${righeValide>0?"#000":"var(--txt4)"};cursor:${righeValide>0?"pointer":"not-allowed"};padding:10px 24px;font-size:11px"
         ${righeValide===0?"disabled":""}
         onclick="const _sy=window.scrollY;registraScaricaSerata();_reportInlineOpen=true;setTimeout(()=>{const b=document.getElementById('report-inline-body');const a=document.getElementById('report-inline-arrow');if(b){b.style.display='block';b.innerHTML=_renderReportBody(reportSerataData);}if(a){a.className='report-toggle-arrow open';}window.scrollTo(0,_sy);},200)">
-        Registra ${righeValide>0?righeValide+" scarichi":"scarichi"}
+        Registra ${righeValide>0?righeValide+' scarich'+(righeValide===1?'o':'i'):'scarichi'}
       </button>
+    </div>`;
+
+  return `<div class="card" style="margin-bottom:16px;padding-bottom:0;overflow:hidden">
+    <div style="padding:20px 20px 16px">
+      <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:16px">
+        <div style="flex:1;min-width:200px">
+          <div style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt3);margin-bottom:6px">Data Serata</div>
+          <input type="date" class="form-input" style="max-width:200px" value="${scaricoSerata.data}"
+            oninput="scaricoSerata.data=this.value">
+        </div>
+        <div style="flex:2;min-width:200px">
+          <div style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt3);margin-bottom:6px">Note</div>
+          <input class="form-input" placeholder="Note serata..." value="${h(scaricoSerata.note||'')}"
+            oninput="scaricoSerata.note=this.value">
+        </div>
+      </div>
+
+      <!-- header collassabile lista vini -->
+      <div onclick="scaricoSerata.listCollapsed=!scaricoSerata.listCollapsed;render()"
+        style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;padding:10px 14px;border-radius:8px;border:1px solid ${listCollapsed?'rgba(255,159,10,.3)':'var(--border2)'};background:${listCollapsed?'rgba(255,159,10,.06)':'rgba(41,37,36,.3)'};margin-bottom:${listCollapsed?'0':'14px'};transition:all .2s;user-select:none">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-size:14px">🍷</span>
+          <div>
+            <span style="font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:${listCollapsed?'var(--amber)':'var(--txt2)'}">Lista Vini</span>
+            <span style="font-size:10px;color:var(--txt4);margin-left:8px">${winiDisponibili.length} referenze disponibili</span>
+          </div>
+          ${righeValide>0?`<span style="font-size:10px;padding:2px 8px;border-radius:12px;background:rgba(255,69,58,.15);border:1px solid rgba(255,69,58,.3);color:#FF6B6B;font-family:'Montserrat',sans-serif">${righeValide} selezionat${righeValide===1?'o':'i'}</span>`:''}
+        </div>
+        <span style="color:var(--amber3);font-size:12px;font-weight:600;transition:transform .2s;display:inline-block;transform:rotate(${listCollapsed?'0':'180'}deg)">▼</span>
+      </div>
     </div>
+
+    <!-- corpo lista vini (collassabile) -->
+    <div id="ssp-list-body" style="display:${listCollapsed?'none':'block'}">
+      <div style="padding:0 20px 10px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+          <span style="font-size:10px;color:var(--txt4);letter-spacing:.1em;text-transform:uppercase">Ordina:</span>
+          ${sortBtn('nome','↕ Nome')}
+          ${sortBtn('tipo','↕ Tipo')}
+          ${sortBtn('giacenza','↕ Giacenza ↓')}
+          <div style="flex:1;min-width:160px;position:relative;margin-left:8px">
+            <span style="position:absolute;left:9px;top:50%;transform:translateY(-50%);color:var(--txt3);pointer-events:none;font-size:12px">&#128269;</span>
+            <input type="text" class="form-input" style="padding-left:28px" placeholder="Cerca vino, produttore, annata..."
+              oninput="(function(v){document.querySelectorAll('#ssp-table tbody tr').forEach(tr=>{const txt=tr.textContent.toLowerCase();tr.style.display=txt.includes(v.toLowerCase())?'':'none'})})(this.value)">
+          </div>
+        </div>
+      </div>
+      <div style="overflow-x:auto"><table id="ssp-table" style="width:100%;border-collapse:collapse">
+        <thead><tr>
+          <th style="text-align:left">Vino</th>
+          <th style="text-align:left">Produttore</th>
+          <th style="text-align:center">${badge('Tipo')}</th>
+          <th style="text-align:center;color:var(--amber3);background:rgba(255,159,10,.08);cursor:pointer" onclick="const _sy=window.scrollY;scaricoSerata.sort='giacenza';render();requestAnimationFrame(()=>window.scrollTo(0,_sy))" title="Ordina per giacenza">Giacenza${sortKey==='giacenza'?' ↓':''}</th>
+          <th style="text-align:center;color:var(--txt);background:rgba(255,69,58,.08);min-width:110px">Scarico</th>
+          <th style="text-align:right;color:#30D158;background:rgba(48,209,88,.06);min-width:80px">Ricavo</th>
+          <th style="width:52px;background:rgba(255,69,58,.08)"></th>
+        </tr></thead>
+        <tbody>
+          ${winiDisponibili.map(w=>{
+            const qVal=scaricoSerata.qtys[w.id]||"";
+            const qNum=parseInt(qVal)||0;
+            const overLimit=qNum>w.giacenza;
+            const hasVal=qNum>0;
+            return `<tr data-wid="${w.id}" style="${hasVal?"background:rgba(255,69,58,.06)":""}">
+              <td style="word-break:break-word;white-space:normal;min-width:90px">
+                <div style="font-size:13px;${hasVal?"color:var(--txt)":"color:var(--txt2)"};word-break:break-word;white-space:normal;line-height:1.35">${h(w.nome)}</div>
+                ${w.annata?`<div style="font-size:10px;color:var(--amber);margin-top:1px">${h(w.annata)}</div>`:''}
+                <div style="font-size:10px;color:var(--txt4);margin-top:1px" class="ssp-prod-mobile">${h(w.produttore)}</div>
+              </td>
+              <td style="color:var(--txt3);font-size:11px" class="ssp-col-desktop">${h(w.produttore)}</td>
+              <td style="text-align:center">${badge(w.tipologia)}</td>
+              <td class="ssp-giac" style="text-align:center;font-family:'Montserrat',sans-serif;font-size:1.1rem;color:var(--amber3);background:rgba(255,159,10,.05)">${w.giacenza}</td>
+              <td style="text-align:center;background:rgba(255,69,58,.04)">
+                <input type="number" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" min="0" max="${w.giacenza}" step="1" class="form-input"
+                  style="width:80px;text-align:center;font-family:'Montserrat',sans-serif;font-size:1.1rem;padding:4px 8px;${overLimit?"border-color:#ef4444;color:#FF453A":hasVal?"border-color:rgba(239,68,68,.5);color:#FF6B6B":""}"
+                  value="${qVal}" placeholder="0"
+                  oninput="scaricoSerata.qtys['${w.id}']=this.value;const cb=document.querySelector('#ssp-table tr[data-wid=\\'${w.id}\\'] input[type=checkbox]');if(cb)cb.checked=(parseInt(this.value)||0)>0;_updateScaricoCounts()">
+              </td>
+              <td class="ssp-ricavo-${w.id}" style="text-align:right;font-size:11px;color:${hasVal&&w.prezzoCarta?'#30D158':'var(--txt4)'};background:rgba(48,209,88,.04);padding:4px 10px;white-space:nowrap">
+                ${hasVal&&w.prezzoCarta?fmt(qNum*parseFloat(w.prezzoCarta)):'—'}
+              </td>
+              <td style="text-align:center;padding:4px 6px;background:rgba(255,69,58,.04)">
+                <button onclick="registraScaricaSingoloVino('${w.id}')"
+                  style="width:40px;height:40px;border-radius:8px;border:1px solid rgba(255,69,58,.4);background:rgba(255,69,58,.15);color:#FF6B6B;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s"
+                  onmouseover="if((parseInt(scaricoSerata.qtys['${w.id}'])||0)>0){this.style.background='rgba(255,69,58,.35)';this.style.color='#fff'}"
+                  onmouseout="this.style.background='rgba(255,69,58,.15)';this.style.color='#FF6B6B'"
+                  title="Scarica ora questo vino">✓</button>
+              </td>
+            </tr>`;
+          }).join("")}
+        </tbody>
+      </table></div>
+    </div>
+
+    ${actionBarHtml}
   </div>
   <div class="report-inline-panel">
     <div class="report-inline-toggle" onclick="toggleReportInline()">
-      <div class="report-toggle-label">📋 Report Serata in Tempo Reale</div>
+      <div class="report-toggle-label">📋 Report & Storico Serata</div>
       <span class="report-toggle-arrow${_reportInlineOpen?' open':''}" id="report-inline-arrow">▼</span>
     </div>
     <div id="report-inline-body" style="display:${_reportInlineOpen?'block':'none'};padding-bottom:24px">
       ${_reportInlineOpen ? _renderReportBody(reportSerataData) : ""}
     </div>
-  </div>
-  <div class="card" style="margin-bottom:16px">
-    <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;padding:4px 0"
-      onclick="(function(){const b=document.getElementById('sc-hist-body');const a=document.getElementById('sc-hist-arrow');if(!b)return;const open=b.style.display!=='none';b.style.display=open?'none':'block';a.style.transform=open?'rotate(0deg)':'rotate(180deg)';if(!open&&b.dataset.rendered==='0'){b.dataset.rendered='1';_renderStoricoScarichi();}})()">
-      <div style="font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--txt3)">🗂 Storico Scarichi</div>
-      <span id="sc-hist-arrow" style="color:var(--txt4);font-size:12px;transition:transform .2s">▼</span>
-    </div>
-    <div id="sc-hist-body" style="display:none;margin-top:12px" data-rendered="0"></div>
   </div>
   <style>
     @media(min-width:600px){
@@ -2600,9 +2696,10 @@ function renderScaricoSerataPage(){
       .ssp-prod-mobile{display:block!important}
     }
   </style>
-</div>`;
+`;
 
 }
+
 let reportSerataData = today();
 let _reportInlineOpen = false;
 function toggleReportInline(){
@@ -2616,7 +2713,7 @@ function toggleReportInline(){
 function _renderReportBody(dataSelezionata){
   const wineMap = Object.fromEntries(wines.map(w=>[w.id,w]));
   const dateConScarichi = [...new Set(movements.filter(m=>m.tipo==="scarico").map(m=>m.data))].sort((a,b)=>b.localeCompare(a));
-  const scarichi = movements.filter(m=>m.tipo==="scarico"&&m.data===dataSelezionata);
+  const scarichi = movements.filter(m=>m.tipo==="scarico"&&m.data===dataSelezionata).sort((a,b)=>(b.ts||0)-(a.ts||0));
   const totBt = scarichi.reduce((s,m)=>s+m.qty,0);
   const totRicavo = scarichi.reduce((s,m)=>s+calcRicavoMovimento(m,wineMap[m.wineId]),0);
   const totCosto = scarichi.reduce((s,m)=>s+calcCostoMovimento(m,wineMap[m.wineId]),0);
@@ -2626,7 +2723,9 @@ function _renderReportBody(dataSelezionata){
   const byWine = {};
   scarichi.forEach(m=>{const w=wineMap[m.wineId];const k=m.wineId||m.wineName;if(!byWine[k])byWine[k]={nome:m.wineName,produttore:m.produttore||w?.produttore||"",tipologia:w?.tipologia||"",bt:0,ricavo:0};byWine[k].bt+=m.qty;byWine[k].ricavo+=calcRicavoMovimento(m,w);});
   const topWines = Object.values(byWine).sort((a,b)=>b.bt-a.bt);
-  return `<div style="margin-bottom:14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+
+  // ── date selector ──
+  const dateSel = `<div style="margin-bottom:14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
     <div><div style="font-size:10px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--txt3);margin-bottom:6px">Data</div>
     <input type="date" class="form-input" style="max-width:170px" value="${dataSelezionata}"
       oninput="reportSerataData=this.value;document.getElementById('report-inline-body').innerHTML=_renderReportBody(this.value)"></div>
@@ -2634,16 +2733,21 @@ function _renderReportBody(dataSelezionata){
       ${dateConScarichi.slice(0,5).map(d=>`<button onclick="reportSerataData='${d}';document.getElementById('report-inline-body').innerHTML=_renderReportBody('${d}')" style="font-size:11px;font-weight:500;padding:4px 10px;border:1px solid ${d===dataSelezionata?"rgba(255,159,10,.4)":"var(--border2)"};color:${d===dataSelezionata?"var(--amber)":"var(--txt3)"};background:${d===dataSelezionata?"rgba(255,159,10,.08)":"none"};cursor:pointer;font-family:inherit;border-radius:6px">${d}</button>`).join("")}
     </div>`:""}
     ${scarichi.length>0?`<button class="btn-outline btn-sm" style="margin-left:auto" onclick="exportReportSerataCSV('${dataSelezionata}')">↓ CSV</button>`:""}
-  </div>
-  ${scarichi.length===0
-    ? `<div style="text-align:center;padding:32px;color:var(--txt4);background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm)">Nessuno scarico per ${dataSelezionata}</div>`
-    : `<div class="kpi-grid g4" style="margin-bottom:14px">
+  </div>`;
+
+  if(scarichi.length===0) return dateSel +
+    `<div style="text-align:center;padding:32px;color:var(--txt4);background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm)">Nessuno scarico per ${dataSelezionata}</div>`;
+
+  // ── KPI strip ──
+  const kpiHtml = `<div class="kpi-grid g4" style="margin-bottom:14px">
     <div class="kpi-card"><div class="kpi-label">Bottiglie</div><div class="kpi-val c-amber">${totBt}</div></div>
     <div class="kpi-card"><div class="kpi-label">Ricavo Stimato</div><div class="kpi-val c-green">${fmt(totRicavo)}</div></div>
     <div class="kpi-card"><div class="kpi-label">Costo Merce</div><div class="kpi-val c-amber">${fmt(totCosto)}</div></div>
     <div class="kpi-card"><div class="kpi-label">Margine Lordo</div><div class="kpi-val" style="color:${totMargine>=0?"#30D158":"#FF453A"}">${fmt(totMargine)}</div><div class="kpi-sub">${totRicavo?fmtN(totMargine/totRicavo*100,1)+"% sul ricavo":"—"}</div></div>
-  </div>
-  <div class="kpi-grid g2" style="margin-bottom:14px">
+  </div>`;
+
+  // ── breakdown per tipologia + vini ──
+  const breakdownHtml = `<div class="kpi-grid g2" style="margin-bottom:14px">
     <div class="card">
       <div class="section-label"><span>Per Tipologia</span></div>
       ${Object.entries(byTipo).sort((a,b)=>b[1].bt-a[1].bt).map(([t,v])=>`<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">${badge(t)}<div style="flex:1;height:4px;background:var(--bg3);border-radius:2px"><div style="height:4px;background:var(--amber);border-radius:2px;width:${totBt?Math.round(v.bt/totBt*100):0}%"></div></div><span style="color:var(--txt2);font-size:12px;width:40px;text-align:right">${v.bt} bt</span><span style="color:var(--amber);font-size:12px;width:80px;text-align:right">${fmt(v.ricavo)}</span></div>`).join("")}
@@ -2657,15 +2761,45 @@ function _renderReportBody(dataSelezionata){
         <tbody>${topWines.map(w=>`<tr style="border-top:1px solid var(--border)"><td style="padding:6px 8px"><div style="font-size:12px">${h(w.nome)}</div><div style="font-size:11px;color:var(--txt4)">${h(w.produttore)}</div></td><td style="padding:6px 8px">${badge(w.tipologia)}</td><td style="padding:6px 8px;text-align:center;font-family:'Montserrat',sans-serif;color:var(--amber)">${w.bt}</td><td style="padding:6px 8px;text-align:right;color:var(--amber)">${fmt(w.ricavo)}</td></tr>`).join("")}</tbody>
       </table>
     </div>
-  </div>
-  <div class="card" style="padding:0">
-    <div class="tbl-header"><span style="font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--txt3)">Dettaglio — ${scarichi.length} movimenti</span></div>
-    <div class="tbl-wrap"><table>
-      <thead><tr><th>Vino</th><th>Produttore</th><th>Tipologia</th><th>Annata</th><th class="r">Bt</th><th class="r">Ricavo</th><th class="r">Costo</th><th>Note</th></tr></thead>
-      <tbody>${scarichi.map(m=>{const w=wineMap[m.wineId];const ric=calcRicavoMovimento(m,w);const cos=m.qty*calcCostoIvaBottiglia(w||{});return `<tr><td style="font-size:12px">${h(m.wineName)}</td><td style="color:var(--txt3);font-size:12px">${h(m.produttore||"—")}</td><td>${badge(w?.tipologia||"")}</td><td style="color:var(--amber);font-family:'Montserrat',sans-serif">${w?.annata||"N.V."}</td><td class="r" style="color:#FF6B6B">${m.qty}</td><td class="r" style="color:var(--amber)">${ric?fmt(ric):"—"}</td><td class="r" style="color:var(--txt3)">${cos?fmt(cos):"—"}</td><td style="color:var(--txt4);font-size:11px">${m.note||"—"}</td></tr>`;}).join("")}</tbody>
-      <tfoot><tr><td colspan="4" style="color:var(--txt3);font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase">Totale serata</td><td class="r" style="color:#FF6B6B;font-size:1rem">${totBt}</td><td></td><td class="r" style="color:var(--amber);font-weight:600">${fmt(totRicavo)}</td><td class="r" style="color:var(--txt3)">${fmt(totCosto)}</td><td></td></tr></tfoot>
-    </table></div>
-  </div>`}`;
+  </div>`;
+
+  // ── dettaglio movimenti con delete (ex-storico) ──
+  const dettaglioHtml = `<div class="card" style="padding:0;margin-bottom:0">
+    <div class="tbl-header" style="display:flex;align-items:center;justify-content:space-between">
+      <span style="font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--txt3)">Dettaglio — ${scarichi.length} moviment${scarichi.length===1?'o':'i'}</span>
+    </div>
+    <div>
+      ${scarichi.map(m=>{
+        const w=wineMap[m.wineId];
+        const ric=calcRicavoMovimento(m,w);
+        return `<div class="sc-hist-row" data-mid="${m.id}" style="display:flex;align-items:flex-start;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border);flex-wrap:wrap">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;font-weight:500;color:var(--txt);word-break:break-word;line-height:1.35">${h(m.wineName||'—')}${w?.annata?` <span style="color:var(--amber);font-size:11px">${h(w.annata)}</span>`:''}</div>
+            <div style="font-size:11px;color:var(--txt4);margin-top:2px">${h(m.produttore||w?.produttore||'—')} · ${badge(w?.tipologia||'')} · <span style="color:var(--txt3)">${m.data||'—'}</span>${m.note?` · <span style="font-style:italic">${h(m.note)}</span>`:''}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
+            <div style="text-align:right">
+              <div style="font-family:'Montserrat',sans-serif;font-size:1.1rem;color:#FF6B6B;white-space:nowrap">−${m.qty} bt</div>
+              ${ric?`<div style="font-size:11px;color:var(--amber)">${fmt(ric)}</div>`:''}
+            </div>
+            <button onclick="_eliminaScarico('${m.id}')"
+              style="width:34px;height:34px;border-radius:8px;border:1px solid rgba(255,69,58,.3);background:rgba(255,69,58,.1);color:#FF453A;font-size:15px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center"
+              title="Elimina scarico e ripristina giacenza">🗑</button>
+          </div>
+        </div>`;
+      }).join("")}
+    </div>
+    <div style="padding:10px 14px;background:rgba(41,37,36,.3);border-top:1px solid var(--border2);display:flex;justify-content:space-between;align-items:center">
+      <span style="font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--txt3)">Totale</span>
+      <div style="display:flex;gap:20px;align-items:center">
+        <span style="font-family:'Montserrat',sans-serif;color:#FF6B6B">${totBt} bt</span>
+        <span style="color:var(--amber);font-weight:600">${fmt(totRicavo)}</span>
+        <span style="color:var(--txt3);font-size:11px">${fmt(totCosto)} costo</span>
+      </div>
+    </div>
+  </div>`;
+
+  return dateSel + kpiHtml + breakdownHtml + dettaglioHtml;
 }
 
 function exportReportSerataCSV(data){
@@ -2679,52 +2813,6 @@ function exportReportSerataCSV(data){
   rows.push(["","","","","TOTALE",scarichi.reduce((s,m)=>s+m.qty,0),"",fmtN(totRic),fmtN(totCos),fmtN(totRic-totCos),""]);
   dlCSV(toCSV([headers,...rows]),`report_serata_${data}.csv`);
   notify("Serata esportata");
-}
-
-function _renderStoricoScarichi(){
-  const body=document.getElementById("sc-hist-body");
-  if(!body) return;
-  const wineMap=Object.fromEntries(wines.map(w=>[w.id,w]));
-  const scarichiRecenti=movements.filter(m=>m.tipo==="scarico").sort((a,b)=>(b.ts||0)-(a.ts||0)||(b.data||"").localeCompare(a.data||"")).slice(0,80);
-  const dateConScarichi=[...new Set(scarichiRecenti.map(m=>m.data))].sort((a,b)=>b.localeCompare(a));
-  if(scarichiRecenti.length===0){
-    body.innerHTML=`<div style="text-align:center;padding:24px;color:var(--txt4)">Nessuno scarico registrato</div>`;
-    return;
-  }
-  let filtroData="";
-  const aggiorna=()=>{
-    const lista=filtroData?scarichiRecenti.filter(m=>m.data===filtroData):scarichiRecenti;
-    document.getElementById("sc-hist-list").innerHTML=lista.map(m=>{
-      const w=wineMap[m.wineId];
-      const ric=calcRicavoMovimento(m,w);
-      return `<div class="sc-hist-row" data-mid="${m.id}" style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border);flex-wrap:wrap">
-        <div style="flex:1;min-width:0">
-          <div style="font-size:13px;font-weight:500;color:var(--txt);word-break:break-word;white-space:normal;line-height:1.35">${h(m.wineName||'—')}${w?.annata?` <span style="color:var(--amber);font-size:11px">${h(w.annata)}</span>`:''}</div>
-          <div style="font-size:11px;color:var(--txt4);margin-top:2px">${h(m.produttore||w?.produttore||'—')} · <span style="color:var(--txt3)">${m.data||'—'}</span></div>
-          ${m.note?`<div style="font-size:11px;color:var(--txt3);margin-top:2px;font-style:italic">${h(m.note)}</div>`:''}
-        </div>
-        <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
-          <div style="text-align:right">
-            <div style="font-family:'Montserrat',sans-serif;font-size:1.1rem;color:#FF6B6B;white-space:nowrap">−${m.qty} bt</div>
-            ${ric?`<div style="font-size:11px;color:var(--amber)">${fmt(ric)}</div>`:''}
-          </div>
-          <button onclick="_eliminaScarico('${m.id}')"
-            style="width:34px;height:34px;border-radius:8px;border:1px solid rgba(255,69,58,.3);background:rgba(255,69,58,.1);color:#FF453A;font-size:15px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center"
-            title="Elimina scarico e ripristina giacenza">🗑</button>
-        </div>
-      </div>`;
-    }).join("");
-  };
-  body.innerHTML=`
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px" id="sc-hist-filters">
-      <button onclick="filtroData='';document.querySelectorAll('#sc-hist-filters button').forEach(b=>b.style.opacity='.6');this.style.opacity='1';aggiornaSH()" style="font-size:11px;padding:4px 10px;border:1px solid var(--border2);color:var(--amber);background:rgba(255,159,10,.08);cursor:pointer;border-radius:6px;font-family:inherit;opacity:1">Tutti</button>
-      ${dateConScarichi.slice(0,7).map(d=>`<button onclick="filtroData='${d}';document.querySelectorAll('#sc-hist-filters button').forEach(b=>b.style.opacity='.6');this.style.opacity='1';aggiornaSH()" style="font-size:11px;padding:4px 10px;border:1px solid var(--border2);color:var(--txt3);background:none;cursor:pointer;border-radius:6px;font-family:inherit;opacity:.6">${d}</button>`).join("")}
-    </div>
-    <div id="sc-hist-list"></div>`;
-  // Espone aggiornaSH nel scope globale per gli onclick inline
-  window.aggiornaSH = aggiorna;
-  window.filtroData = filtroData;
-  aggiorna();
 }
 
 function _eliminaScarico(movId){
@@ -5954,6 +6042,140 @@ function exportMovimentiCSV(){
 #inv-scroll-body::-webkit-scrollbar-track { background: transparent; }
 #inv-scroll-body::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
 #inv-scroll-body::-webkit-scrollbar-thumb:hover { background: var(--txt4); }
+
+/* ── Tab Bar Scarico / Storico ── */
+#mob-tab-bar {
+  display: flex; border-bottom: 1px solid var(--border);
+  background: var(--bg2); flex-shrink: 0;
+}
+.mob-tab-btn {
+  flex: 1; padding: 12px 0; font-size: 12px; font-weight: 600;
+  letter-spacing: .06em; text-transform: uppercase; border: none;
+  background: none; color: var(--txt3); cursor: pointer;
+  font-family: 'Montserrat', system-ui, sans-serif;
+  border-bottom: 2px solid transparent; transition: color .15s, border-color .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.mob-tab-btn.active { color: var(--amber); border-bottom-color: var(--amber); }
+#mob-scarico-pane, #mob-storico-pane { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+#mob-storico-pane { display: none; }
+
+/* ── Storico rows ── */
+#mob-storico-list { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.mob-stor-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 13px 14px; border-bottom: 1px solid var(--border);
+  transition: background .1s;
+}
+.mob-stor-row.annullato { opacity: .38; }
+.mob-stor-row:active:not(.annullato) { background: rgba(255,255,255,.04); }
+.mob-stor-info { flex: 1; min-width: 0; }
+.mob-stor-name {
+  font-size: 13px; font-weight: 600; color: var(--txt);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.mob-stor-meta { font-size: 10px; color: var(--txt4); margin-top: 2px; }
+.mob-stor-qty {
+  font-size: 18px; font-weight: 700; font-family: 'Montserrat', sans-serif;
+  color: var(--txt2); min-width: 28px; text-align: center; flex-shrink: 0;
+}
+.mob-stor-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.mob-stor-btn {
+  min-height: 36px; min-width: 36px; padding: 0 10px;
+  font-size: 11px; font-weight: 700; letter-spacing: .04em;
+  text-transform: uppercase; font-family: inherit; border-radius: 8px;
+  border: 1px solid; cursor: pointer; background: none;
+  -webkit-tap-highlight-color: transparent; transition: background .1s, opacity .1s;
+  display: flex; align-items: center; justify-content: center;
+}
+.mob-stor-btn-edit {
+  color: var(--amber); border-color: rgba(255,159,10,.35);
+  background: rgba(255,159,10,.08);
+}
+.mob-stor-btn-edit:active { background: rgba(255,159,10,.25); }
+.mob-stor-btn-del {
+  color: #FF6B6B; border-color: rgba(255,69,58,.3);
+  background: rgba(255,69,58,.08);
+}
+.mob-stor-btn-del:active { background: rgba(255,69,58,.28); }
+.mob-stor-btn:disabled { opacity: .3; cursor: not-allowed; }
+.mob-stor-annullato-badge {
+  font-size: 9px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--txt4); border: 1px solid var(--border2); border-radius: 4px; padding: 2px 6px;
+}
+.mob-stor-empty {
+  padding: 48px 24px; text-align: center; color: var(--txt4);
+  font-size: 12px; line-height: 2;
+}
+
+/* ── Bottom sheet modifica qty ── */
+#mob-edit-sheet {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 9999;
+  background: var(--bg2); border-radius: 20px 20px 0 0;
+  box-shadow: 0 -8px 40px rgba(0,0,0,.45);
+  padding: 0 0 env(safe-area-inset-bottom,16px);
+  transform: translateY(100%); transition: transform .28s cubic-bezier(.32,.72,0,1);
+  pointer-events: none;
+}
+#mob-edit-sheet.open { transform: translateY(0); pointer-events: all; }
+.mob-sheet-handle {
+  width: 36px; height: 4px; background: var(--border2); border-radius: 2px;
+  margin: 10px auto 0;
+}
+.mob-sheet-title {
+  font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--txt3); text-align: center; padding: 14px 20px 0;
+}
+.mob-sheet-wine {
+  font-size: 15px; font-weight: 600; color: var(--txt); text-align: center;
+  padding: 6px 20px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.mob-sheet-stepper {
+  display: flex; align-items: center; justify-content: center; gap: 0;
+  margin: 20px auto; width: 180px;
+  border: 1px solid var(--border2); border-radius: 12px; overflow: hidden;
+}
+.mob-sheet-step-btn {
+  width: 56px; height: 56px; font-size: 26px; font-weight: 300;
+  background: var(--bg3); border: none; color: var(--txt2); cursor: pointer;
+  font-family: inherit; -webkit-tap-highlight-color: transparent;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .1s;
+}
+.mob-sheet-step-btn:active { background: rgba(255,159,10,.2); color: var(--amber); }
+#mob-sheet-val {
+  flex: 1; text-align: center; font-size: 22px; font-weight: 700;
+  font-family: 'Montserrat', sans-serif; color: var(--txt);
+  background: var(--bg3);
+}
+.mob-sheet-actions {
+  display: flex; gap: 10px; padding: 0 16px 16px;
+}
+.mob-sheet-cancel {
+  flex: 1; height: 50px; border-radius: 12px; border: 1px solid var(--border2);
+  background: var(--bg3); color: var(--txt3); font-size: 14px; font-weight: 600;
+  font-family: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.mob-sheet-confirm {
+  flex: 2; height: 50px; border-radius: 12px; border: none;
+  background: var(--amber); color: #000; font-size: 14px; font-weight: 700;
+  font-family: inherit; cursor: pointer; letter-spacing: .02em;
+  -webkit-tap-highlight-color: transparent;
+}
+#mob-sheet-overlay {
+  position: fixed; inset: 0; z-index: 9998; background: rgba(0,0,0,.4);
+  display: none; backdrop-filter: blur(2px);
+}
+#mob-sheet-overlay.open { display: block; }
+
+/* ── Storico header totale serata ── */
+.mob-stor-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px; background: var(--bg2); border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.mob-stor-header-label { font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--txt4); }
+.mob-stor-header-val { font-size: 13px; font-weight: 700; color: var(--txt); font-family: 'Montserrat', sans-serif; }
   `;
   document.head.appendChild(style);
 })();
@@ -5969,7 +6191,14 @@ function enterMobileMode(){
   _mobActive = true;
   document.getElementById("mob-screen").style.display = "flex";
   document.getElementById("app").style.display = "none";
+
+  // Inietta tab bar + storico pane se non già presenti
+  if(!document.getElementById("mob-tab-bar")){
+    _injectMobStoricoDom();
+  }
+
   _renderMobLog();
+  _renderMobStorico();
   // Carica subito il backup locale (se esiste) così la lista appare immediatamente.
   _loadLocalBackup();
   if(wines.length > 0){
@@ -6173,18 +6402,20 @@ function registraMovimentoMobileQty(wineId, delta){
   // 4. Log & toast
   const ts = new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"});
   const desc = `Scaricato ${qty}× ${wine.nome}${wine.annata?" "+wine.annata:""}`;
-  _mobLog = [{ts, desc}, ..._mobLog].slice(0,4);
+  _mobLog = [{ts, desc, movId, wineId, qty, annullato:false, prevGiacenza, prevLots}, ..._mobLog];
   _renderMobLog();
   _mobUndoData = {wineId, delta, movId, prevGiacenza, prevLots};
   _showMobToast(desc);
+  _renderMobStorico();
   updateSidebar();
 }
 
 function _renderMobLog(){
   const el = document.getElementById("mob-log");
   if(!el) return;
-  if(_mobLog.length === 0){ el.innerHTML = `<div class="mob-log-item" style="color:var(--txt4)">Nessuna azione ancora</div>`; return; }
-  el.innerHTML = _mobLog.slice(0,4).map(entry =>
+  const visible = _mobLog.filter(e => !e.annullato).slice(0,4);
+  if(visible.length === 0){ el.innerHTML = `<div class="mob-log-item" style="color:var(--txt4)">Nessuna azione ancora</div>`; return; }
+  el.innerHTML = visible.map(entry =>
     `<div class="mob-log-item"><span>${entry.ts}</span> — ${h(entry.desc)}</div>`
   ).join("");
 }
@@ -6269,7 +6500,7 @@ async function registraMovimentoMobile(wineId, delta){
   const desc = delta < 0
     ? `Scaricato 1× ${wine.nome}${wine.annata?" "+wine.annata:""}`
     : `Caricato 1× ${wine.nome}${wine.annata?" "+wine.annata:""}`;
-  _mobLog = [{ts, desc}, ..._mobLog].slice(0,4);
+  _mobLog = [{ts, desc, movId, wineId, qty:Math.abs(delta), annullato:false, prevGiacenza, prevLots}, ..._mobLog];
   _renderMobLog();
 
   // Store undo data
@@ -6280,6 +6511,7 @@ async function registraMovimentoMobile(wineId, delta){
 
   // Re-render list
   _renderMobList();
+  _renderMobStorico();
   updateSidebar();
 }
 
@@ -6336,10 +6568,247 @@ async function mobUndo(){
 
   // Log undo
   const ts = new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"});
-  _mobLog = [{ts, desc:"↩ Annullato"}, ..._mobLog].slice(0,4);
+  _mobLog = _mobLog.map(e => e.movId === movId ? {...e, annullato:true} : e);
+  _mobLog = [{ts, desc:"↩ Annullato", annullato:false, movId:null, wineId:null, qty:0}, ..._mobLog];
   _renderMobLog();
   _renderMobList();
+  _renderMobStorico();
   updateSidebar();
+}
+
+// ─── MOBILE STORICO SCARICHI ──────────────────────────────────────────────────
+
+var _mobView = "scarico"; // "scarico" | "storico"
+var _sheetMovId = null;
+var _sheetQty = 1;
+
+function _injectMobStoricoDom(){
+  const screen = document.getElementById("mob-screen");
+  if(!screen) return;
+
+  // Trova il contenitore principale del mob (primo child flex-col dopo header)
+  // Struttura attesa: mob-screen > [mob-header] [mob-body/main-area]
+  // Iniettiamo tab bar appena prima di mob-list (o del suo contenitore)
+  const mobList = document.getElementById("mob-list");
+  if(!mobList) return;
+
+  // Wrap mob-list + mob-empty in un pane scarico
+  const existingParent = mobList.parentNode;
+
+  // Crea tab bar
+  const tabBar = document.createElement("div");
+  tabBar.id = "mob-tab-bar";
+  tabBar.innerHTML = `
+    <button class="mob-tab-btn active" id="mob-tab-scarico" onclick="mobSwitchView('scarico')">🍾 Scarico</button>
+    <button class="mob-tab-btn" id="mob-tab-storico" onclick="mobSwitchView('storico')">📋 Storico</button>`;
+
+  // Crea storico pane
+  const storicoPaneHTML = `
+    <div id="mob-storico-pane">
+      <div class="mob-stor-header">
+        <span class="mob-stor-header-label">Serata</span>
+        <span class="mob-stor-header-val" id="mob-stor-totale">0 bottiglie</span>
+      </div>
+      <div id="mob-storico-list"></div>
+    </div>`;
+
+  // Trova scarico pane (il contenitore di mob-list)
+  // Avvolgi mobList e mob-empty in un div#mob-scarico-pane
+  const scaricoPane = document.createElement("div");
+  scaricoPane.id = "mob-scarico-pane";
+  existingParent.insertBefore(scaricoPane, mobList);
+  scaricoPane.appendChild(mobList);
+  const emptyEl = document.getElementById("mob-empty");
+  if(emptyEl) scaricoPane.appendChild(emptyEl);
+
+  // Inserisci tab bar prima dello scarico pane
+  existingParent.insertBefore(tabBar, scaricoPane);
+
+  // Inserisci storico pane dopo scarico pane
+  scaricoPane.insertAdjacentHTML("afterend", storicoPaneHTML);
+
+  // Bottom sheet overlay + sheet
+  document.body.insertAdjacentHTML("beforeend", `
+    <div id="mob-sheet-overlay" onclick="mobCloseSheet()"></div>
+    <div id="mob-edit-sheet">
+      <div class="mob-sheet-handle"></div>
+      <div class="mob-sheet-title">Modifica quantità</div>
+      <div class="mob-sheet-wine" id="mob-sheet-wine-name">—</div>
+      <div class="mob-sheet-stepper">
+        <button class="mob-sheet-step-btn" onclick="mobSheetStep(-1)">−</button>
+        <span id="mob-sheet-val">1</span>
+        <button class="mob-sheet-step-btn" onclick="mobSheetStep(1)">+</button>
+      </div>
+      <div class="mob-sheet-actions">
+        <button class="mob-sheet-cancel" onclick="mobCloseSheet()">Annulla</button>
+        <button class="mob-sheet-confirm" onclick="mobConfirmEdit()">Salva</button>
+      </div>
+    </div>`);
+}
+
+function mobSwitchView(view){
+  _mobView = view;
+  const scarPane = document.getElementById("mob-scarico-pane");
+  const storPane = document.getElementById("mob-storico-pane");
+  const tabScar = document.getElementById("mob-tab-scarico");
+  const tabStor = document.getElementById("mob-tab-storico");
+  if(!scarPane || !storPane) return;
+  if(view === "storico"){
+    scarPane.style.display = "none";
+    storPane.style.display = "flex";
+    storPane.style.flexDirection = "column";
+    tabScar.classList.remove("active");
+    tabStor.classList.add("active");
+    _renderMobStorico();
+  } else {
+    scarPane.style.display = "flex";
+    scarPane.style.flexDirection = "column";
+    storPane.style.display = "none";
+    tabScar.classList.add("active");
+    tabStor.classList.remove("active");
+  }
+  // Aggiorna badge numero sul tab storico
+  _updateStoricoBadge();
+}
+
+function _updateStoricoBadge(){
+  const tabStor = document.getElementById("mob-tab-storico");
+  if(!tabStor) return;
+  const count = _mobLog.filter(e => e.movId && !e.annullato).length;
+  tabStor.textContent = count > 0 ? `📋 Storico (${count})` : "📋 Storico";
+}
+
+function _renderMobStorico(){
+  const el = document.getElementById("mob-storico-list");
+  const totEl = document.getElementById("mob-stor-totale");
+  if(!el) return;
+
+  const righe = _mobLog.filter(e => e.movId); // solo scarichi reali (no "↩ Annullato")
+  const totBt = righe.filter(e => !e.annullato).reduce((s, e) => s + (e.qty||0), 0);
+  if(totEl) totEl.textContent = totBt > 0 ? `${totBt} bottiglie` : "0 bottiglie";
+
+  _updateStoricoBadge();
+
+  if(righe.length === 0){
+    el.innerHTML = `<div class="mob-stor-empty">Nessuno scarico registrato<br><span style="font-size:10px;opacity:.5">Gli scarichi di questa sessione appariranno qui</span></div>`;
+    return;
+  }
+
+  el.innerHTML = righe.map(entry => {
+    const wine = wines.find(w => w.id === entry.wineId);
+    const wineName = wine ? (wine.nome + (wine.annata ? " " + wine.annata : "")) : entry.desc;
+    const produttore = wine ? (wine.produttore || "") : "";
+    const isAnnullato = entry.annullato;
+
+    return `<div class="mob-stor-row${isAnnullato ? " annullato" : ""}" data-movid="${entry.movId}">
+      <div class="mob-stor-info">
+        <div class="mob-stor-name">${h(wineName)}</div>
+        <div class="mob-stor-meta">${entry.ts}${produttore ? " · " + h(produttore) : ""}${isAnnullato ? " · <em>annullato</em>" : ""}</div>
+      </div>
+      <div class="mob-stor-qty">${entry.qty}</div>
+      <div class="mob-stor-actions">
+        ${isAnnullato
+          ? `<span class="mob-stor-annullato-badge">Annullato</span>`
+          : `<button class="mob-stor-btn mob-stor-btn-edit" onclick="mobOpenSheet('${entry.movId}')" title="Modifica">✏️</button>
+             <button class="mob-stor-btn mob-stor-btn-del" onclick="mobAnnullaStorico('${entry.movId}')" title="Annulla">✕</button>`
+        }
+      </div>
+    </div>`;
+  }).join("");
+}
+
+async function mobAnnullaStorico(movId){
+  const entry = _mobLog.find(e => e.movId === movId);
+  if(!entry || entry.annullato) return;
+
+  const {wineId, prevGiacenza, prevLots} = entry;
+
+  // Restore wine state
+  wines = wines.map(w => w.id === wineId ? {...w, giacenza:prevGiacenza, lots:prevLots} : w);
+  movements = movements.filter(m => m.id !== movId);
+
+  // Marca come annullato nel log
+  _mobLog = _mobLog.map(e => e.movId === movId ? {...e, annullato:true} : e);
+
+  _saveLocalBackup();
+  if(_sb){
+    _setDbStatus("sync","Sincronizzazione…");
+    try{
+      await _flushMovementsV2();
+      await _sbUpsert("cm_wines", {user_id:DB_USER, data:wines});
+      _setDbStatus("ok","Sincronizzato");
+    }catch(e){ _setDbStatus("err","Errore sync"); }
+  }
+
+  const wine = wines.find(w => w.id === wineId);
+  const wineName = wine ? wine.nome : "";
+  const ts = new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"});
+  _mobLog = [{ts, desc:`↩ Annullato: ${wineName}`, annullato:false, movId:null, wineId:null, qty:0}, ..._mobLog];
+
+  _renderMobLog();
+  _renderMobList();
+  _renderMobStorico();
+  updateSidebar();
+
+  // Feedback toast
+  _showMobToast(`↩ Annullato: ${wineName}`);
+}
+
+function mobOpenSheet(movId){
+  const entry = _mobLog.find(e => e.movId === movId);
+  if(!entry || entry.annullato) return;
+  _sheetMovId = movId;
+  _sheetQty = entry.qty || 1;
+
+  const wine = wines.find(w => w.id === entry.wineId);
+  const wineName = wine ? (wine.nome + (wine.annata ? " " + wine.annata : "")) : entry.desc;
+
+  const nameEl = document.getElementById("mob-sheet-wine-name");
+  const valEl = document.getElementById("mob-sheet-val");
+  if(nameEl) nameEl.textContent = wineName;
+  if(valEl) valEl.textContent = _sheetQty;
+
+  document.getElementById("mob-edit-sheet").classList.add("open");
+  document.getElementById("mob-sheet-overlay").classList.add("open");
+}
+
+function mobCloseSheet(){
+  _sheetMovId = null;
+  document.getElementById("mob-edit-sheet").classList.remove("open");
+  document.getElementById("mob-sheet-overlay").classList.remove("open");
+}
+
+function mobSheetStep(delta){
+  const entry = _sheetMovId ? _mobLog.find(e => e.movId === _sheetMovId) : null;
+  const wine = entry ? wines.find(w => w.id === entry.wineId) : null;
+  // Max = giacenza attuale (post-ripristino) + qty già scaricata (perché stiamo rimpiazzando)
+  const curGiacenza = wine ? (parseInt(wine.giacenza)||0) : 999;
+  const origQty = entry ? (entry.qty||1) : 1;
+  const maxQty = curGiacenza + origQty; // giacenza disponibile se annullassimo il mov corrente
+  _sheetQty = Math.max(1, Math.min(_sheetQty + delta, maxQty));
+  const valEl = document.getElementById("mob-sheet-val");
+  if(valEl) valEl.textContent = _sheetQty;
+}
+
+async function mobConfirmEdit(){
+  if(!_sheetMovId) return;
+  const movId = _sheetMovId;
+  const newQty = _sheetQty;
+  mobCloseSheet();
+
+  const entry = _mobLog.find(e => e.movId === movId);
+  if(!entry) return;
+
+  // 1. Annulla il vecchio movimento (ripristina giacenza + lots)
+  wines = wines.map(w => w.id === entry.wineId ? {...w, giacenza:entry.prevGiacenza, lots:entry.prevLots} : w);
+  movements = movements.filter(m => m.id !== movId);
+  _mobLog = _mobLog.map(e => e.movId === movId ? {...e, annullato:true} : e);
+
+  // 2. Registra nuovo scarico con qty aggiornata
+  await registraMovimentoMobileQty(entry.wineId, -newQty);
+  // registraMovimentoMobileQty aggiunge già il nuovo entry in _mobLog e chiama _renderMobStorico
+
+  _renderMobStorico();
 }
 
 // ─── MODIFICA MOVIMENTO ───────────────────────────────────────────────────────
@@ -7003,12 +7472,9 @@ function mergeDuplicati(){
 
 // ─── EVENT DELEGATION — INVENTARIO ───────────────────────────────────────────
 // Click singolo  → seleziona la riga (highlight + topbar actions)
-// Doppio click   → apre la scheda sola lettura (openWineDetail)
-// Eccezione: celle con ondblclick (nome, annata, prezzi) gestiscono l'inline
-// edit al doppio click e NON aprono la scheda, per evitare conflitti.
+// Doppio click   → apre la modal di MODIFICA (openWineModal) su tutta la riga
 document.getElementById("content").addEventListener("click", function(e){
   if(e.target.closest("button,input,select,a,label")) return;
-  if(e.target.closest("td[ondblclick]")) return;
   const tr = e.target.closest("tr[data-wine-id]");
   if(!tr) return;
   selectWineRow(tr.dataset.wineId);
@@ -7016,12 +7482,11 @@ document.getElementById("content").addEventListener("click", function(e){
 
 document.getElementById("content").addEventListener("dblclick", function(e){
   if(e.target.closest("button,input,select,a,label")) return;
-  // Celle con ondblclick gestiscono da sole l'inline edit — non interferire
-  if(e.target.closest("td[ondblclick]")) return;
   const tr = e.target.closest("tr[data-wine-id]");
   if(!tr) return;
   e.preventDefault();
-  openWineDetail(tr.dataset.wineId);
+  e.stopPropagation();
+  openWineModal(tr.dataset.wineId);
 });
 
 // ─── BRIDGE ORDINI_TESTATA → renderOrdini ────────────────────────────────────
@@ -7310,20 +7775,17 @@ document.addEventListener('keydown', function(e){
   }
   // E → modifica vino selezionato (inventario)
   if((e.key === 'e' || e.key === 'E') && section === 'inventario'){
-    const btn = document.getElementById('tba-edit');
-    if(btn && btn.classList.contains('enabled')){ btn.click(); }
+    if(_selectedWineId){ openWineModal(_selectedWineId); }
     return;
   }
   // P → nota veloce su vino selezionato (inventario)
   if((e.key === 'p' || e.key === 'P') && section === 'inventario'){
-    const btn = document.getElementById('tba-note');
-    if(btn && btn.classList.contains('enabled')){ btn.click(); }
+    if(_selectedWineId){ openNoteVeloce(_selectedWineId); }
     return;
   }
   // Delete / Backspace → elimina vino selezionato (inventario)
   if((e.key === 'Delete' || e.key === 'Backspace') && section === 'inventario'){
-    const btn = document.getElementById('tba-del');
-    if(btn && btn.classList.contains('enabled')){ btn.click(); }
+    if(_selectedWineId){ deleteWine(_selectedWineId); }
     return;
   }
   // ArrowDown / ArrowUp → naviga le righe inventario con tastiera
