@@ -7,7 +7,7 @@
 const PASSWORD_HASH = "4308b16b088ef46766393f253ec3d48d96dfc04e80712cc0c55f0491c848fbad";
 
 // S9: nome locale centralizzato — usato in stampaOrdine, emailOrdine e stampa PDF
-const NOME_LOCALE = "La Grandissima Osteria";
+const NOME_LOCALE = "Osteria Lagrandissima";
 
 // Array di default definito una sola volta — riusato in init, reset e catch
 const TIPOLOGIE_DEFAULT = ["Rosso","Bianco","Rosato","Champagne","Metodo Classico","Metodo Classico Rosato","Rifermentato","Rifermentato Rosso","Rifermentato Rosato","Col Fondo","Ancestrale","Macerato","Orange","Passito","Dolce","Liquoroso"];
@@ -37,10 +37,11 @@ const PIE_COLORS = ["#FF9F0A","#007AFF","#30D158","#BF5AF2","#FF375F","#32ADE6",
 let wines = [], movements = [], fallate = [], alertSoglie = {}, orders = [];
 let _bozzeSb = []; // bozze da ordini_testata+righe, caricate in background
 let section = "dashboard";
-let search = "", filterTipo = "tutti", filterVitigno = "tutti", filterFormato = "tutti",
+let search = "", filterTipo = "tutti", filterFormato = "tutti",
     filterDistrib = "tutti", filterProduttore = "tutti", filterRegione = "tutti", filterNazione = "tutti",
     filterGiacenza = "tutti", // "tutti"|"esaurito"|"basso"|"ok"
     invSort = "tipologia", invSortDir = 1; // 1=asc, -1=desc
+let filterVitigni = new Set(); // multi-select vitigni (chiavi lowercase); Set vuoto = tutti
 let analyticsRegione = "", analyticsTipo = "", analyticsAcquistiPeriodo = "mese";
 let movForm = {wineId:"",tipo:"carico",qty:1,data:today(),fattura:"",fornitore:"",note:"",prezzoAcqLotto:"",_wineText:"",_newProduttore:"",_newTipologia:"Rosso",_newPrezzoCarta:"",_newVitigni:"",_newZona:"",_newAnnata:"",_newRegione:"",_newNazione:"Italia",_newIva:22,_newDistributore:"",_tipologia:"",_newMode:false};
 let fallForm = {wineId:"",qty:1,motivo:"Tappo difettoso (TCA)",data:today(),note:""};
@@ -661,23 +662,23 @@ async function _flushSave(){
   }));
 
   try{
-    // 1) MOVIMENTI: sync a delta sul ledger append-only. Va fatto SEMPRE e per primo,
-    //    perché è sicuro anche se questa sessione è "indietro": può solo inserire/
-    //    aggiornare le righe che conosce, mai azzerare la storia altrui.
-    await _flushMovementsV2();
-
-    // 2) BLOB (wines/fallate/soglie/orders): qui vale ancora last-write-wins, perciò
-    //    proteggiamo con il version-check. Se la versione remota è più alta, questa
-    //    sessione è stantia → NON sovrascrivere i blob, ricarica e avvisa.
+    // 1) GATE DI VERSIONE — PRIMA di scrivere qualsiasi cosa (blob O movimenti).
+    //    Se la versione remota è più alta, questa sessione è stantia: non deve
+    //    scrivere NIENTE. Scrivere solo i movimenti (come faceva l'ordine precedente)
+    //    e poi scartare il blob faceva divergere giacenza e movimenti → è la causa
+    //    degli "scarichi che resuscitano" (movimento salvato ma riduzione di giacenza
+    //    persa). Ricarica lo stato coerente e chiedi di riapplicare.
     const remoteVersion = await _sbReadVersion();
     if(remoteVersion !== null && remoteVersion > _localVersion){
       _setDbStatus("sync","Aggiornamento da altra sessione…");
       notify("⚠️ I dati erano stati aggiornati da un'altra sessione: li ho ricaricati. Ricontrolla e riapplica l'ultima modifica.","err");
       _saveInFlight = false; // libera il mutex prima del reload
-      _savePending  = false; // scarta la coda: i blob locali stale non vanno scritti
+      _savePending  = false; // scarta la coda: lo stato locale stantio non va scritto
       await loadData();      // riallinea _localVersion, stato e baseline movimenti
       return;
     }
+
+    // 2) BLOB (wines/fallate/soglie/orders) + versione. Il blob contiene la giacenza.
     const newVersion = (_localVersion||0) + 1;
     await Promise.all([
       _sbUpsert("cm_wines",    { user_id:DB_USER, data:snapshot.wines }),
@@ -687,6 +688,13 @@ async function _flushSave(){
       _sbWriteVersion(newVersion),
     ]);
     _localVersion = newVersion;
+
+    // 3) MOVIMENTI sul ledger append-only — SOLO dopo che la giacenza è committata,
+    //    così movimento e riduzione di giacenza non possono divergere. Se il gate
+    //    sopra avesse bloccato, qui non arriviamo: nessun movimento orfano.
+    //    Resta comunque delta-safe (upsert per id + tombstone): una sessione stantia
+    //    non può cancellare la storia altrui, perché non arriva mai a questo punto.
+    await _flushMovementsV2();
     _setDbStatus("ok","Sincronizzato");
   }catch(e){
     _setDbStatus("err","Errore sync");
@@ -716,7 +724,6 @@ async function forceSave(){
   }));
   try{
     _saveLocalBackup(snapshot);
-    await _flushMovementsV2(); // movimenti sul ledger append-only
     await Promise.all([
       _sbUpsert("cm_wines",    { user_id:DB_USER, data:snapshot.wines }),
       _sbUpsert("cm_fallate",  { user_id:DB_USER, data:snapshot.fallate }),
@@ -726,6 +733,7 @@ async function forceSave(){
     const newVer = (_localVersion||0) + 1;
     await _sbWriteVersion(newVer);
     _localVersion = newVer;
+    await _flushMovementsV2(); // movimenti sul ledger, dopo il blob giacenza
     _setDbStatus("ok","Sincronizzato");
     notify("✅ Sync forzato — dati inviati a Supabase");
   }catch(e){
@@ -953,7 +961,7 @@ const SECTION_TITLES={dashboard:"Dashboard",inventario:"Inventario Vini","scaric
 function go(s){
   section=s;
   if(selMode) exitSel(); // NAV-03: resetta selezione multipla al cambio sezione
-  if(s!=="inventario"){ filterTipo="tutti"; filterVitigno="tutti"; filterFormato="tutti"; filterDistrib="tutti"; filterProduttore="tutti"; filterRegione="tutti"; filterNazione="tutti"; filterGiacenza="tutti"; _hideTopbarActions(); }
+  if(s!=="inventario"){ filterTipo="tutti"; filterVitigni.clear(); filterFormato="tutti"; filterDistrib="tutti"; filterProduttore="tutti"; filterRegione="tutti"; filterNazione="tutti"; filterGiacenza="tutti"; _hideTopbarActions(); }
   document.querySelectorAll(".nav-btn").forEach(b=>b.classList.toggle("active",b.dataset.section===s));
   document.getElementById("topbar-title").textContent=SECTION_TITLES[s]||s;
   document.getElementById("btn-add-wine").classList.add("hidden");
@@ -1023,16 +1031,6 @@ function selectWineRow(id){
 function _updateTopbarActions(id){ /* tba buttons removed — noop */ }
 
 // ─── INVENTORY ROW DOUBLE-CLICK DROPDOWN ─────────────────────────────────────
-// ─── SORT CYCLE ───────────────────────────────────────────────────────────────
-function _cycleInvSort(){
-  const sortOpts=['tipologia','nome','produttore','annata','regione','nazione','giacenza','prezzoAcq','prezzoCarta','distributore'];
-  const idx = sortOpts.indexOf(invSort);
-  if(idx === -1 || idx === sortOpts.length-1){ invSort=sortOpts[0]; }
-  else { invSort=sortOpts[idx+1]; }
-  invSortDir=1;
-  renderInventarioOnly();
-}
-
 // ─── INVENTORY CONTEXT MENUS (single-row double-click + bulk right-click) ─────
 (function _setupInvDropdown(){
   // ── Single-row menu (double-click) ──────────────────────────────────────────
@@ -1448,10 +1446,12 @@ function _applyShortcutTitles(){
 // Usata sia da renderInventario che da renderInventarioOnly (unica source of truth).
 function _buildInventarioList(){
   const q=search.toLowerCase();
+  const fvit=[...filterVitigni];
   let list=wines.filter(w=>{
     const mq=!q||[w.nome,w.produttore,w.distributore,w.regione,w.vitigni,w.annata,w.nazione].some(f=>(f||"").toLowerCase().includes(q));
     const mt=filterTipo==="tutti"||w.tipologia===filterTipo;
-    const mv=filterVitigno==="tutti"||(w.vitigni||"").toLowerCase().includes(filterVitigno.toLowerCase());
+    const wVit=(w.vitigni||"").split(/[,;/&+]+/).map(v=>v.trim().toLowerCase());
+    const mv=!fvit.length||fvit.every(g=>wVit.includes(g));
     const mf=filterFormato==="tutti"||(parseFloat(w.formato)||0.75)===parseFloat(filterFormato);
     const md=filterDistrib==="tutti"||(w.distributore||"")===filterDistrib;
     const mp=filterProduttore==="tutti"||(w.produttore||"")===filterProduttore;
@@ -1480,15 +1480,40 @@ function _buildInventarioList(){
 }
 
 function _resetInvFilters(){
-  filterTipo="tutti"; filterVitigno="tutti"; filterFormato="tutti";
+  filterTipo="tutti"; filterVitigni.clear(); filterFormato="tutti";
   filterDistrib="tutti"; filterProduttore="tutti"; filterRegione="tutti";
   filterNazione="tutti"; filterGiacenza="tutti";
   renderInventarioOnly();
 }
 function _hasActiveFilters(){
-  return filterTipo!=="tutti"||filterVitigno!=="tutti"||filterFormato!=="tutti"
+  return filterTipo!=="tutti"||filterVitigni.size>0||filterFormato!=="tutti"
     ||filterDistrib!=="tutti"||filterProduttore!=="tutti"||filterRegione!=="tutti"
     ||filterNazione!=="tutti"||filterGiacenza!=="tutti";
+}
+// ─── MULTI-VITIGNO ───────────────────────────────────────────────────────────
+function _toggleVitigno(v){
+  const k=String(v).toLowerCase();
+  if(filterVitigni.has(k)) filterVitigni.delete(k); else filterVitigni.add(k);
+  renderInventarioOnly();
+}
+function _clearVitigni(){ filterVitigni.clear(); renderInventarioOnly(); }
+// Stato attivo di un chip del popover — fonte unica usata sia in render sia in sync.
+function _isChipActive(fkey, fval){
+  switch(fkey){
+    case "vitigno": return fval==="__all__" ? filterVitigni.size===0 : filterVitigni.has(fval);
+    case "formato": return filterFormato===fval;
+    case "distrib": return filterDistrib===fval;
+    case "prod":    return filterProduttore===fval;
+    case "regione": return filterRegione===fval;
+    case "nazione": return filterNazione===fval;
+    default: return false;
+  }
+}
+function _applyChipStyle(btn, active){
+  btn.style.borderColor = active ? "rgba(10,132,255,.5)"  : "var(--border2)";
+  btn.style.background  = active ? "rgba(10,132,255,.16)" : "rgba(255,255,255,.04)";
+  btn.style.color       = active ? "#0A84FF"              : "var(--txt3)";
+  btn.style.fontWeight  = active ? "700" : "400";
 }
 function _toggleInvFilterPanel(){
   const panel = document.getElementById("inv-filter-panel");
@@ -1559,42 +1584,39 @@ function _syncInvFilterBar(){
     btn.style.fontWeight = act ? "700" : "500";
     btn.style.boxShadow = act ? "0 1px 4px rgba(0,0,0,.4)" : "none";
   });
-  // Tipo chips
-  document.querySelectorAll("#inv-filter-bar button[data-tipo]").forEach(btn=>{
-    const act = btn.dataset.tipo === filterTipo;
-    btn.style.borderColor = act ? "var(--amber)" : "var(--border2)";
-    btn.style.background = act ? "rgba(255,159,10,.18)" : "var(--bg3)";
-    btn.style.color = act ? "var(--amber)" : "var(--txt4)";
-    btn.style.fontWeight = act ? "700" : "500";
-  });
+  // Tipologia dropdown
+  const tipoSel=document.getElementById("inv-tipo-select");
+  if(tipoSel) tipoSel.value=filterTipo;
+  const tipoWrap=document.getElementById("inv-tipo-wrap");
+  if(tipoWrap){
+    const act=filterTipo!=="tutti";
+    tipoWrap.style.borderColor = act ? "rgba(10,132,255,.5)"  : "var(--border2)";
+    tipoWrap.style.background   = act ? "rgba(10,132,255,.12)" : "var(--bg3)";
+    tipoWrap.style.color        = act ? "#0A84FF"             : "var(--txt3)";
+  }
   // Badge e colore bottone filtri avanzati
   const advBtn = document.getElementById("inv-filter-btn");
   if(advBtn){
-    const advCount=[filterVitigno,filterFormato,filterDistrib,filterProduttore,filterRegione,filterNazione].filter(f=>f!=="tutti").length;
+    const advCount=(filterVitigni.size>0?1:0)+[filterFormato,filterDistrib,filterProduttore,filterRegione,filterNazione].filter(f=>f!=="tutti").length;
     const hasAdv = advCount>0;
-    advBtn.style.borderColor = hasAdv ? "rgba(191,95,255,.55)" : "var(--border2)";
-    advBtn.style.background = hasAdv ? "rgba(191,95,255,.12)" : "var(--bg3)";
-    advBtn.style.color = hasAdv ? "#cf8fff" : "var(--txt3)";
+    advBtn.style.borderColor = hasAdv ? "rgba(10,132,255,.5)"  : "var(--border2)";
+    advBtn.style.background   = hasAdv ? "rgba(10,132,255,.12)" : "var(--bg3)";
+    advBtn.style.color        = hasAdv ? "#0A84FF"             : "var(--txt3)";
     let badge = advBtn.querySelector("span[data-adv-badge]");
     if(hasAdv){
-      if(!badge){ badge=document.createElement("span"); badge.dataset.advBadge="1"; badge.style.cssText="background:#bf5fff;color:#fff;border-radius:10px;padding:0 5px;font-size:8px;font-weight:700;line-height:15px;min-width:15px;text-align:center"; advBtn.appendChild(badge); }
+      if(!badge){ badge=document.createElement("span"); badge.dataset.advBadge="1"; badge.style.cssText="background:#0A84FF;color:#fff;border-radius:10px;padding:0 5px;font-size:8px;font-weight:700;line-height:15px;min-width:15px;text-align:center"; advBtn.appendChild(badge); }
       badge.textContent=advCount;
     } else { badge && badge.remove(); }
   }
+  // Popover chip (single + multi vitigno) — ri-marca lo stato attivo senza full render
+  document.querySelectorAll("#inv-filter-panel button[data-fkey]").forEach(btn=>{
+    _applyChipStyle(btn, _isChipActive(btn.dataset.fkey, btn.dataset.fval));
+  });
   // Sort pill — aggiorna label e freccia senza full render
-  const sortPill = document.getElementById("inv-sort-pill");
-  if(sortPill){
-    const _sortOpts=[
-      {v:"tipologia",label:"Tipologia"},{v:"nome",label:"Nome vino"},
-      {v:"produttore",label:"Produttore"},{v:"annata",label:"Annata"},
-      {v:"regione",label:"Regione"},{v:"nazione",label:"Nazione"},
-      {v:"giacenza",label:"Giacenza"},{v:"prezzoAcq",label:"P. Acquisto"},
-      {v:"prezzoCarta",label:"P. Carta"},{v:"distributore",label:"Fornitore"},
-    ];
-    const lbl = _sortOpts.find(o=>o.v===invSort)?.label||"Tipo";
-    const dir = invSortDir===1?"↑":"↓";
-    sortPill.innerHTML = `${lbl} <span style="font-size:9px;opacity:.8">${dir}</span>`;
-  }
+  const sortSelect = document.getElementById("inv-sort-select");
+  if(sortSelect) sortSelect.value = invSort;
+  const sortDir = document.getElementById("inv-sort-dir");
+  if(sortDir) sortDir.textContent = invSortDir===1?"↑":"↓";
   // Clear btn — crea/rimuove secondo stato filtri (il wrapper è sempre presente)
   const clearWrap = document.getElementById("inv-clear-wrap");
   if(clearWrap){
@@ -1896,9 +1918,9 @@ function renderInventario(){
   const activeRegioni=[...new Set(wines.map(w=>w.regione||"").filter(Boolean))].sort();
   const activeNazioni=[...new Set(wines.map(w=>w.nazione||"").filter(Boolean))].sort();
 
-  const activeCount=[filterTipo,filterVitigno,filterFormato,filterDistrib,filterProduttore,filterRegione,filterNazione,filterGiacenza].filter(f=>f!=="tutti").length;
+  const activeCount=(filterVitigni.size>0?1:0)+[filterTipo,filterFormato,filterDistrib,filterProduttore,filterRegione,filterNazione,filterGiacenza].filter(f=>f!=="tutti").length;
   // advCount: solo filtri nel popover avanzato (esclude Tipo e Giacenza che sono inline)
-  const advCount=[filterVitigno,filterFormato,filterDistrib,filterProduttore,filterRegione,filterNazione].filter(f=>f!=="tutti").length;
+  const advCount=(filterVitigni.size>0?1:0)+[filterFormato,filterDistrib,filterProduttore,filterRegione,filterNazione].filter(f=>f!=="tutti").length;
 
   // Opzioni sort
   const sortOpts=[
@@ -1908,16 +1930,27 @@ function renderInventario(){
     {v:"giacenza",label:"Giacenza"},{v:"prezzoAcq",label:"P. Acquisto"},
     {v:"prezzoCarta",label:"P. Carta"},{v:"distributore",label:"Fornitore"},
   ];
-  const sortLabel=sortOpts.find(o=>o.v===invSort)?.label||"Tipo";
   const dirIcon=invSortDir===1?"↑":"↓";
 
-  function _fSection(title, opts, current, setter){
+  // ── Stile unificato controlli toolbar (look Apple, accent system-blue unico) ──
+  const ctrlBase = "height:28px;display:inline-flex;align-items:center;gap:5px;border-radius:8px;padding:0 9px;font-size:11px;font-weight:600;font-family:inherit;cursor:pointer;flex-shrink:0;box-sizing:border-box;transition:all .15s ease";
+  const ctrlOn   = "border:1px solid rgba(10,132,255,.5);background:rgba(10,132,255,.12);color:#0A84FF";
+  const ctrlOff  = "border:1px solid var(--border2);background:var(--bg3);color:var(--txt3)";
+
+  const _setVarMap={formato:"filterFormato",distrib:"filterDistrib",prod:"filterProduttore",regione:"filterRegione",nazione:"filterNazione"};
+  function _fSection({title, opts, fkey, multi}){
+    const esc=v=>String(v).replace(/'/g,"\\'");
     return `<div>
       <div style="font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--txt4);font-weight:700;margin-bottom:6px">${title}</div>
       <div style="display:flex;flex-wrap:wrap;gap:4px">
         ${opts.map(o=>{
-          const active = current===o.v;
-          return `<button onclick="${setter}('${o.v.replace(/'/g,"\\'")}');renderInventarioOnly()" style="padding:3px 10px;border-radius:20px;font-size:10px;cursor:pointer;border:1px solid ${active?'rgba(191,95,255,.55)':'var(--border2)'};background:${active?'rgba(191,95,255,.16)':'rgba(255,255,255,.04)'};color:${active?'#cf8fff':'var(--txt3)'};font-weight:${active?'700':'400'};white-space:nowrap;transition:all .12s ease">${h(o.label)}</button>`;
+          const isAll=o.v==="tutti";
+          const fval = multi ? (isAll?"__all__":String(o.v).toLowerCase()) : String(o.v);
+          const active=_isChipActive(fkey,fval);
+          const click = multi
+            ? (isAll?"_clearVitigni()":`_toggleVitigno('${esc(o.v)}')`)
+            : `${_setVarMap[fkey]}='${esc(o.v)}';renderInventarioOnly()`;
+          return `<button data-fkey="${fkey}" data-fval="${h(fval)}" onclick="${click}" style="padding:3px 10px;border-radius:20px;font-size:10px;cursor:pointer;border:1px solid ${active?'rgba(10,132,255,.5)':'var(--border2)'};background:${active?'rgba(10,132,255,.16)':'rgba(255,255,255,.04)'};color:${active?'#0A84FF':'var(--txt3)'};font-weight:${active?'700':'400'};white-space:nowrap;transition:all .12s ease">${h(o.label)}</button>`;
         }).join("")}
       </div>
     </div>`;
@@ -1955,33 +1988,38 @@ function renderInventario(){
         <!-- Separatore -->
         <div style="width:1px;height:18px;background:var(--border);flex-shrink:0"></div>
 
-        <!-- Tipo chips scroll -->
-        <div style="display:flex;align-items:center;gap:4px;overflow-x:auto;scrollbar-width:none;flex:1;min-width:0">
-          ${[{v:"tutti",label:"Tutti"}, ...activeTipi.map(t=>({v:t,label:t}))].map(o=>{
-            const act = filterTipo===o.v;
-            return `<button data-tipo="${o.v.replace(/"/g,'&quot;')}" onclick="filterTipo='${o.v.replace(/'/g,"\\'")}';renderInventarioOnly()" style="flex-shrink:0;padding:3px 10px;border-radius:20px;font-size:10px;font-weight:${act?'700':'500'};cursor:pointer;white-space:nowrap;transition:all .15s ease;border:1px solid ${act?'var(--amber)':'var(--border2)'};background:${act?'rgba(255,159,10,.18)':'var(--bg3)'};color:${act?'var(--amber)':'var(--txt4)'}">${h(o.label)}</button>`;
-          }).join('')}
+        <!-- Tipologia dropdown -->
+        <div id="inv-tipo-wrap" style="${ctrlBase};${filterTipo!=='tutti'?ctrlOn:ctrlOff};padding:0 6px 0 9px">
+          <select id="inv-tipo-select" onchange="filterTipo=this.value;renderInventarioOnly()" style="background:transparent;border:none;outline:none;font-size:11px;font-weight:600;color:inherit;cursor:pointer;font-family:inherit;padding:0 2px">
+            ${[{v:'tutti',label:'Tutte le tipologie'}, ...activeTipi.map(t=>({v:t,label:t}))].map(o=>`<option value="${h(o.v)}" ${filterTipo===o.v?'selected':''} style="background:var(--bg2);color:var(--txt1)">${h(o.label)}</option>`).join('')}
+          </select>
         </div>
 
-        <!-- Separatore -->
-        <div style="width:1px;height:18px;background:var(--border);flex-shrink:0"></div>
-
-        <!-- Sort pill (current only, click → cycle) -->
-        <button id="inv-sort-pill" onclick="_cycleInvSort()" style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;border:1px solid rgba(0,122,255,.35);background:rgba(0,122,255,.08);color:#60a5fa;font-size:10px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;transition:all .15s ease" title="Clicca per cambiare ordinamento">${h(sortLabel)} <span style="font-size:9px;opacity:.8">${dirIcon}</span></button>
+        <!-- Ordina: select + direzione -->
+        <div style="${ctrlBase};${ctrlOff};gap:3px;padding:0 5px 0 8px">
+          <svg width="11" height="11" viewBox="0 0 12 12" fill="none" style="flex-shrink:0;color:currentColor;opacity:.8"><path d="M1 3h10M3 6h6M5 9h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          <select id="inv-sort-select" onchange="invSort=this.value;renderInventarioOnly()" style="background:transparent;border:none;outline:none;font-size:11px;font-weight:600;color:inherit;cursor:pointer;padding:0 2px;font-family:inherit">
+            ${sortOpts.map(o=>`<option value="${o.v}" ${invSort===o.v?'selected':''} style="background:var(--bg2);color:var(--txt1)">${h(o.label)}</option>`).join('')}
+          </select>
+          <button id="inv-sort-dir" onclick="invSortDir*=-1;renderInventarioOnly()" style="background:none;border:none;color:currentColor;font-size:12px;cursor:pointer;padding:0 2px;font-weight:700;line-height:1" title="Inverti direzione">${dirIcon}</button>
+        </div>
 
         <!-- Filtri Avanzati -->
         <div style="position:relative;flex-shrink:0">
-          <button id="inv-filter-btn" onclick="_toggleInvFilterPanel()" style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:8px;border:1px solid ${advCount>0?'rgba(191,95,255,.55)':'var(--border2)'};background:${advCount>0?'rgba(191,95,255,.12)':'var(--bg3)'};color:${advCount>0?'#cf8fff':'var(--txt3)'};font-size:10px;font-weight:600;cursor:pointer;white-space:nowrap;transition:all .15s ease;letter-spacing:.02em">
+          <button id="inv-filter-btn" onclick="_toggleInvFilterPanel()" style="${ctrlBase};${advCount>0?ctrlOn:ctrlOff};letter-spacing:.02em">
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="3" r="1.5" stroke="currentColor" stroke-width="1.3"/><circle cx="6" cy="9" r="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M1 3h3.5M7.5 3H11M1 9h3.5M7.5 9H11" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
-            Filtri${advCount>0?` <span style="background:#bf5fff;color:#fff;border-radius:10px;padding:0 5px;font-size:8px;font-weight:700;line-height:15px;min-width:15px;text-align:center">${advCount}</span>`:''}
+            Filtri${advCount>0?` <span style="background:#0A84FF;color:#fff;border-radius:10px;padding:0 5px;font-size:8px;font-weight:700;line-height:15px;min-width:15px;text-align:center">${advCount}</span>`:''}
           </button>
         </div>
 
         <!-- Reset filtri (solo se attivi) -->
         <span id="inv-clear-wrap">${_hasActiveFilters()?`<button data-clear-btn="1" onclick="_resetInvFilters()" title="Cancella tutti i filtri" style="display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:8px;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.07);color:#FF453A;font-size:10px;font-weight:600;cursor:pointer;flex-shrink:0;white-space:nowrap;transition:all .15s ease">✕</button>`:""}</span>
 
+        <!-- Spazio flessibile (spinge Multipla a destra) -->
+        <div style="flex:1;min-width:8px"></div>
+
         <!-- Selezione multipla -->
-        ${selMode!=='wines'?`<button class="btn-outline btn-sm" onclick="enterSel('wines')" style="border-color:rgba(59,130,246,.4);color:#93c5fd;flex-shrink:0;white-space:nowrap;font-size:10px;padding:3px 10px">☑ Multipla</button>`:''}
+        ${selMode!=='wines'?`<button onclick="enterSel('wines')" style="${ctrlBase};${ctrlOff}">☑ Multipla</button>`:''}
 
       </div>
     </div>
@@ -1999,35 +2037,23 @@ function renderInventario(){
 
       <div style="display:flex;flex-direction:column;gap:14px">
 
-        ${_fSection("Vitigno",
-          [{v:"tutti",label:"Tutti"}, ...activeVitigni.map(v=>({v,label:v}))],
-          filterVitigno, "filterVitigno="
-        )}
+        ${_fSection({title:`Vitigno${filterVitigni.size?` · ${filterVitigni.size} selez.`:''}`, multi:true, fkey:"vitigno",
+          opts:[{v:"tutti",label:"Tutti"}, ...activeVitigni.map(v=>({v,label:v}))]})}
 
-        ${_fSection("Formato",
-          [{v:"tutti",label:"Tutti"}, ...activeFormati.map(f=>({v:String(f),label:f+"L"}))],
-          filterFormato, "filterFormato="
-        )}
+        ${_fSection({title:"Formato", fkey:"formato",
+          opts:[{v:"tutti",label:"Tutti"}, ...activeFormati.map(f=>({v:String(f),label:f+"L"}))]})}
 
-        ${_fSection("Distributore",
-          [{v:"tutti",label:"Tutti"}, ...activeDistrib.map(d=>({v:d,label:d}))],
-          filterDistrib, "filterDistrib="
-        )}
+        ${_fSection({title:"Distributore", fkey:"distrib",
+          opts:[{v:"tutti",label:"Tutti"}, ...activeDistrib.map(d=>({v:d,label:d}))]})}
 
-        ${_fSection("Produttore",
-          [{v:"tutti",label:"Tutti"}, ...activeProd.map(p=>({v:p,label:p}))],
-          filterProduttore, "filterProduttore="
-        )}
+        ${_fSection({title:"Produttore", fkey:"prod",
+          opts:[{v:"tutti",label:"Tutti"}, ...activeProd.map(p=>({v:p,label:p}))]})}
 
-        ${_fSection("Regione",
-          [{v:"tutti",label:"Tutte"}, ...activeRegioni.map(r=>({v:r,label:r}))],
-          filterRegione, "filterRegione="
-        )}
+        ${_fSection({title:"Regione", fkey:"regione",
+          opts:[{v:"tutti",label:"Tutte"}, ...activeRegioni.map(r=>({v:r,label:r}))]})}
 
-        ${_fSection("Nazione",
-          [{v:"tutti",label:"Tutte"}, ...activeNazioni.map(n=>({v:n,label:n}))],
-          filterNazione, "filterNazione="
-        )}
+        ${_fSection({title:"Nazione", fkey:"nazione",
+          opts:[{v:"tutti",label:"Tutte"}, ...activeNazioni.map(n=>({v:n,label:n}))]})}
 
       </div>
     </div>
@@ -2940,7 +2966,7 @@ function registraMovimento(){
       id:uid(), nome:nomeTrimmed, produttore:prodTrimmed,
       distributore:(movForm._newDistributore||fornitore||"").trim(),
       annata:(movForm._newAnnata||"").trim(),
-      vitigni:(movForm._newVitigni||"").trim(),
+      vitigni:_normVitigni(movForm._newVitigni),
       tipologia:movForm._newTipologia||"Rosso",
       regione:(movForm._newRegione||"").trim(),
       nazione:(movForm._newNazione||"Italia").trim(),
@@ -3578,7 +3604,7 @@ function renderOrdini(){
 
   <!-- Modal Nuovo/Modifica Ordine -->
   <div id="ordine-modal-backdrop" class="modal-backdrop hidden" onclick="chiudiOrdineModal(event)">
-    <div class="modal" style="max-width:1300px" onclick="event.stopPropagation()">
+    <div class="modal" style="width:94vw;max-width:1500px" onclick="event.stopPropagation()">
       <div class="modal-header">
         <h2 id="ordine-modal-title">➕ Nuovo Ordine</h2>
         <button style="font-size:18px;color:var(--txt3)" onclick="chiudiOrdineModal()">✕</button>
@@ -4085,7 +4111,7 @@ function _syncFornitoreToRefs(val){
 function _refChange(refId,field,value){
   const r=ordineModalData.referenze.find(x=>x.id===refId);
   if(r){
-    r[field]=value;
+    r[field]=field==='vitigni'?value.split(",").map(v=>v.trim()).filter(Boolean).join(", "):value;
     // FIX FORMATO: se cambia il formato, il wineId assegnato (per nome) non è più valido
     if(field==='formato'){ r.wineId=""; _showRefGiacenza(refId, r.nomeVino); }
   }
@@ -4250,7 +4276,7 @@ function salvaOrdine(){
       id:r.id||uid(), wineId,
       produttore:(r.produttore||"").trim(),
       nomeVino,
-      vitigni:(r.vitigni||"").trim(),
+      vitigni:_normVitigni(r.vitigni),
       annata:(r.annata||"").trim(),
       tipologia:r.tipologia||"Rosso",
       formato:parseFloat(r.formato)||0.75,
@@ -5550,12 +5576,28 @@ function applyCartaSuggerita(){
   const inp=document.getElementById("mf-prezzoCarta");
   if(inp&&suggerito){inp.value=String(suggerito);inp._userEdited=false;updateModalCalc();}
 }
+// ─── VITIGNI NORMALIZATION ───────────────────────────────────────────────────
+// Split su tutti i separatori comuni, trim, collapse whitespace interno,
+// dedup case-insensitive (preserva la prima grafia incontrata), re-join ", ".
+// NON forza il casing (eviterebbe "Nero d'Avola" → "Nero D'avola").
+function _normVitigni(str){
+  if(!str) return "";
+  const seen = new Map();
+  String(str).split(/[,;/&+]+/).forEach(raw=>{
+    const v = raw.trim().replace(/\s+/g,' ');
+    if(!v) return;
+    const k = v.toLowerCase();
+    if(!seen.has(k)) seen.set(k, v);
+  });
+  return [...seen.values()].join(", ");
+}
+
 function saveWine(){
   const get=id=>document.getElementById(id)?.value||"";
   let wine={
     id:modalWine?.id||uid(),
     nome:get("mf-nome").trim(),produttore:get("mf-produttore").trim(),distributore:get("mf-distributore"),
-    annata:get("mf-annata"),vitigni:get("mf-vitigni"),tipologia:get("mf-tipologia"),formato:parseFloat(get("mf-formato"))||0.75,
+    annata:get("mf-annata"),vitigni:_normVitigni(get("mf-vitigni")),tipologia:get("mf-tipologia"),formato:parseFloat(get("mf-formato"))||0.75,
     regione:get("mf-regione"),nazione:get("mf-nazione"),zona:get("mf-zona"),
     prezzoAcq:parseFloat(get("mf-prezzoAcq"))||0,iva:parseInt(get("mf-iva"))||22,
     prezzoCarta:parseFloat(get("mf-prezzoCarta"))||0,
@@ -6486,8 +6528,10 @@ async function registraMovimentoMobile(wineId, delta){
         }
       });
       wines = mergedWines;
-      await _flushMovementsV2(); // sincronizza il nuovo movimento (delta-only)
+      // Prima la giacenza (blob), poi il movimento sul ledger: se il blob fallisce
+      // non resta un movimento orfano che farebbe "resuscitare" lo scarico.
       await _sbUpsert("cm_wines", {user_id:DB_USER, data:wines});
+      await _flushMovementsV2(); // movimento (delta-only) solo dopo giacenza committata
       _setDbStatus("ok","Sincronizzato");
     }catch(e){
       _setDbStatus("err","Errore sync");
@@ -6560,8 +6604,10 @@ async function mobUndo(){
   if(_sb){
     _setDbStatus("sync","Sincronizzazione…");
     try{
-      await _flushMovementsV2(); // il movimento rimosso viene tombstonato (delta-only)
+      // Prima ripristina la giacenza (blob), poi tombstona il movimento sul ledger:
+      // così lo stock è corretto anche se il tombstone fallisce (niente resurrezione).
       await _sbUpsert("cm_wines", {user_id:DB_USER, data:wines});
+      await _flushMovementsV2(); // il movimento rimosso viene tombstonato (delta-only)
       _setDbStatus("ok","Sincronizzato");
     }catch(e){ _setDbStatus("err","Errore sync"); }
   }
@@ -6734,8 +6780,8 @@ async function mobAnnullaStorico(movId){
   if(_sb){
     _setDbStatus("sync","Sincronizzazione…");
     try{
-      await _flushMovementsV2();
       await _sbUpsert("cm_wines", {user_id:DB_USER, data:wines});
+      await _flushMovementsV2();
       _setDbStatus("ok","Sincronizzato");
     }catch(e){ _setDbStatus("err","Errore sync"); }
   }
