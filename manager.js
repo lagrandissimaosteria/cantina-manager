@@ -957,8 +957,9 @@ function _applySidebarState(){
 }
 
 // ─── NAVIGATION ───────────────────────────────────────────────────────────────
-const SECTION_TITLES={dashboard:"Dashboard",inventario:"Inventario Vini","scarico-serata":"🍾 Scarico Serata",movimenti:"Carico / Scarico",fallate:"Gestione Fallate",analytics:"Analytics & Trends",ordini:"Ordini Fornitore",export:"Export & Bilancio",impostazioni:"⚙️ Impostazioni"};
+const SECTION_TITLES={dashboard:"Plancia",inventario:"Inventario Vini","scarico-serata":"🍾 Scarico Serata",movimenti:"Carico / Scarico",fallate:"Gestione Fallate",ordini:"Ordini Fornitore",export:"Export & Bilancio",impostazioni:"⚙️ Impostazioni"};
 function go(s){
+  if(s==="analytics") s="dashboard"; // sezioni fuse in "Plancia"
   section=s;
   if(selMode) exitSel(); // NAV-03: resetta selezione multipla al cambio sezione
   if(s!=="inventario"){ filterTipo="tutti"; filterVitigni.clear(); filterFormato="tutti"; filterDistrib="tutti"; filterProduttore="tutti"; filterRegione="tutti"; filterNazione="tutti"; filterGiacenza="tutti"; _hideTopbarActions(); }
@@ -1385,13 +1386,12 @@ function render(){
   updateSidebar();
   destroyCharts();
   const c=document.getElementById("content");
-  if(section==="dashboard") c.innerHTML=renderDashboard();
+  if(section==="dashboard") c.innerHTML=renderPlancia();
   else if(section==="inventario") c.innerHTML=renderInventario();
   else if(section==="scarico-serata") c.innerHTML=renderScaricoSerataPage();
   else if(section==="report-serata"){ go("scarico-serata"); return; }
   else if(section==="movimenti"){movForm.data=today();fallForm.data=today();c.innerHTML=renderMovimenti();}
   else if(section==="fallate") c.innerHTML=renderFallate();
-  else if(section==="analytics") c.innerHTML=renderAnalytics();
   else if(section==="ordini"){
     c.innerHTML=renderOrdini();
     _loadBozzeSb(); // carica bozze remote in background e aggiorna se ci sono
@@ -1406,8 +1406,7 @@ function _setInvScrollHeight(){
 }
 
 function afterRender(){
-  if(section==="dashboard") initDashboardCharts();
-  else if(section==="analytics") initAnalyticsCharts();
+  if(section==="dashboard") initPlanciaCharts();
   // Shortcut tooltip hints su bottoni topbar
   _applyShortcutTitles();
   // Auto-focus campo vino su Movimenti (evita clic manuale al cambio sezione)
@@ -1697,74 +1696,93 @@ function renderInventarioOnly(){
 }
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
-function renderDashboard(){
+function renderPlancia(){
   const s=getStats();
   const wineMap=Object.fromEntries(wines.map(w=>[w.id,w]));
-  // Finestra temporale: dal primo movimento disponibile (o 12 mesi fa se non ci sono movimenti),
-  // così il chart non si rompe nel 2027 e mostra sempre almeno un anno di storia.
+  const regioni=[...new Set(wines.map(w=>w.regione).filter(Boolean))].sort();
+  const tipoList=[...new Set(wines.map(w=>w.tipologia).filter(Boolean))].sort();
+
+  // ── FLOW: vendite filtrate per regione/tipologia ──
+  const vendFilt=movements.filter(m=>m.tipo==="scarico").map(m=>({...m,wine:wineMap[m.wineId]||null}))
+    .filter(m=>m.wine&&(!analyticsRegione||m.wine.regione===analyticsRegione)&&(!analyticsTipo||m.wine.tipologia===analyticsTipo));
+  const totQty=vendFilt.reduce((a,m)=>a+m.qty,0);
+  const totRicavo=vendFilt.reduce((a,m)=>a+calcRicavoMovimento(m,m.wine),0);
+  const totCosto=vendFilt.reduce((a,m)=>a+calcCostoMovimento(m,m.wine),0);
+  const totMargine=totRicavo-totCosto;
+
+  // Trend ultimi 12 mesi (rolling): ricavo (barre) + margine (linea, asse dx)
   const now=new Date(), monthMap={};
-  const _firstMovDate = movements.length
-    ? movements.reduce((min,m)=>(!m.data||m.data>min)?min:m.data, movements[0]?.data||"")
-    : null;
-  const _twelveMonthsAgo = new Date(now.getFullYear(), now.getMonth()-11, 1);
-  const startDate = _firstMovDate
-    ? new Date(Math.min(new Date(_firstMovDate), _twelveMonthsAgo))
-    : _twelveMonthsAgo;
-  for(let d=new Date(startDate);d<=now;d.setMonth(d.getMonth()+1)){
-    const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
-    const label=d.toLocaleString("it-IT",{month:"short",year:"2-digit"});
-    monthMap[key]={key,label,vendute:0,ricavo:0,costo:0,caricate:0};
-  }
+  for(let i=11;i>=0;i--){const d=new Date(now.getFullYear(),now.getMonth()-i,1);const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;monthMap[key]={key,label:d.toLocaleString("it-IT",{month:"short",year:"2-digit"}),ricavo:0,costo:0,vendute:0};}
   const wineMarginMap={};
-  movements.forEach(m=>{
-    if(!m.data) return;
-    const key=m.data.slice(0,7), w=wineMap[m.wineId];
-    if(monthMap[key]){
-      if(m.tipo==="scarico"){monthMap[key].vendute+=m.qty;monthMap[key].ricavo+=calcRicavoMovimento(m,w);monthMap[key].costo+=calcCostoMovimento(m,w);}
-      else monthMap[key].caricate+=m.qty;
-    }
-    if(m.tipo==="scarico"&&w){
-      // M8: usa margine reale al momento dello scarico (ricavo − costo snapshot M7)
-      // invece del margine corrente — più accurato in presenza di variazioni di prezzo.
-      const mbStorico = calcRicavoMovimento(m,w) - calcCostoMovimento(m,w);
-      if(!wineMarginMap[m.wineId]) wineMarginMap[m.wineId]={name:w.nome,margine:0,qty:0};
-      wineMarginMap[m.wineId].margine+=mbStorico; wineMarginMap[m.wineId].qty+=m.qty;
-    }
+  vendFilt.forEach(m=>{
+    const key=(m.data||"").slice(0,7);
+    if(monthMap[key]){monthMap[key].ricavo+=calcRicavoMovimento(m,m.wine);monthMap[key].costo+=calcCostoMovimento(m,m.wine);monthMap[key].vendute+=m.qty;}
+    const mb=calcRicavoMovimento(m,m.wine)-calcCostoMovimento(m,m.wine);
+    if(!wineMarginMap[m.wineId]) wineMarginMap[m.wineId]={name:m.wine.nome,margine:0,qty:0};
+    wineMarginMap[m.wineId].margine+=mb; wineMarginMap[m.wineId].qty+=m.qty;
   });
   const trendData=Object.values(monthMap).map(d=>({...d,margine:d.ricavo-d.costo}));
-  const topMargin=Object.values(wineMarginMap).sort((a,b)=>b.margine-a.margine).slice(0,5);
-  // Accumula giacenza per tipologia in O(n) — sostituisce il doppio filter/map O(n²)
-  const _giacByTipo = wines.reduce((acc, w) => {
-    if(w.giacenza > 0) acc[w.tipologia] = (acc[w.tipologia]||0) + w.giacenza;
-    return acc;
-  }, {});
-  const tipoPie = TIPOLOGIE.filter(t => _giacByTipo[t] > 0).map(t => ({name:t, value:_giacByTipo[t]}));
-  const alertWines=wines.filter(w=>{const sg=_getSoglie(w.id);return w.giacenza<=sg.min&&w.giacenza>=0}).sort((a,b)=>a.giacenza-b.giacenza);
+  const topMargin=Object.values(wineMarginMap).sort((a,b)=>b.margine-a.margine).slice(0,10);
 
-  // ordini widget data
-  const ordiniAttesa=orders.filter(o=>o.stato==="attesa");
+  // Best sellers Top 5 per bottiglie
+  const bySales={};
+  vendFilt.forEach(m=>{if(!bySales[m.wineId])bySales[m.wineId]={wineName:m.wineName,produttore:m.produttore,qty:0,ricavo:0,costo:0};bySales[m.wineId].qty+=m.qty;bySales[m.wineId].ricavo+=calcRicavoMovimento(m,m.wine);bySales[m.wineId].costo+=calcCostoMovimento(m,m.wine);});
+  const bestSellers=Object.values(bySales).sort((a,b)=>b.qty-a.qty).slice(0,5);
+  const maxQty=bestSellers[0]?.qty||1;
+
+  // ── STOCK: giacenza per tipologia (snapshot, non filtrato) ──
+  const _giacByTipo=wines.reduce((acc,w)=>{if(w.giacenza>0)acc[w.tipologia]=(acc[w.tipologia]||0)+w.giacenza;return acc;},{});
+  const tipoPie=TIPOLOGIE.filter(t=>_giacByTipo[t]>0).map(t=>({name:t,value:_giacByTipo[t]}));
+
+  // ── ACQUISTI ──
+  const carichi=movements.filter(m=>m.tipo==="carico");
+  function getAcquistiPerPeriodo(periodo){
+    const buckets={};
+    carichi.forEach(m=>{
+      const w=wineMap[m.wineId];
+      const p=parseFloat(m.prezzoAcqLotto)||parseFloat(w?.prezzoAcq)||0;
+      const iva=(parseInt(w?.iva)||22)/100;
+      const data=m.data||""; if(!data) return;
+      let key;
+      if(periodo==="giorno") key=data;
+      else if(periodo==="settimana"){const d=new Date(data);const jan4=new Date(d.getFullYear(),0,4);const w1=new Date(jan4);w1.setDate(jan4.getDate()-((jan4.getDay()+6)%7));const wn=Math.floor((d-w1)/(7*86400000))+1;key=`${d.getFullYear()}-S${String(wn).padStart(2,'0')}`;}
+      else key=data.slice(0,7);
+      if(!buckets[key]) buckets[key]={key,qty:0,costoNetto:0,costoConIva:0};
+      buckets[key].qty+=m.qty; buckets[key].costoNetto+=p*m.qty; buckets[key].costoConIva+=p*(1+iva)*m.qty;
+    });
+    return Object.values(buckets).sort((a,b)=>a.key.localeCompare(b.key));
+  }
+  const acquistiData=getAcquistiPerPeriodo(analyticsAcquistiPeriodo);
+  const periodoLabels={giorno:"Giorno",settimana:"Settimana",mese:"Mese"};
+
+  // ── ordini aperti (widget) ──
+  const ordiniOpen=orders.filter(o=>o.stato==="attesa"||o.stato==="confermato_pendente");
   const ordiniPending=orders.filter(o=>o.stato==="confermato_pendente");
-  const ordiniOpen=[...ordiniAttesa,...ordiniPending];
-  const ordiniValTot=ordiniOpen.reduce((acc,o)=>(o.referenze||[]).reduce((s,r)=>s+(parseFloat(r.prezzoAcq)||0)*(1+(parseInt(r.iva)||22)/100)*(parseInt(r.qty)||0),acc),0);
-  const ordiniQtyTot=ordiniOpen.reduce((acc,o)=>(o.referenze||[]).reduce((s,r)=>s+(parseInt(r.qty)||0),acc),0);
+  const ordiniValTot=ordiniOpen.reduce((acc,o)=>(o.referenze||[]).reduce((x,r)=>x+(parseFloat(r.prezzoAcq)||0)*(1+(parseInt(r.iva)||22)/100)*(parseInt(r.qty)||0),acc),0);
+  const ordiniQtyTot=ordiniOpen.reduce((acc,o)=>(o.referenze||[]).reduce((x,r)=>x+(parseInt(r.qty)||0),acc),0);
 
-  const kpisRow1=[
+  // ═══════════════ HTML ═══════════════
+  const _kpiCard=k=>`<div class="kpi-card"><div class="kpi-label">${k.label}</div><div class="kpi-val ${k.cls}">${k.value}</div><div class="kpi-sub">${k.sub}</div></div>`;
+
+  // KPI STATO cantina (snapshot)
+  const kpiStato1=[
     {label:"Ref. Attive",value:s.refAttive,sub:`su ${s.referenze} totali`,cls:"c-amber"},
     {label:"Ref. Terminate",value:s.refEsaurite,sub:"giacenza esaurita",cls:"c-red"},
     {label:"Giacenza",value:s.giacenzaTot,sub:"bottiglie totali",cls:"c-amber3"},
   ];
-  const kpisRow2=[
+  const kpiStato2=[
     {label:"Valore Potenziale",value:fmt(s.valoreCarta),sub:"prezzo carta × giacenza",cls:"c-green"},
     {label:"Margine Lordo",value:fmt(s.margineLordoTot),sub:"potenziale vendita",cls:"c-blue"},
     {label:"Valore al Costo",value:fmt(s.valoreTot),sub:"costo acquisto × giacenza (escl. IVA)",cls:"c-orange"},
   ];
-  const _kpiCard=k=>`<div class="kpi-card"><div class="kpi-label">${k.label}</div><div class="kpi-val ${k.cls}">${k.value}</div><div class="kpi-sub">${k.sub}</div></div>`;
-  let html=`<div class="kpi-grid g3" style="margin-bottom:12px">${kpisRow1.map(_kpiCard).join("")}</div><div class="kpi-grid g3" style="margin-bottom:20px">${kpisRow2.map(_kpiCard).join("")}</div>`;
+  let html=`<div style="font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4);margin-bottom:8px">Stato Cantina</div>
+    <div class="kpi-grid g3" style="margin-bottom:12px">${kpiStato1.map(_kpiCard).join("")}</div>
+    <div class="kpi-grid g3" style="margin-bottom:20px">${kpiStato2.map(_kpiCard).join("")}</div>`;
 
-  // widget ordini in attesa
-  const ordiniWidgetColor=ordiniOpen.length>0?"rgba(255,159,10,.15)":"rgba(20,83,45,.2)";
-  const ordiniWidgetBorder=ordiniOpen.length>0?"rgba(180,83,9,.5)":"rgba(21,128,61,.4)";
-  html+=`<div style="background:${ordiniWidgetColor};border:1px solid ${ordiniWidgetBorder};padding:14px 20px;margin-bottom:20px;display:flex;align-items:center;gap:20px;flex-wrap:wrap">
+  // widget ordini
+  const owColor=ordiniOpen.length>0?"rgba(255,159,10,.15)":"rgba(20,83,45,.2)";
+  const owBorder=ordiniOpen.length>0?"rgba(180,83,9,.5)":"rgba(21,128,61,.4)";
+  html+=`<div style="background:${owColor};border:1px solid ${owBorder};padding:14px 20px;margin-bottom:24px;display:flex;align-items:center;gap:20px;flex-wrap:wrap">
     <div style="font-size:1.6rem">${ordiniOpen.length>0?"📦":"✅"}</div>
     <div style="flex:1;min-width:0">
       <div style="font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt3);margin-bottom:4px">Ordini Fornitore Aperti</div>
@@ -1776,69 +1794,117 @@ function renderDashboard(){
             ${ordiniPending.length>0?`<div style="font-size:10px;padding:2px 8px;background:#16a34a22;border:1px solid #16a34a55;color:#30D158">${ordiniPending.length} ricevut${ordiniPending.length===1?"o":"i"}, da caricare</div>`:""}
           </div>`}
     </div>
-    <button class="btn-outline btn-sm" onclick="go('ordini')" style="${ordiniOpen.length>0?"border-color:var(--amber3);color:var(--amber)":"border-color:rgba(21,128,61,.5);color:#30D158"}">
-      ${ordiniOpen.length>0?"Vai agli ordini →":"Crea ordine →"}
-    </button>
+    <button class="btn-outline btn-sm" onclick="go('ordini')" style="${ordiniOpen.length>0?"border-color:var(--amber3);color:var(--amber)":"border-color:rgba(21,128,61,.5);color:#30D158"}">${ordiniOpen.length>0?"Vai agli ordini →":"Crea ordine →"}</button>
   </div>`;
 
-  html+=`<div class="kpi-grid g3" style="margin-bottom:20px">
-    <div class="card" style="grid-column:span 2">
-      <div class="section-label"><span>📈 Trend Mensile Vendite & Margine</span></div>
-      <div class="chart-container" style="height:200px"><canvas id="ch-trend"></canvas></div>
-    </div>
-    <div class="card">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-        <div style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt3)">🔔 Alert Giacenze</div>
-        <span style="font-size:10px;font-family:inherit;padding:2px 8px;border:1px solid;${alertWines.length>0?"background:rgba(255,69,58,.12);color:#FF6B6B;border-color:#CC3025":"background:rgba(20,83,45,.3);color:#30D158;border-color:#166534"}">${alertWines.length}</span>
-      </div>
-      <div style="max-height:180px;overflow-y:auto">
-        ${alertWines.length===0?`<div style="text-align:center;padding:20px;color:var(--txt4);font-size:11px">Tutte le scorte sono ok ✓</div>`:
-        alertWines.map(w=>{const sg=_getSoglie(w.id);return `<div class="alert-item ${w.giacenza===0?"alert-empty":"alert-low"}" style="margin-bottom:4px">⚠ <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(w.nome)}</span><span style="font-family:'Montserrat',sans-serif">${w.giacenza}/${sg.min}</span></div>`}).join("")}
-      </div>
-      <button class="btn-outline btn-sm" style="width:100%;margin-top:8px;text-align:center" onclick="go('inventario')">Configura soglie →</button>
-    </div>
+  // Filtri (agiscono sulla zona performance/andamento)
+  html+=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
+    <span style="font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4)">Performance</span>
+    <select class="form-select" style="width:auto" onchange="analyticsRegione=this.value;render()">
+      <option value="">Tutte le regioni</option>
+      ${regioni.map(r=>`<option value="${r}" ${analyticsRegione===r?"selected":""}>${h(r)}</option>`).join("")}
+    </select>
+    <select class="form-select" style="width:auto" onchange="analyticsTipo=this.value;render()">
+      <option value="">Tutte le tipologie</option>
+      ${tipoList.map(t=>`<option value="${t}" ${analyticsTipo===t?"selected":""}>${h(t)}</option>`).join("")}
+    </select>
+    ${(analyticsRegione||analyticsTipo)?`<button class="btn-outline btn-sm" onclick="analyticsRegione='';analyticsTipo='';render()">✕ Reset</button>`:""}
+    <span style="margin-left:auto;font-size:10px;color:var(--txt4)">${totQty} bottiglie vendute</span>
   </div>`;
 
+  // KPI PERFORMANCE
+  html+=`<div class="kpi-grid g4" style="margin-bottom:20px">
+    ${[{label:"Bottiglie Vendute",v:totQty,cls:"c-amber",sub:"scarichi totali"},{label:"Ricavo Totale",v:fmt(totRicavo),cls:"c-green",sub:"a prezzo carta"},{label:"Costo Venduto",v:fmt(totCosto),cls:"c-red",sub:"costo+IVA"},{label:"Margine Realizzato",v:fmt(totMargine),cls:totMargine>=0?"c-blue":"c-red",sub:totRicavo?`${fmtN(totMargine/totRicavo*100,1)}% del ricavo`:"—"}].map(k=>`<div class="kpi-card"><div class="kpi-label">${k.label}</div><div class="kpi-val ${k.cls}">${k.v}</div><div class="kpi-sub">${k.sub}</div></div>`).join("")}
+  </div>`;
+
+  // ── ANDAMENTO: Trend | Storico Acquisti ──
   html+=`<div class="kpi-grid g2" style="margin-bottom:20px">
     <div class="card">
-      <div class="section-label"><span>🏆 Top 5 per Margine Realizzato</span></div>
-      ${topMargin.length===0?`<div style="text-align:center;padding:24px;color:var(--txt4);font-size:11px">Nessuna vendita registrata</div>`:`<div class="chart-container" style="height:160px"><canvas id="ch-topmargin"></canvas></div>`}
+      <div class="section-label"><span>📈 Trend Mensile · Ricavo & Margine</span></div>
+      <div class="chart-container" style="height:240px"><canvas id="ch-trend"></canvas></div>
+    </div>
+    <div class="card" style="padding:0">
+      <div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--amber3)">📦</span><span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Acquisti per ${periodoLabels[analyticsAcquistiPeriodo]}</span></div>
+        <div style="display:flex;gap:4px">${["giorno","settimana","mese"].map(p=>`<button class="${analyticsAcquistiPeriodo===p?"btn-primary btn-sm":"btn-outline btn-sm"}" onclick="analyticsAcquistiPeriodo='${p}';render()">${periodoLabels[p]}</button>`).join("")}</div>
+      </div>
+      ${acquistiData.length===0?`<div style="padding:32px;text-align:center;color:var(--txt4);font-size:11px">Nessun carico registrato</div>`:`<div style="padding:20px"><div class="chart-container" style="height:200px"><canvas id="chart-acquisti"></canvas></div></div>`}
+    </div>
+  </div>`;
+
+  // ── Top 10 Margine | Giacenza per Tipologia ──
+  html+=`<div class="kpi-grid g2" style="margin-bottom:20px">
+    <div class="card">
+      <div class="section-label"><span>💰 Top 10 per Margine Realizzato</span></div>
+      ${topMargin.length===0?`<div style="text-align:center;padding:24px;color:var(--txt4);font-size:11px">Nessuna vendita registrata</div>`:`<div class="chart-container" style="height:300px"><canvas id="ch-topmargin"></canvas></div>`}
     </div>
     <div class="card">
       <div class="section-label"><span>🎯 Giacenza per Tipologia</span></div>
       ${tipoPie.length===0?`<div style="text-align:center;padding:24px;color:var(--txt4);font-size:11px">Nessun dato</div>`:`
       <div style="display:flex;align-items:center;gap:16px">
-        <div style="width:55%;min-width:120px;height:160px;position:relative"><canvas id="ch-pie"></canvas></div>
-        <div class="pie-legend">${tipoPie.map((d,i)=>`<div class="pie-row"><div style="display:flex;align-items:center;gap:6px"><div class="pie-dot" style="background:${PIE_COLORS[i%PIE_COLORS.length]}"></div><span style="color:var(--txt2);text-transform:uppercase">${h(d.name)}</span></div><span style="color:var(--amber)">${d.value} bt</span></div>`).join("")}</div>
+        <div style="width:52%;min-width:130px;height:220px;position:relative"><canvas id="ch-pie"></canvas></div>
+        <div class="pie-legend" style="flex:1">${tipoPie.map((d,i)=>`<div class="pie-row"><div style="display:flex;align-items:center;gap:6px"><div class="pie-dot" style="background:${PIE_COLORS[i%PIE_COLORS.length]}"></div><span style="color:var(--txt2);text-transform:uppercase">${h(d.name)}</span></div><span style="color:var(--amber)">${d.value} bt</span></div>`).join("")}</div>
       </div>`}
     </div>
   </div>`;
 
-  window._dashTrend=trendData;
-  window._dashTopMargin=topMargin;
-  window._dashPie=tipoPie;
+  // ── Best Sellers Top 5 (striscia) ──
+  html+=`<div class="card" style="padding:0;margin-bottom:12px">
+    <div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px"><span style="color:var(--amber3)">🏆</span><span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Best Sellers — Top 5 per Bottiglie</span></div>
+    <div style="padding:16px;display:flex;flex-direction:column;gap:12px">
+      ${bestSellers.length===0?`<div style="text-align:center;padding:24px;color:var(--txt4);font-size:11px">Nessuna vendita registrata</div>`:
+      bestSellers.map((b,i)=>{const marg=b.ricavo-b.costo;const mp=b.ricavo?(marg/b.ricavo*100):0;return `<div>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+          <span style="font-size:10px;color:var(--txt4);width:16px">#${i+1}</span>
+          <div style="flex:1;min-width:0"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px">${h(b.wineName)}</div><div style="color:var(--txt4);font-size:10px">${h(b.produttore)}</div></div>
+          <div style="text-align:right"><div style="color:var(--amber);font-family:'Montserrat',sans-serif;font-size:1rem">${b.qty} bt</div><div style="color:${mp>=0?"#30D158":"#FF453A"};font-size:10px">${fmtN(mp,1)}% marg.</div></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;padding-left:26px">
+          <div class="mini-bar"><div class="mini-bar-fill" style="width:${Math.min(100,(b.qty/maxQty)*100)}%"></div></div>
+          <span style="font-size:10px;color:#30D158;width:72px;text-align:right">${fmt(marg)}</span>
+        </div>
+      </div>`}).join("")}
+    </div>
+  </div>`;
+
+  window._plTrend=trendData;
+  window._plTopMargin=topMargin;
+  window._plPie=tipoPie;
+  window._plAcquisti={labels:acquistiData.map(d=>d.key),qty:acquistiData.map(d=>d.qty),spesa:acquistiData.map(d=>Math.round(d.costoConIva*100)/100)};
   return html;
 }
 
-function initDashboardCharts(){
-  const td=window._dashTrend||[];
-  const el1=document.getElementById("ch-trend");
-  if(el1&&td.length){
-    activeCharts.trend=new Chart(el1,{type:"line",data:{labels:td.map(d=>d.label),datasets:[
-      {label:"Ricavo",data:td.map(d=>d.ricavo),borderColor:"#16a34a",borderWidth:2,pointRadius:0,fill:false,tension:.3},
-      {label:"Margine Lordo",data:td.map(d=>d.margine),borderColor:"#3b82f6",borderWidth:2,pointRadius:0,fill:false,tension:.3,borderDash:[4,2]},
-      {label:"Bottiglie",data:td.map(d=>d.vendute),type:"bar",backgroundColor:"rgba(255,159,10,.2)",yAxisID:"y2"}
-    ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:"#636366",font:{family:"Montserrat",size:9}}}},scales:{x:{ticks:{color:"#636366",font:{family:"Montserrat",size:9}},grid:{color:"#3A3A3C"}},y:{ticks:{color:"#636366",font:{family:"Montserrat",size:9},callback:v=>v>=1000?`€${(v/1000).toFixed(0)}k`:`€${v}`},grid:{color:"#3A3A3C"}},y2:{position:"right",display:false}}}});
+function initPlanciaCharts(){
+  const _eur=v=>v>=1000?`€${(v/1000).toFixed(0)}k`:`€${v}`;
+  // Trend combo: barre ricavo (sx) + linea margine (dx)
+  const td=window._plTrend||[];
+  const e1=document.getElementById("ch-trend");
+  if(e1&&td.length){
+    activeCharts.trend=new Chart(e1,{data:{labels:td.map(d=>d.label),datasets:[
+      {type:"bar",label:"Ricavo",data:td.map(d=>d.ricavo),backgroundColor:"rgba(48,209,88,.45)",borderColor:"rgba(48,209,88,.9)",borderWidth:1,yAxisID:"y",order:2},
+      {type:"line",label:"Margine",data:td.map(d=>d.margine),borderColor:"#3b82f6",backgroundColor:"rgba(59,130,246,.12)",borderWidth:2,pointRadius:3,pointBackgroundColor:"#3b82f6",tension:.35,yAxisID:"y1",order:1}
+    ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:"index",intersect:false},plugins:{legend:{labels:{color:"#8E8E93",font:{family:"Montserrat",size:10}}},tooltip:{backgroundColor:"rgba(28,25,23,.95)",titleColor:"var(--amber)",bodyColor:"#e7e5e4",borderColor:"rgba(68,64,60,.6)",borderWidth:1,callbacks:{label:c=>` ${c.dataset.label}: €${new Intl.NumberFormat("it-IT",{maximumFractionDigits:0}).format(c.raw)}`}}},scales:{x:{ticks:{color:"#636366",font:{family:"Montserrat",size:9}},grid:{color:"rgba(58,58,60,.4)"}},y:{position:"left",ticks:{color:"#30D158",font:{family:"Montserrat",size:9},callback:_eur},grid:{color:"rgba(58,58,60,.4)"},title:{display:true,text:"Ricavo",color:"#30D158",font:{size:9}}},y1:{position:"right",ticks:{color:"#3b82f6",font:{family:"Montserrat",size:9},callback:_eur},grid:{drawOnChartArea:false},title:{display:true,text:"Margine",color:"#3b82f6",font:{size:9}}}}}});
   }
-  const tm=window._dashTopMargin||[];
-  const el2=document.getElementById("ch-topmargin");
-  if(el2&&tm.length){
-    activeCharts.topmargin=new Chart(el2,{type:"bar",data:{labels:tm.map(d=>d.name.length>18?d.name.slice(0,16)+"…":d.name),datasets:[{label:"Margine €",data:tm.map(d=>d.margine),backgroundColor:["#FF9F0A","#FF8C00","#CC7000","#7A3E00","#4A2600"]}]},options:{indexAxis:"y",responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:"#636366",font:{family:"Montserrat",size:9},callback:v=>`€${(v/1000).toFixed(1)}k`},grid:{color:"#3A3A3C"}},y:{ticks:{color:"#8E8E93",font:{family:"Montserrat",size:8}},grid:{display:false}}}}});
+  // Top 10 margine (bar orizzontale)
+  const tm=window._plTopMargin||[];
+  const e2=document.getElementById("ch-topmargin");
+  if(e2&&tm.length){
+    activeCharts.topmargin=new Chart(e2,{type:"bar",data:{labels:tm.map(d=>d.name.length>24?d.name.slice(0,22)+"…":d.name),datasets:[{label:"Margine €",data:tm.map(d=>d.margine),backgroundColor:"#FF9F0A",borderColor:"#CC7000",borderWidth:1}]},options:{indexAxis:"y",responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` €${new Intl.NumberFormat("it-IT",{minimumFractionDigits:2}).format(c.raw)}`}}},scales:{x:{ticks:{color:"#636366",font:{family:"Montserrat",size:9},callback:v=>`€${(v/1000).toFixed(1)}k`},grid:{color:"#3A3A3C"}},y:{ticks:{color:"#8E8E93",font:{family:"Montserrat",size:9}},grid:{display:false}}}}});
   }
-  const pie=window._dashPie||[];
-  const el3=document.getElementById("ch-pie");
-  if(el3&&pie.length){
-    activeCharts.pie=new Chart(el3,{type:"doughnut",data:{labels:pie.map(d=>d.name),datasets:[{data:pie.map(d=>d.value),backgroundColor:PIE_COLORS.slice(0,pie.length),borderWidth:1,borderColor:"#000"}]},options:{responsive:true,maintainAspectRatio:false,cutout:"55%",plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`${ctx.label}: ${ctx.raw} bt`}}}}});
+  // Doughnut giacenza per tipologia
+  const pie=window._plPie||[];
+  const e3=document.getElementById("ch-pie");
+  if(e3&&pie.length){
+    activeCharts.pie=new Chart(e3,{type:"doughnut",data:{labels:pie.map(d=>d.name),datasets:[{data:pie.map(d=>d.value),backgroundColor:PIE_COLORS.slice(0,pie.length),borderWidth:1,borderColor:"#000"}]},options:{responsive:true,maintainAspectRatio:false,cutout:"55%",plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`${ctx.label}: ${ctx.raw} bt`}}}}});
+  }
+  // Storico acquisti (barre bt + linea spesa)
+  const d=window._plAcquisti;
+  if(d&&d.labels&&d.labels.length){
+    const el=document.getElementById("chart-acquisti");
+    if(el) activeCharts.acquisti=new Chart(el,{data:{labels:d.labels,datasets:[
+      {type:"bar",label:"Bottiglie acquistate",data:d.qty,backgroundColor:"rgba(245,158,11,0.55)",borderColor:"rgba(245,158,11,0.9)",borderWidth:1,yAxisID:"yQty",order:2},
+      {type:"line",label:"Spesa (IVA incl.)",data:d.spesa,borderColor:"#30D158",backgroundColor:"rgba(74,222,128,0.10)",borderWidth:2,pointRadius:4,pointBackgroundColor:"#30D158",tension:.35,fill:true,yAxisID:"ySpesa",order:1}
+    ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:"index",intersect:false},plugins:{legend:{labels:{color:"#8E8E93",font:{family:"Montserrat",size:10}}},tooltip:{backgroundColor:"rgba(28,25,23,.95)",titleColor:"var(--amber)",bodyColor:"#e7e5e4",borderColor:"rgba(68,64,60,.6)",borderWidth:1,callbacks:{label:c=>c.datasetIndex===0?` ${c.raw} bt`:` €${new Intl.NumberFormat("it-IT",{minimumFractionDigits:2}).format(c.raw)}`}}},scales:{x:{ticks:{color:"#636366",font:{family:"Montserrat",size:9},maxRotation:45},grid:{color:"rgba(41,37,36,.4)"}},yQty:{position:"left",ticks:{color:"var(--amber)",font:{family:"Montserrat",size:9}},grid:{color:"rgba(41,37,36,.4)"},title:{display:true,text:"Bottiglie",color:"var(--amber)",font:{size:9}}},ySpesa:{position:"right",ticks:{color:"#30D158",font:{family:"Montserrat",size:9},callback:v=>"€"+new Intl.NumberFormat("it-IT",{maximumFractionDigits:0}).format(v)},grid:{drawOnChartArea:false},title:{display:true,text:"Spesa €",color:"#30D158",font:{size:9}}}}}});
   }
 }
 
@@ -3082,373 +3148,6 @@ function registraFallata(){
 }
 
 // ─── ANALYTICS ───────────────────────────────────────────────────────────────
-function renderAnalytics(){
-  const wineMap=Object.fromEntries(wines.map(w=>[w.id,w]));
-  const regioni=[...new Set(wines.map(w=>w.regione).filter(Boolean))].sort();
-  const tipoList=[...new Set(wines.map(w=>w.tipologia).filter(Boolean))].sort();
-  const vendite=movements.filter(m=>m.tipo==="scarico");
-  const vendFilt=vendite.map(m=>({...m,wine:wineMap[m.wineId]||null})).filter(m=>{
-    if(!m.wine) return false;
-    return (!analyticsRegione||m.wine.regione===analyticsRegione)&&(!analyticsTipo||m.wine.tipologia===analyticsTipo);
-  });
-  const bySales={};
-  vendFilt.forEach(m=>{
-    if(!bySales[m.wineId]) bySales[m.wineId]={wineId:m.wineId,wineName:m.wineName,produttore:m.produttore,wine:m.wine,qty:0,ricavo:0,costo:0};
-    bySales[m.wineId].qty+=m.qty;
-    if(m.wine){bySales[m.wineId].ricavo+=calcRicavoMovimento(m,m.wine);bySales[m.wineId].costo+=calcCostoMovimento(m,m.wine);}
-  });
-  const bestSellers=Object.values(bySales).sort((a,b)=>b.qty-a.qty).slice(0,5);
-  const maxQty=bestSellers[0]?.qty||1;
-  const byRegione={};
-  vendFilt.forEach(m=>{if(!m.wine) return;const r=m.wine.regione||"N/D";if(!byRegione[r]) byRegione[r]={regione:r,qty:0,ricavo:0,costo:0};byRegione[r].qty+=m.qty;byRegione[r].ricavo+=calcRicavoMovimento(m,m.wine);byRegione[r].costo+=calcCostoMovimento(m,m.wine);});
-  const regioneData=Object.values(byRegione).sort((a,b)=>b.ricavo-a.ricavo);
-  const maxRicavo=regioneData[0]?.ricavo||1;
-  const byTipo={};
-  vendFilt.forEach(m=>{if(!m.wine) return;const t=m.wine.tipologia||"N/D";if(!byTipo[t]) byTipo[t]={tipo:t,qty:0,ricavo:0,costo:0};byTipo[t].qty+=m.qty;byTipo[t].ricavo+=calcRicavoMovimento(m,m.wine);byTipo[t].costo+=calcCostoMovimento(m,m.wine);});
-  const tipoData=Object.values(byTipo).sort((a,b)=>b.ricavo-a.ricavo);
-  const now=Date.now(), lastSaleMap={};
-  movements.forEach(m=>{if(m.tipo!=="scarico") return;const mts=m.ts||(m.data?new Date(m.data).getTime():0);if(!lastSaleMap[m.wineId]||mts>( lastSaleMap[m.wineId].ts||0)) lastSaleMap[m.wineId]={...m,ts:mts};});
-  const winesFilt=wines.filter(w=>(!analyticsRegione||w.regione===analyticsRegione)&&(!analyticsTipo||w.tipologia===analyticsTipo)&&w.giacenza>0);
-  const slowMovers=winesFilt.map(w=>{const ls=lastSaleMap[w.id];const ds=ls?Math.floor((now-ls.ts)/(24*60*60*1000)):null;return{...w,lastSaleDate:ls?.data||null,daysSince:ds}}).filter(w=>w.daysSince===null||w.daysSince>60).sort((a,b)=>(b.daysSince??99999)-(a.daysSince??99999)).slice(0,6);
-  const totRicavo=vendFilt.reduce((s,m)=>s+(m.wine?calcRicavoMovimento(m,m.wine):0),0);
-  const totCosto=vendFilt.reduce((s,m)=>s+(m.wine?calcCostoMovimento(m,m.wine):0),0);
-  const totMargine=totRicavo-totCosto;
-  const totQty=vendFilt.reduce((s,m)=>s+m.qty,0);
-
-  let html=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px;align-items:center">
-    <span style="font-size:10px;color:var(--txt3);letter-spacing:.15em;text-transform:uppercase">Filtri:</span>
-    <select class="form-select" style="width:auto" onchange="analyticsRegione=this.value;render()">
-      <option value="">Tutte le regioni</option>
-      ${regioni.map(r=>`<option value="${r}" ${analyticsRegione===r?"selected":""}>${h(r)}</option>`).join("")}
-    </select>
-    <select class="form-select" style="width:auto" onchange="analyticsTipo=this.value;render()">
-      <option value="">Tutte le tipologie</option>
-      ${tipoList.map(t=>`<option value="${t}" ${analyticsTipo===t?"selected":""}>${h(t)}</option>`).join("")}
-    </select>
-    ${(analyticsRegione||analyticsTipo)?`<button class="btn-outline btn-sm" onclick="analyticsRegione='';analyticsTipo='';render()">✕ Reset</button>`:""}
-    <span style="margin-left:auto;font-size:10px;color:var(--txt4)">${totQty} bottiglie vendute</span>
-  </div>`;
-
-  html+=`<div class="kpi-grid g4" style="margin-bottom:20px">
-    ${[{label:"Bottiglie Vendute",v:totQty,cls:"c-amber",sub:"scarichi totali"},{label:"Ricavo Totale",v:fmt(totRicavo),cls:"c-green",sub:"a prezzo carta"},{label:"Costo Venduto",v:fmt(totCosto),cls:"c-red",sub:"costo+IVA"},{label:"Margine Realizzato",v:fmt(totMargine),cls:totMargine>=0?"c-blue":"c-red",sub:totRicavo?`${fmtN(totMargine/totRicavo*100,1)}% del ricavo`:"—"}].map(k=>`<div class="kpi-card"><div class="kpi-label">${k.label}</div><div class="kpi-val ${k.cls}">${k.v}</div><div class="kpi-sub">${k.sub}</div></div>`).join("")}
-  </div>`;
-
-  html+=`<div class="kpi-grid g2" style="margin-bottom:20px">
-    <div class="card" style="padding:0">
-      <div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px"><span style="color:var(--amber3)">🏆</span><span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Best Sellers — Top 5 per Bottiglie</span></div>
-      <div style="padding:16px;display:flex;flex-direction:column;gap:12px">
-        ${bestSellers.length===0?`<div style="text-align:center;padding:28px;color:var(--txt4);font-size:11px">Nessuna vendita registrata</div>`:
-        bestSellers.map((b,i)=>{const marg=b.ricavo-b.costo;const mp=b.ricavo?(marg/b.ricavo*100):0;return `<div>
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
-            <span style="font-size:10px;color:var(--txt4);width:16px">#${i+1}</span>
-            <div style="flex:1;min-width:0"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px">${h(b.wineName)}</div><div style="color:var(--txt4);font-size:10px">${h(b.produttore)}</div></div>
-            <div style="text-align:right"><div style="color:var(--amber);font-family:'Montserrat',sans-serif;font-size:1rem">${b.qty} bt</div><div style="color:${mp>=0?"#30D158":"#FF453A"};font-size:10px">${fmtN(mp,1)}% marg.</div></div>
-          </div>
-          <div style="display:flex;align-items:center;gap:8px;padding-left:26px">
-            <div class="mini-bar"><div class="mini-bar-fill" style="width:${Math.min(100,(b.qty/maxQty)*100)}%"></div></div>
-            <span style="font-size:10px;color:#30D158;width:72px;text-align:right">${fmt(marg)}</span>
-          </div>
-        </div>`}).join("")}
-      </div>
-    </div>
-    <div class="card" style="padding:0">
-      <div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px"><span style="color:var(--orange)">⏱</span><span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Slow Movers — Nessuna vendita &gt; 60gg</span></div>
-      <div style="padding:12px;display:flex;flex-direction:column;gap:6px">
-        ${slowMovers.length===0?`<div style="text-align:center;padding:28px;color:#30D158;font-size:11px">✓ Tutti i vini hanno avuto vendite recenti</div>`:
-        slowMovers.map(w=>`<div class="slow-item"><div style="flex:1;min-width:0"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px">${h(w.nome)}</div><div style="color:var(--txt4);font-size:10px">${h(w.produttore)} · ${w.giacenza} bt</div></div><div style="text-align:right">${w.daysSince===null?`<span style="color:#FF453A;font-size:10px">Mai venduto</span>`:`<span style="color:#fb923c;font-size:10px">${w.daysSince}gg fa</span>`}${w.lastSaleDate?`<div style="color:var(--txt4);font-size:9px">${w.lastSaleDate}</div>`:""}</div><div class="slow-badge" style="background:${w.daysSince===null?"#7f1d1d":"#7c2d12"}"></div></div>`).join("")}
-      </div>
-    </div>
-  </div>`;
-
-  html+=`<div class="card" style="padding:0;margin-bottom:20px">
-    <div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px"><span style="color:#007AFF">📊</span><span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Analisi Redditività per Regione</span></div>
-    ${regioneData.length===0?`<div style="padding:32px;text-align:center;color:var(--txt4);font-size:11px">Nessun dato di vendita</div>`:`
-    <div class="tbl-wrap"><table>
-      <thead><tr>${["Regione","Bt Vendute","Ricavo Totale","Costo Totale","Margine Lordo","Marg. %","Trend"].map(hd=>`<th>${hd}</th>`).join("")}</tr></thead>
-      <tbody>${regioneData.map(r=>{const marg=r.ricavo-r.costo;const mp=r.ricavo?(marg/r.ricavo*100):0;return `<tr><td style="font-size:11px">${h(r.regione)}</td><td style="color:var(--amber)">${r.qty}</td><td style="color:#30D158">${fmt(r.ricavo)}</td><td style="color:rgba(248,113,113,.8)">${fmt(r.costo)}</td><td><span style="color:${marg>=0?"#007AFF":"#FF453A"}">${fmt(marg)}</span></td><td><span style="color:${mp>=50?"#30D158":mp>=30?"var(--amber)":"#FF453A"};font-weight:600">${fmtN(mp,1)}%</span></td><td style="width:100px"><div class="mini-bar"><div class="mini-bar-fill" style="width:${Math.min(100,(r.ricavo/maxRicavo)*100)}%;background:#3b82f6"></div></div></td></tr>`}).join("")}</tbody>
-    </table></div>`}
-  </div>`;
-
-  html+=`<div class="card" style="padding:0">
-    <div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px"><span style="color:#c084fc">📈</span><span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Analisi Redditività per Tipologia</span></div>
-    ${tipoData.length===0?`<div style="padding:32px;text-align:center;color:var(--txt4);font-size:11px">Nessun dato disponibile</div>`:`
-    <div style="padding:18px;display:flex;flex-direction:column;gap:14px">
-      ${tipoData.map(t=>{const marg=t.ricavo-t.costo;const mp=t.ricavo?(marg/t.ricavo*100):0;const maxR=tipoData[0]?.ricavo||1;return `<div>
-        <div style="display:flex;align-items:center;gap:10px">
-          ${badge(t.tipo)}
-          <div class="bar-h" style="flex:1"><div class="bar-h-fill1" style="width:${Math.min(100,(t.ricavo/maxR)*100)}%"></div><div class="bar-h-fill2" style="width:${Math.min(100,(marg/maxR)*100)}%"></div></div>
-          <div style="display:flex;gap:18px;text-align:right">
-            <div><div style="font-size:9px;color:var(--txt4);text-transform:uppercase">Bt</div><div style="color:var(--amber);font-size:11px">${t.qty}</div></div>
-            <div><div style="font-size:9px;color:var(--txt4);text-transform:uppercase">Ricavo</div><div style="color:#30D158;font-size:11px">${fmt(t.ricavo)}</div></div>
-            <div><div style="font-size:9px;color:var(--txt4);text-transform:uppercase">Margine</div><div style="color:#007AFF;font-size:11px">${fmt(marg)}</div></div>
-            <div><div style="font-size:9px;color:var(--txt4);text-transform:uppercase">Marg %</div><div style="color:${mp>=50?"#30D158":mp>=30?"var(--amber)":"#FF453A"};font-size:11px;font-weight:600">${fmtN(mp,1)}%</div></div>
-          </div>
-        </div>
-      </div>`}).join("")}
-      <div style="display:flex;gap:14px;padding-top:8px;border-top:1px solid var(--border)">
-        <div style="display:flex;align-items:center;gap:6px"><div style="width:12px;height:8px;background:rgba(22,101,52,.6)"></div><span style="font-size:9px;color:var(--txt4)">Ricavo</span></div>
-        <div style="display:flex;align-items:center;gap:6px"><div style="width:12px;height:8px;background:rgba(37,99,235,.8)"></div><span style="font-size:9px;color:var(--txt4)">Margine Lordo</span></div>
-      </div>
-    </div>`}
-  </div>`;
-
-  window._analyticsChartData={tipoData};
-
-  // ── SEZIONE ACQUISTI ──────────────────────────────────────────────────────
-  const carichi = movements.filter(m => m.tipo === "carico");
-
-  // Helper: raggruppa per periodo
-  function getAcquistiPerPeriodo(periodo) {
-    const buckets = {};
-    carichi.forEach(m => {
-      const w = wineMap[m.wineId];
-      const p = parseFloat(m.prezzoAcqLotto) || parseFloat(w?.prezzoAcq) || 0;
-      const iva = (parseInt(w?.iva) || 22) / 100;
-      const costoConIva = p * (1 + iva) * m.qty;
-      const costoNetto = p * m.qty;
-      const data = m.data || ""; // YYYY-MM-DD
-      if (!data) return;
-      let key;
-      if (periodo === "giorno") {
-        key = data;
-      } else if (periodo === "settimana") {
-        // ISO week: YYYY-Www
-        const d = new Date(data);
-        const jan4 = new Date(d.getFullYear(), 0, 4);
-        const w1start = new Date(jan4);
-        w1start.setDate(jan4.getDate() - ((jan4.getDay() + 6) % 7));
-        const diff = (d - w1start) / (7 * 86400000);
-        const wn = Math.floor(diff) + 1;
-        key = `${d.getFullYear()}-S${String(wn).padStart(2,'0')}`;
-      } else {
-        key = data.slice(0, 7); // YYYY-MM
-      }
-      if (!buckets[key]) buckets[key] = {key, qty: 0, costoNetto: 0, costoConIva: 0};
-      buckets[key].qty += m.qty;
-      buckets[key].costoNetto += costoNetto;
-      buckets[key].costoConIva += costoConIva;
-    });
-    return Object.values(buckets).sort((a,b) => a.key.localeCompare(b.key));
-  }
-
-  const acquistiData = getAcquistiPerPeriodo(analyticsAcquistiPeriodo);
-  const totAcqQty = carichi.reduce((s,m) => s + m.qty, 0);
-  const totAcqNetto = carichi.reduce((s,m) => {
-    const w = wineMap[m.wineId]; const p = parseFloat(m.prezzoAcqLotto)||parseFloat(w?.prezzoAcq)||0; return s + p*m.qty;
-  }, 0);
-  const totAcqIva = carichi.reduce((s,m) => {
-    const w = wineMap[m.wineId]; const p = parseFloat(m.prezzoAcqLotto)||parseFloat(w?.prezzoAcq)||0; const iva=(parseInt(w?.iva)||22)/100; return s + p*iva*m.qty;
-  }, 0);
-  const totAcqConIva = totAcqNetto + totAcqIva;
-
-  // Top fornitori per spesa
-  const byForn = {};
-  carichi.forEach(m => {
-    const w = wineMap[m.wineId];
-    const p = parseFloat(m.prezzoAcqLotto)||parseFloat(w?.prezzoAcq)||0;
-    const iva = (parseInt(w?.iva)||22)/100;
-    const forn = m.fornitore || w?.distributore || "—";
-    if (!byForn[forn]) byForn[forn] = {forn, qty:0, spesa:0};
-    byForn[forn].qty += m.qty;
-    byForn[forn].spesa += p*(1+iva)*m.qty;
-  });
-  const topFornitori = Object.values(byForn).sort((a,b) => b.spesa-a.spesa).slice(0,5);
-  const maxFornSpesa = topFornitori[0]?.spesa || 1;
-
-  const periodoLabels = {giorno:"Giorno",settimana:"Settimana",mese:"Mese"};
-
-  html += `<div style="margin-top:28px">
-    <div class="section-label"><span>📦 Storico Acquisti</span></div>
-
-    <div class="kpi-grid g4" style="margin-bottom:20px">
-      ${[
-        {label:"Bottiglie Acquistate",v:fmtN(totAcqQty,0),cls:"c-amber",sub:"totale carichi"},
-        {label:"Spesa Netta (ex IVA)",v:fmt(totAcqNetto),cls:"c-blue",sub:"imponibile totale"},
-        {label:"IVA Assolta",v:fmt(totAcqIva),cls:"c-orange",sub:"IVA su acquisti"},
-        {label:"Spesa Totale (IVA incl.)",v:fmt(totAcqConIva),cls:"c-green",sub:"esborso effettivo"}
-      ].map(k=>`<div class="kpi-card"><div class="kpi-label">${k.label}</div><div class="kpi-val ${k.cls}">${k.v}</div><div class="kpi-sub">${k.sub}</div></div>`).join("")}
-    </div>
-
-    <div class="card" style="padding:0;margin-bottom:20px">
-      <div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
-        <div style="display:flex;align-items:center;gap:6px">
-          <span style="color:var(--amber3)">📈</span>
-          <span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Bottiglie & Spesa per ${periodoLabels[analyticsAcquistiPeriodo]}</span>
-        </div>
-        <div style="display:flex;gap:4px">
-          ${["giorno","settimana","mese"].map(p=>`<button class="${analyticsAcquistiPeriodo===p?"btn-primary btn-sm":"btn-outline btn-sm"}" onclick="analyticsAcquistiPeriodo='${p}';render()">${periodoLabels[p]}</button>`).join("")}
-        </div>
-      </div>
-      ${acquistiData.length === 0
-        ? `<div style="padding:32px;text-align:center;color:var(--txt4);font-size:11px">Nessun carico registrato</div>`
-        : `<div style="padding:20px">
-            <div class="chart-container" style="height:240px">
-              <canvas id="chart-acquisti"></canvas>
-            </div>
-          </div>`}
-    </div>
-
-    <div class="kpi-grid g2" style="margin-bottom:20px">
-      <div class="card" style="padding:0">
-        <div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px">
-          <span style="color:#007AFF">🏭</span>
-          <span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Top Fornitori per Spesa</span>
-        </div>
-        <div style="padding:16px;display:flex;flex-direction:column;gap:12px">
-          ${topFornitori.length===0
-            ? `<div style="text-align:center;padding:28px;color:var(--txt4);font-size:11px">Nessun carico registrato</div>`
-            : topFornitori.map((f,i)=>`<div>
-                <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
-                  <span style="font-size:10px;color:var(--txt4);width:16px">#${i+1}</span>
-                  <div style="flex:1;min-width:0">
-                    <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px">${h(f.forn)}</div>
-                    <div style="color:var(--txt4);font-size:10px">${fmtN(f.qty,0)} bt acquistate</div>
-                  </div>
-                  <div style="text-align:right">
-                    <div style="color:var(--amber);font-family:'Montserrat',sans-serif;font-size:1rem">${fmt(f.spesa)}</div>
-                  </div>
-                </div>
-                <div style="display:flex;align-items:center;gap:8px;padding-left:26px">
-                  <div class="mini-bar"><div class="mini-bar-fill" style="width:${Math.min(100,(f.spesa/maxFornSpesa)*100)}%;background:#3b82f6"></div></div>
-                </div>
-              </div>`).join("")}
-        </div>
-      </div>
-
-      <div class="card" style="padding:0">
-        <div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px">
-          <span style="color:#c084fc">📋</span>
-          <span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Dettaglio per Periodo</span>
-        </div>
-        ${acquistiData.length===0
-          ? `<div style="padding:32px;text-align:center;color:var(--txt4);font-size:11px">Nessun dato</div>`
-          : `<div class="tbl-wrap" style="max-height:280px;overflow-y:auto"><table>
-              <thead><tr>
-                <th>${periodoLabels[analyticsAcquistiPeriodo]}</th>
-                <th class="r">Bottiglie</th>
-                <th class="r">Netto</th>
-                <th class="r">IVA</th>
-                <th class="r">Totale IVA incl.</th>
-              </tr></thead>
-              <tbody>
-                ${[...acquistiData].reverse().map(d=>`<tr>
-                  <td style="color:var(--txt2)">${h(d.key)}</td>
-                  <td class="r" style="color:var(--amber)">${fmtN(d.qty,0)}</td>
-                  <td class="r" style="color:var(--txt2)">${fmt(d.costoNetto)}</td>
-                  <td class="r" style="color:var(--txt3)">${fmt(d.costoConIva-d.costoNetto)}</td>
-                  <td class="r" style="color:#30D158;font-weight:600">${fmt(d.costoConIva)}</td>
-                </tr>`).join("")}
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td style="color:var(--txt3);font-size:10px;letter-spacing:.1em;text-transform:uppercase">Totale</td>
-                  <td class="r" style="color:var(--amber)">${fmtN(totAcqQty,0)}</td>
-                  <td class="r" style="color:var(--txt2)">${fmt(totAcqNetto)}</td>
-                  <td class="r" style="color:var(--txt3)">${fmt(totAcqIva)}</td>
-                  <td class="r" style="color:#30D158;font-weight:600">${fmt(totAcqConIva)}</td>
-                </tr>
-              </tfoot>
-            </table></div>`}
-      </div>
-    </div>
-  </div>`;
-
-  window._analyticsAcquistiChart = {
-    labels: acquistiData.map(d => d.key),
-    qty:    acquistiData.map(d => d.qty),
-    spesa:  acquistiData.map(d => Math.round(d.costoConIva * 100) / 100)
-  };
-
-  return html;
-}
-
-function initAnalyticsCharts(){
-  const d = window._analyticsAcquistiChart;
-  if (!d || !d.labels || d.labels.length === 0) return;
-  const canvas = document.getElementById("chart-acquisti");
-  if (!canvas) return;
-  const ctx = canvas.getContext("2d");
-  activeCharts["acquisti"] = new Chart(ctx, {
-    type: "bar",
-    data: {
-      labels: d.labels,
-      datasets: [
-        {
-          label: "Bottiglie acquistate",
-          data: d.qty,
-          backgroundColor: "rgba(245,158,11,0.55)",
-          borderColor: "rgba(245,158,11,0.9)",
-          borderWidth: 1,
-          yAxisID: "yQty",
-          order: 2
-        },
-        {
-          label: "Spesa (IVA incl.)",
-          data: d.spesa,
-          type: "line",
-          borderColor: "#30D158",
-          backgroundColor: "rgba(74,222,128,0.10)",
-          borderWidth: 2,
-          pointRadius: 4,
-          pointBackgroundColor: "#30D158",
-          tension: 0.35,
-          fill: true,
-          yAxisID: "ySpesa",
-          order: 1
-        }
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      interaction: {mode:"index", intersect:false},
-      plugins: {
-        legend: {labels:{color:"#8E8E93",font:{family:"Montserrat",size:10}}},
-        tooltip: {
-          backgroundColor:"rgba(28,25,23,.95)",
-          titleColor:"var(--amber)",
-          bodyColor:"#e7e5e4",
-          borderColor:"rgba(68,64,60,.6)",
-          borderWidth:1,
-          callbacks: {
-            label: ctx2 => {
-              if (ctx2.datasetIndex === 0) return ` ${ctx2.raw} bt`;
-              return ` \u20ac${new Intl.NumberFormat("it-IT",{minimumFractionDigits:2}).format(ctx2.raw)}`;
-            }
-          }
-        }
-      },
-      scales: {
-        x: {
-          ticks:{color:"#636366",font:{family:"Montserrat",size:9},maxRotation:45},
-          grid:{color:"rgba(41,37,36,.4)"}
-        },
-        yQty: {
-          position:"left",
-          ticks:{color:"var(--amber)",font:{family:"Montserrat",size:9}},
-          grid:{color:"rgba(41,37,36,.4)"},
-          title:{display:true,text:"Bottiglie",color:"var(--amber)",font:{size:9}}
-        },
-        ySpesa: {
-          position:"right",
-          ticks:{
-            color:"#30D158",
-            font:{family:"Montserrat",size:9},
-            callback: v => "\u20ac"+new Intl.NumberFormat("it-IT",{maximumFractionDigits:0}).format(v)
-          },
-          grid:{drawOnChartArea:false},
-          title:{display:true,text:"Spesa \u20ac",color:"#30D158",font:{size:9}}
-        }
-      }
-    }
-  });
-}
-
-// ─── ORDINI ───────────────────────────────────────────────────────────────────
-// Stato modale nuovo ordine / ricezione
-let ordineModalData = null; // {id, dataOrdine, fornitore, note, sconto:0, referenze:[{id,produttore,nomeVino,tipologia,prezzoAcq,iva,qty}]}
-let ricezioneModalData = null; // {ordineId, dataArrivo, fattura, righe:[{refId,produttore,nomeVino,tipologia,prezzoAcq,iva,qtyOrd,qtyArr}]}
-
 function _buildComboOpts(items, inputId, listId){
   return `<input id="${inputId}" class="form-input" list="${listId}" autocomplete="off" style="width:100%" placeholder="Scrivi o scegli…">
 <datalist id="${listId}">${[...new Set(items.filter(Boolean))].sort().map(v=>`<option value="${h(v)}">`).join("")}</datalist>`;
