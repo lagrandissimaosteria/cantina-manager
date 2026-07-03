@@ -5189,6 +5189,16 @@ function renderModalBody(wine){
         <div><label class="form-label">Prezzo al Calice € <span style="color:var(--txt4);font-size:9px;text-transform:none;letter-spacing:0">— opzionale</span></label><input class="form-input" id="mf-prezzoCalice" type="number" inputmode="decimal" onfocus="this.select()" value="${f.prezzoCalice||''}" placeholder="es. 8.00"></div>
         <div><label class="form-label">Giacenza (bottiglie)</label><input class="form-input" id="mf-giacenza" type="number" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" value="${f.giacenza||0}" placeholder="0" oninput="updateModalCalc()" ${wine&&(wine.lots||[]).some(l=>l.qtyRimanente>0)?'title="⚠️ Vino con lotti FIFO attivi: modifica tramite carico/scarico per non desincronizzare i lotti" style="border-color:rgba(180,83,9,.5)"':''} ><\/div>${wine&&(wine.lots||[]).some(l=>l.qtyRimanente>0)?'<div style="font-size:9px;color:rgba(251,146,60,.8);margin-top:3px;letter-spacing:.05em">⚠️ Lotti FIFO attivi — usa carico/scarico per aggiornare la giacenza<\/div>':''}
       </div>
+      ${(()=>{const on=!!f.inFresco;return `<div style="margin-top:12px">
+        <label class="form-label">Servizio in carta</label>
+        <div id="mf-fresco-toggle" role="switch" tabindex="0" aria-checked="${on}" onclick="_toggleFresco()" onkeydown="if(event.key===' '||event.key==='Enter'){event.preventDefault();_toggleFresco()}"
+          style="display:flex;align-items:center;gap:12px;cursor:pointer;padding:12px 16px;border:1.5px solid ${on?'#30D158':'#FF453A'};border-radius:10px;user-select:none;transition:all .2s;background:${on?'rgba(48,209,88,.10)':'rgba(255,69,58,.08)'}">
+          <span id="mf-fresco-dot" style="width:16px;height:16px;border-radius:50%;flex-shrink:0;transition:all .2s;background:${on?'#30D158':'#FF453A'};box-shadow:0 0 8px ${on?'rgba(48,209,88,.7)':'rgba(255,69,58,.6)'}"></span>
+          <span id="mf-fresco-txt" style="font-size:13px;font-weight:700;font-family:'Montserrat',sans-serif;letter-spacing:.02em;color:${on?'#30D158':'#FF6B6B'}">${on?'In fresco':'Non in fresco'}</span>
+          <span id="mf-fresco-ico" style="margin-left:auto;font-size:18px">${on?'❄️':'🌡️'}</span>
+        </div>
+        <input type="checkbox" id="mf-infresco" ${on?'checked':''} style="display:none">
+      </div>`})()}
       <div class="calc-panel">
         <div><div class="calc-label">Costo+IVA/bottiglia</div><div class="calc-val c-amber" id="mc-costoiva">—</div></div>
         <div><div class="calc-label">Margine Lordo/bottiglia</div><div class="calc-val" id="mc-margine">—</div></div>
@@ -5291,6 +5301,23 @@ function _normVitigni(str){
   return [...seen.values()].join(", ");
 }
 
+function _paintFresco(){
+  const cb=document.getElementById("mf-infresco"); if(!cb) return;
+  const on=cb.checked, box=document.getElementById("mf-fresco-toggle");
+  box.setAttribute("aria-checked",on);
+  box.style.borderColor=on?"#30D158":"#FF453A";
+  box.style.background=on?"rgba(48,209,88,.10)":"rgba(255,69,58,.08)";
+  const dot=document.getElementById("mf-fresco-dot");
+  dot.style.background=on?"#30D158":"#FF453A";
+  dot.style.boxShadow=on?"0 0 8px rgba(48,209,88,.7)":"0 0 8px rgba(255,69,58,.6)";
+  const txt=document.getElementById("mf-fresco-txt");
+  txt.textContent=on?"In fresco":"Non in fresco"; txt.style.color=on?"#30D158":"#FF6B6B";
+  document.getElementById("mf-fresco-ico").textContent=on?"❄️":"🌡️";
+}
+function _toggleFresco(){
+  const cb=document.getElementById("mf-infresco"); if(!cb) return;
+  cb.checked=!cb.checked; _paintFresco();
+}
 function saveWine(){
   const get=id=>document.getElementById(id)?.value||"";
   let wine={
@@ -5302,6 +5329,7 @@ function saveWine(){
     prezzoCarta:parseFloat(get("mf-prezzoCarta"))||0,
     prezzoCalice:parseFloat(get("mf-prezzoCalice"))||0,
     giacenza:parseInt(get("mf-giacenza"))||0,
+    inFresco:document.getElementById("mf-infresco")?.checked||false,
     lots:modalWine?.lots||[]
   };
   if(!wine.nome||!wine.produttore){ notify("⚠️ Nome e Produttore sono obbligatori","err"); return; }
