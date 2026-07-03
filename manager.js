@@ -1771,9 +1771,9 @@ function renderPlancia(){
     {label:"Giacenza",value:s.giacenzaTot,sub:"bottiglie totali",cls:"c-amber3"},
   ];
   const kpiStato2=[
+    {label:"Valore al Costo",value:fmt(s.valoreTot),sub:"costo acquisto × giacenza (escl. IVA)",cls:"c-orange"},
     {label:"Valore Potenziale",value:fmt(s.valoreCarta),sub:"prezzo carta × giacenza",cls:"c-green"},
     {label:"Margine Lordo",value:fmt(s.margineLordoTot),sub:"potenziale vendita",cls:"c-blue"},
-    {label:"Valore al Costo",value:fmt(s.valoreTot),sub:"costo acquisto × giacenza (escl. IVA)",cls:"c-orange"},
   ];
   let html=`<div style="font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4);margin-bottom:8px">Stato Cantina</div>
     <div class="kpi-grid g3" style="margin-bottom:12px">${kpiStato1.map(_kpiCard).join("")}</div>
@@ -1814,7 +1814,7 @@ function renderPlancia(){
 
   // KPI PERFORMANCE
   html+=`<div class="kpi-grid g4" style="margin-bottom:20px">
-    ${[{label:"Bottiglie Vendute",v:totQty,cls:"c-amber",sub:"scarichi totali"},{label:"Ricavo Totale",v:fmt(totRicavo),cls:"c-green",sub:"a prezzo carta"},{label:"Costo Venduto",v:fmt(totCosto),cls:"c-red",sub:"costo+IVA"},{label:"Margine Realizzato",v:fmt(totMargine),cls:totMargine>=0?"c-blue":"c-red",sub:totRicavo?`${fmtN(totMargine/totRicavo*100,1)}% del ricavo`:"—"}].map(k=>`<div class="kpi-card"><div class="kpi-label">${k.label}</div><div class="kpi-val ${k.cls}">${k.v}</div><div class="kpi-sub">${k.sub}</div></div>`).join("")}
+    ${[{label:"Bottiglie Vendute",v:totQty,cls:"c-amber",sub:"scarichi totali"},{label:"Costo Venduto",v:fmt(totCosto),cls:"c-red",sub:"costo+IVA"},{label:"Ricavo Totale",v:fmt(totRicavo),cls:"c-green",sub:"a prezzo carta"},{label:"Margine Realizzato",v:fmt(totMargine),cls:totMargine>=0?"c-blue":"c-red",sub:totRicavo?`${fmtN(totMargine/totRicavo*100,1)}% del ricavo`:"—"}].map(k=>`<div class="kpi-card"><div class="kpi-label">${k.label}</div><div class="kpi-val ${k.cls}">${k.v}</div><div class="kpi-sub">${k.sub}</div></div>`).join("")}
   </div>`;
 
   // ── ANDAMENTO: Trend | Storico Acquisti ──
