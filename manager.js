@@ -1867,6 +1867,183 @@ function renderPlancia(){
     </div>
   </div>`;
 
+  // ── Report per Fornitore (importo totale corrisposto + ordini fatti) ──
+  const spesaForn={};
+  carichi.forEach(m=>{
+    const w=wineMap[m.wineId];
+    const forn=((m.fornitore||w?.distributore||"").trim())||"—";
+    const p=parseFloat(m.prezzoAcqLotto)||parseFloat(w?.prezzoAcq)||0;
+    const iva=(parseInt(w?.iva)||22)/100;
+    if(!spesaForn[forn]) spesaForn[forn]={forn,spesa:0,bottiglie:0};
+    spesaForn[forn].spesa+=p*(1+iva)*m.qty;
+    spesaForn[forn].bottiglie+=m.qty;
+  });
+  const ordPerForn={};
+  orders.forEach(o=>{const f=((o.fornitore||"").trim())||"—";ordPerForn[f]=(ordPerForn[f]||0)+1;});
+  const reportForn=Object.values(spesaForn).map(r=>({...r,ordini:ordPerForn[r.forn]||0})).sort((a,b)=>b.spesa-a.spesa);
+  const totSpesaForn=reportForn.reduce((a,r)=>a+r.spesa,0);
+  const totBtForn=reportForn.reduce((a,r)=>a+r.bottiglie,0);
+  const totOrdForn=reportForn.reduce((a,r)=>a+r.ordini,0);
+
+  html+=`<div class="card" style="padding:0;margin-bottom:20px">
+    <div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px"><span style="color:var(--amber3)">🏭</span><span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Report per Fornitore — Importo Corrisposto</span><span style="margin-left:auto;font-size:10px;color:var(--txt4)">${reportForn.length} fornitori</span></div>
+    ${reportForn.length===0?`<div style="padding:32px;text-align:center;color:var(--txt4);font-size:11px">Nessun carico registrato</div>`:`
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">
+      <thead><tr style="border-bottom:1px solid var(--border)">
+        <th style="text-align:left;padding:8px 20px;color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase">Fornitore</th>
+        <th style="text-align:right;padding:8px 12px;color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase">Importo Corrisposto</th>
+        <th style="text-align:right;padding:8px 12px;color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase">Bottiglie</th>
+        <th style="text-align:right;padding:8px 20px;color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase">Ordini Fatti</th>
+      </tr></thead>
+      <tbody>${reportForn.map(r=>`<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:8px 20px;color:var(--txt2)">${h(r.forn)}</td>
+        <td style="padding:8px 12px;text-align:right;font-family:'Montserrat',sans-serif;color:var(--amber)">${fmt(r.spesa)}</td>
+        <td style="padding:8px 12px;text-align:right;color:var(--txt3)">${r.bottiglie}</td>
+        <td style="padding:8px 20px;text-align:right;color:${r.ordini>0?'var(--txt2)':'var(--txt4)'}">${r.ordini}</td>
+      </tr>`).join("")}</tbody>
+      <tfoot><tr style="border-top:2px solid var(--border2)">
+        <td style="padding:10px 20px;color:var(--txt3);font-size:9px;letter-spacing:.1em;text-transform:uppercase">Totale</td>
+        <td style="padding:10px 12px;text-align:right;font-family:'Montserrat',sans-serif;color:#30D158;font-weight:600">${fmt(totSpesaForn)}</td>
+        <td style="padding:10px 12px;text-align:right;color:var(--txt2)">${totBtForn}</td>
+        <td style="padding:10px 20px;text-align:right;color:var(--txt2)">${totOrdForn}</td>
+      </tr></tfoot>
+    </table></div>`}
+  </div>`;
+
+  // ═══════════════ GESTIONE & CARTA ═══════════════
+  const nowD=new Date();
+  const _days=(a,b)=>Math.floor((b-a)/86400000);
+  const _iso=d=>d.toISOString().slice(0,10);
+
+  // Ultima vendita + venduto storico/90g per vino
+  const lastSale={}, sold90={};
+  const cutoff90=_iso(new Date(nowD.getTime()-90*86400000));
+  movements.forEach(m=>{
+    if(m.tipo!=="scarico") return;
+    const d=m.data||"";
+    if(d&&(!lastSale[m.wineId]||d>lastSale[m.wineId])) lastSale[m.wineId]=d;
+    if(d>=cutoff90) sold90[m.wineId]=(sold90[m.wineId]||0)+m.qty;
+  });
+
+  // Derivati per referenza: dead stock, margine sottosoglia carta, markup, copertura
+  const deadStock=[], margineAlert=[], markupRows=[];
+  let inCartaCount=0, frescoCount=0, cartaSenzaPrezzo=0, capitaleFermo=0;
+  wines.forEach(w=>{
+    const g=parseInt(w.giacenza)||0;
+    const carta=parseFloat(w.prezzoCarta)||0;
+    const costo=calcCostoIvaBottiglia(w);
+    if(carta>0) inCartaCount++;
+    if(w.inFresco) frescoCount++;
+    if(g>0&&carta<=0) cartaSenzaPrezzo++;
+    if(g>0){
+      const ls=lastSale[w.id];
+      const giorni=ls?_days(new Date(ls),nowD):null;
+      if(giorni===null||giorni>=180){ capitaleFermo+=calcValore(w); deadStock.push({nome:w.nome,produttore:w.produttore,g,valore:calcValore(w),giorni}); }
+    }
+    if(carta>0&&costo>0&&carta<=costo) margineAlert.push({nome:w.nome,produttore:w.produttore,carta,costo,g});
+    if(carta>0&&costo>0) markupRows.push(carta/costo);
+  });
+  deadStock.sort((a,b)=>b.valore-a.valore);
+  margineAlert.sort((a,b)=>(a.carta-a.costo)-(b.carta-b.costo));
+
+  // Rotazione (DIO = giacenza / vendite-al-giorno su 90g); slow movers in alto
+  const rotazione=wines.filter(w=>(parseInt(w.giacenza)||0)>0).map(w=>{
+    const g=parseInt(w.giacenza)||0;
+    const perDay=(sold90[w.id]||0)/90;
+    return {nome:w.nome,g,venduti90:sold90[w.id]||0,dio:perDay>0?g/perDay:Infinity};
+  }).sort((a,b)=>b.dio-a.dio);
+
+  // Markup medio
+  const markupMed=markupRows.length?markupRows.reduce((a,x)=>a+x,0)/markupRows.length:0;
+
+  // Pareto margine (globale, non filtrato)
+  const margByWine={};
+  movements.forEach(m=>{ if(m.tipo!=="scarico") return; const w=wineMap[m.wineId]; if(!w) return; margByWine[m.wineId]=(margByWine[m.wineId]||0)+(calcRicavoMovimento(m,w)-calcCostoMovimento(m,w)); });
+  const margArr=Object.values(margByWine).sort((a,b)=>b-a);
+  const totMargG=margArr.reduce((a,x)=>a+x,0);
+  const top20n=Math.max(1,Math.ceil(margArr.length*0.2));
+  const paretoPct=totMargG>0?margArr.slice(0,top20n).reduce((a,x)=>a+x,0)/totMargG*100:0;
+
+  // Alert riordino (esaurite / sotto min / da riordinare)
+  let cEsaur=0,cMin=0,cRiord=0;
+  wines.forEach(w=>{ const g=parseInt(w.giacenza)||0, sg=_getSoglie(w.id); if(g===0)cEsaur++; else if(g<=sg.min)cMin++; else if(g<=sg.riordino)cRiord++; });
+
+  // Cash flow 12 mesi (incassi stimati vs uscite carichi IVA incl.)
+  const cashMap={};
+  for(let i=11;i>=0;i--){const d=new Date(nowD.getFullYear(),nowD.getMonth()-i,1);const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;cashMap[key]={label:d.toLocaleString("it-IT",{month:"short",year:"2-digit"}),ricavo:0,spesa:0};}
+  movements.forEach(m=>{
+    const k=(m.data||"").slice(0,7); if(!cashMap[k]) return;
+    const w=wineMap[m.wineId];
+    if(m.tipo==="scarico"&&w) cashMap[k].ricavo+=calcRicavoMovimento(m,w);
+    else if(m.tipo==="carico"){ const p=parseFloat(m.prezzoAcqLotto)||parseFloat(w?.prezzoAcq)||0; const iva=(parseInt(w?.iva)||22)/100; cashMap[k].spesa+=p*(1+iva)*m.qty; }
+  });
+  const cashData=Object.values(cashMap);
+
+  // ── HTML ──
+  html+=`<div style="font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4);margin:28px 0 10px">Gestione & Carta</div>`;
+
+  // Alert riordino (cliccabili → inventario)
+  html+=`<div class="kpi-grid g3" style="margin-bottom:16px">
+    ${[{l:"Esaurite",v:cEsaur,c:"#FF453A"},{l:"Sotto minimo",v:cMin,c:"#fb923c"},{l:"Da riordinare",v:cRiord,c:"#fbbf24"}].map(a=>`<div class="kpi-card" style="cursor:pointer" onclick="go('inventario')"><div class="kpi-label">${a.l}</div><div class="kpi-val" style="color:${a.c}">${a.v}</div><div class="kpi-sub">referenze · vai all'inventario →</div></div>`).join("")}
+  </div>`;
+
+  // KPI carta
+  const coperturaPct=s.refAttive?inCartaCount/s.refAttive*100:0;
+  html+=`<div class="kpi-grid g4" style="margin-bottom:8px">
+    ${[
+      {label:"Copertura Carta",value:`${fmtN(coperturaPct,0)}%`,sub:`${inCartaCount} in carta su ${s.refAttive} attive`,cls:"c-amber"},
+      {label:"In Fresco ❄",value:frescoCount,sub:cartaSenzaPrezzo?`${cartaSenzaPrezzo} attive senza prezzo carta`:"referenze refrigerate",cls:"c-blue"},
+      {label:"Ricarico Medio",value:`${fmtN(markupMed,1)}×`,sub:"prezzo carta / costo+IVA",cls:"c-green"},
+      {label:"Pareto Margine",value:`${fmtN(paretoPct,0)}%`,sub:`generato dal top ${top20n} (20%)`,cls:"c-orange"},
+    ].map(_kpiCard).join("")}
+  </div>`;
+
+  // Cash flow
+  html+=`<div class="card" style="margin-bottom:16px">
+    <div class="section-label"><span>💶 Cash Flow Mensile · Incassi stimati vs Uscite</span></div>
+    <div class="chart-container" style="height:240px"><canvas id="ch-cashflow"></canvas></div>
+  </div>`;
+
+  // Tabelle: Dead stock | Margine sottosoglia
+  const _tbl=(title,icon,rows,cols,empty)=>`<div class="card" style="padding:0">
+    <div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px"><span style="color:var(--amber3)">${icon}</span><span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">${title}</span>${rows.length>10?`<span style="margin-left:auto;font-size:10px;color:var(--txt4)">top 10 di ${rows.length}</span>`:""}</div>
+    ${rows.length===0?`<div style="padding:28px;text-align:center;color:#30D158;font-size:11px">${empty}</div>`:`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">
+      <thead><tr style="border-bottom:1px solid var(--border)">${cols.map(c=>`<th style="text-align:${c.r?'right':'left'};padding:7px ${c.r?'12px':'20px'};color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.08em;text-transform:uppercase">${c.h}</th>`).join("")}</tr></thead>
+      <tbody>${rows.slice(0,10).map(row=>`<tr style="border-bottom:1px solid var(--border)">${cols.map(c=>`<td style="padding:7px ${c.r?'12px':'20px'};text-align:${c.r?'right':'left'};${c.style||'color:var(--txt2)'}">${c.render(row)}</td>`).join("")}</tr>`).join("")}</tbody>
+    </table></div>`}
+  </div>`;
+
+  const _dsCard=_tbl("Capitale Fermo · nessuna vendita da 180+ gg","🧊",deadStock,[
+      {h:"Vino",render:r=>`<div style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(r.nome)}</div><div style="color:var(--txt4);font-size:10px">${h(r.produttore||'—')}</div>`},
+      {h:"Giac.",r:true,style:"color:var(--txt3)",render:r=>r.g},
+      {h:"Valore",r:true,style:"font-family:'Montserrat',sans-serif;color:#FF6B6B",render:r=>fmt(r.valore)},
+      {h:"Ferma da",r:true,style:"color:var(--txt3);font-size:10px",render:r=>r.giorni===null?"mai venduto":`${r.giorni} gg`},
+    ],"Nessun capitale immobilizzato");
+  const _dsFooter=deadStock.length?`<div style="padding:10px 20px;border-top:1px solid var(--border2);display:flex;justify-content:space-between;font-size:10px"><span style="color:var(--txt4);text-transform:uppercase;letter-spacing:.1em">Capitale fermo totale</span><span style="font-family:'Montserrat',sans-serif;color:#FF6B6B">${fmt(capitaleFermo)}</span></div>`:"";
+  // inietta il footer prima della chiusura del card dead stock
+  const _dsCardWithFooter=_dsFooter?_dsCard.replace(/<\/div>\s*$/,_dsFooter+"</div>"):_dsCard;
+
+  html+=`<div class="kpi-grid g2" style="margin-bottom:16px">
+    ${_dsCardWithFooter}
+    ${_tbl("Margine Sottosoglia · carta ≤ costo+IVA","⚠️",margineAlert,[
+      {h:"Vino",render:r=>`<div style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(r.nome)}</div><div style="color:var(--txt4);font-size:10px">${h(r.produttore||'—')}</div>`},
+      {h:"Costo+IVA",r:true,style:"color:var(--txt3)",render:r=>fmt(r.costo)},
+      {h:"Carta",r:true,style:"color:var(--amber)",render:r=>fmt(r.carta)},
+      {h:"Δ",r:true,style:"font-family:'Montserrat',sans-serif;color:#FF453A",render:r=>fmt(r.carta-r.costo)},
+    ],"Tutte le referenze in carta sono a margine positivo")}
+  </div>`;
+
+  // Rotazione slow movers
+  html+=_tbl("Rotazione Lenta · giorni di giacenza (DIO, base 90 gg)","🐌",rotazione,[
+    {h:"Vino",render:r=>`<div style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(r.nome)}</div>`},
+    {h:"Giac.",r:true,style:"color:var(--txt3)",render:r=>r.g},
+    {h:"Venduti 90gg",r:true,style:"color:var(--txt3)",render:r=>r.venduti90},
+    {h:"Giorni stock",r:true,style:"font-family:'Montserrat',sans-serif;color:var(--amber)",render:r=>r.dio===Infinity?"∞":Math.round(r.dio)},
+  ],"Nessuna referenza in giacenza");
+  html+=`<div style="margin-bottom:20px"></div>`;
+
+  window._plCash={labels:cashData.map(d=>d.label),ricavo:cashData.map(d=>Math.round(d.ricavo*100)/100),spesa:cashData.map(d=>Math.round(d.spesa*100)/100),saldo:cashData.map(d=>Math.round((d.ricavo-d.spesa)*100)/100)};
+
   window._plTrend=trendData;
   window._plTopMargin=topMargin;
   window._plPie=tipoPie;
@@ -1896,6 +2073,16 @@ function initPlanciaCharts(){
   const e3=document.getElementById("ch-pie");
   if(e3&&pie.length){
     activeCharts.pie=new Chart(e3,{type:"doughnut",data:{labels:pie.map(d=>d.name),datasets:[{data:pie.map(d=>d.value),backgroundColor:PIE_COLORS.slice(0,pie.length),borderWidth:1,borderColor:"#000"}]},options:{responsive:true,maintainAspectRatio:false,cutout:"55%",plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`${ctx.label}: ${ctx.raw} bt`}}}}});
+  }
+  // Cash flow mensile (barre incassi/uscite + linea saldo)
+  const cf=window._plCash;
+  const ecf=document.getElementById("ch-cashflow");
+  if(ecf&&cf&&cf.labels&&cf.labels.length){
+    activeCharts.cashflow=new Chart(ecf,{data:{labels:cf.labels,datasets:[
+      {type:"bar",label:"Incassi stimati",data:cf.ricavo,backgroundColor:"rgba(48,209,88,.45)",borderColor:"rgba(48,209,88,.9)",borderWidth:1,yAxisID:"y",order:3},
+      {type:"bar",label:"Uscite (IVA incl.)",data:cf.spesa,backgroundColor:"rgba(255,69,58,.4)",borderColor:"rgba(255,69,58,.85)",borderWidth:1,yAxisID:"y",order:2},
+      {type:"line",label:"Saldo",data:cf.saldo,borderColor:"#3b82f6",backgroundColor:"rgba(59,130,246,.12)",borderWidth:2,pointRadius:3,pointBackgroundColor:"#3b82f6",tension:.35,yAxisID:"y",order:1}
+    ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:"index",intersect:false},plugins:{legend:{labels:{color:"#8E8E93",font:{family:"Montserrat",size:10}}},tooltip:{backgroundColor:"rgba(28,25,23,.95)",titleColor:"var(--amber)",bodyColor:"#e7e5e4",borderColor:"rgba(68,64,60,.6)",borderWidth:1,callbacks:{label:c=>` ${c.dataset.label}: €${new Intl.NumberFormat("it-IT",{maximumFractionDigits:0}).format(c.raw)}`}}},scales:{x:{ticks:{color:"#636366",font:{family:"Montserrat",size:9}},grid:{color:"rgba(58,58,60,.4)"}},y:{ticks:{color:"#8E8E93",font:{family:"Montserrat",size:9},callback:_eur},grid:{color:"rgba(58,58,60,.4)"}}}}});
   }
   // Storico acquisti (barre bt + linea spesa)
   const d=window._plAcquisti;
