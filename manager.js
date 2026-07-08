@@ -43,6 +43,7 @@ let search = "", filterTipo = "tutti", filterFormato = "tutti",
     invSort = "tipologia", invSortDir = 1; // 1=asc, -1=desc
 let filterVitigni = new Set(); // multi-select vitigni (chiavi lowercase); Set vuoto = tutti
 let analyticsRegione = "", analyticsTipo = "", analyticsAcquistiPeriodo = "mese";
+let planciaFornPage = 0; // paginazione tabella fornitori (Plancia)
 let movForm = {wineId:"",tipo:"carico",qty:1,data:today(),fattura:"",fornitore:"",note:"",prezzoAcqLotto:"",_wineText:"",_newProduttore:"",_newTipologia:"Rosso",_newPrezzoCarta:"",_newVitigni:"",_newZona:"",_newAnnata:"",_newRegione:"",_newNazione:"Italia",_newIva:22,_newDistributore:"",_tipologia:"",_newMode:false};
 let fallForm = {wineId:"",qty:1,motivo:"Tappo difettoso (TCA)",data:today(),note:""};
 // ─── PRICE SUGGESTION (FASCE PREZZO CARTA) ───────────────────────────────────
@@ -332,6 +333,11 @@ function calcMarginePerc(w){
   return ((carta-c)/carta)*100;
 }
 function calcValoreCarta(w){return (parseFloat(w.prezzoCarta)||0)*(parseInt(w.giacenza)||0)}
+// Costo unitario NETTO di un carico: usa il costo del lotto se stampato su
+// prezzoAcqLotto, altrimenti ripiega sul costo corrente della scheda (potenz.
+// svalutato → vedi diagnostica "Classifica Fornitori" in Plancia). Unico punto
+// di verita': ogni consumer (P&L, plancia, export) deve passare da qui.
+function costoCarico(m,w){ return parseFloat(m?.prezzoAcqLotto)||parseFloat(w?.prezzoAcq)||0; }
 function calcRicavoMovimento(m,w){
   return m.qty*(parseFloat(w?.prezzoCarta)||0);
 }
@@ -366,7 +372,7 @@ function _applyMovEffect(w, mov){
   let giac=parseInt(w.giacenza)||0;
   let lots=(w.lots||[]).map(l=>({...l}));
   if(mov.tipo==="carico"){
-    const pAcq=parseFloat(mov.prezzoAcqLotto)||parseFloat(w.prezzoAcq)||0;
+    const pAcq=costoCarico(mov,w);
     lots=[...lots,{id:mov.id+"_lot",data:mov.data,fattura:mov.fattura||"",fornitore:mov.fornitore||"",prezzoAcq:pAcq,iva:w.iva||22,qtyCaricata:q,qtyRimanente:q}];
     giac+=q;
   } else {
@@ -678,6 +684,37 @@ let saveTimer = null;
 let _saveInFlight = false; // true mentre awaita Promise.all verso Supabase
 let _savePending  = false; // true se è arrivata almeno 1 modifica durante l'invio
 
+// ── TRIPWIRE D'INTEGRITÀ PRE-SAVE ──────────────────────────────────────────────
+// Due data-loss in un mese (512 azzerati, 848 svaniti) sono un pattern, non
+// sfortuna: il blob wines è sovrascrivibile e un bug a monte può azzerarlo in
+// massa. Questo guard confronta l'ultimo stato buono committato con quello che si
+// sta per scrivere e BLOCCA il salvataggio AUTOMATICO se rileva un azzeramento/
+// sparizione di massa. Il salvataggio MANUALE ("Sync forzato") NON è guardato:
+// è l'override umano esplicito. Metti a false per disattivare del tutto.
+let INTEGRITY_GUARD_ENABLED = true;
+const INTEGRITY_ABS = 25;    // soglia assoluta: n. vini colpiti
+const INTEGRITY_PCT = 0.20;  // soglia relativa: quota dei vini con giacenza
+let _lastGoodWines = null;   // [{id,giacenza}] dell'ultimo stato committato/caricato
+
+function _snapWines(arr){ return (arr||[]).map(w=>({id:w.id,giacenza:parseFloat(w.giacenza)||0})); }
+
+// Ritorna {block:boolean, reason:string}. prev = ultimo buono, next = da scrivere.
+function _integrityCheck(prev, nextWines){
+  if(!INTEGRITY_GUARD_ENABLED || !prev || !prev.length) return {block:false};
+  const nextMap = new Map((nextWines||[]).map(w=>[w.id, parseFloat(w.giacenza)||0]));
+  let azzerati=0, spariti=0, prevNonZero=0;
+  for(const pw of prev){
+    if(pw.giacenza>0) prevNonZero++;
+    if(!nextMap.has(pw.id)){ if(pw.giacenza>0) spariti++; continue; }
+    if(pw.giacenza>0 && nextMap.get(pw.id)<=0) azzerati++;
+  }
+  const colpiti = azzerati + spariti;
+  if(prevNonZero>0 && colpiti>=INTEGRITY_ABS && colpiti/prevNonZero>=INTEGRITY_PCT){
+    return {block:true, reason:`${azzerati} vini azzerati + ${spariti} spariti su ${prevNonZero} con giacenza (${Math.round(colpiti/prevNonZero*100)}%)`};
+  }
+  return {block:false};
+}
+
 async function _flushSave(){
   if(_saveInFlight){ _savePending = true; return; } // accoda — non droppa
 
@@ -713,6 +750,20 @@ async function _flushSave(){
       return;
     }
 
+    // 1.5) TRIPWIRE — blocca il salvataggio AUTOMATICO se il blob sta per subire
+    //      un azzeramento/sparizione di massa. Non scrive NIENTE (né blob né
+    //      movimenti né versione): lo stato remoto buono resta intatto. Local
+    //      backup è già stato fatto da scheduleSave, quindi nulla va perso in RAM.
+    const _guard = _integrityCheck(_lastGoodWines, snapshot.wines);
+    if(_guard.block){
+      _setDbStatus("err","Salvataggio bloccato");
+      notify(`🛑 Modifica sospetta bloccata: ${_guard.reason}. Nulla è stato scritto sul cloud. Se è VOLUTA, premi \"Sync forzato\"; altrimenti ricarica la pagina per recuperare i dati remoti.`,"err");
+      console.warn("[INTEGRITY GUARD] blocked auto-save:", _guard.reason);
+      _saveInFlight = false;
+      _savePending  = false; // scarta la coda: non ri-tentare in automatico
+      return;
+    }
+
     // 2) BLOB (wines/fallate/soglie/orders) + versione. Il blob contiene la giacenza.
     const newVersion = (_localVersion||0) + 1;
     await Promise.all([
@@ -723,6 +774,7 @@ async function _flushSave(){
       _sbWriteVersion(newVersion),
     ]);
     _localVersion = newVersion;
+    _lastGoodWines = _snapWines(snapshot.wines); // stato buono committato
 
     // 3) MOVIMENTI sul ledger append-only — SOLO dopo che la giacenza è committata,
     //    così movimento e riduzione di giacenza non possono divergere. Se il gate
@@ -769,6 +821,7 @@ async function forceSave(){
     await _sbWriteVersion(newVer);
     _localVersion = newVer;
     await _flushMovementsV2(); // movimenti sul ledger, dopo il blob giacenza
+    _lastGoodWines = _snapWines(snapshot.wines); // override umano → nuova baseline buona
     _setDbStatus("ok","Sincronizzato");
     notify("✅ Sync forzato — dati inviati a Supabase");
   }catch(e){
@@ -821,6 +874,7 @@ async function loadData(){
 
     _migrateOrders();
     _migrateWines();
+    _lastGoodWines = _snapWines(wines); // baseline integrità = stato remoto appena caricato
     _saveLocalBackup(); // update local cache with remote data
     _setDbStatus("ok","Connesso");
     if(_mobActive){
@@ -1737,8 +1791,12 @@ function renderPlancia(){
   const regioni=[...new Set(wines.map(w=>w.regione).filter(Boolean))].sort();
   const tipoList=[...new Set(wines.map(w=>w.tipologia).filter(Boolean))].sort();
 
+  // Cutoff reporting: conteggio dei FLUSSI da gennaio 2026 (lo stato/giacenza resta corrente)
+  const _EPOCH="2026-01-01";
+  const _mov=movements.filter(m=>(m.data||"")>=_EPOCH);
+
   // ── FLOW: vendite filtrate per regione/tipologia ──
-  const vendFilt=movements.filter(m=>m.tipo==="scarico").map(m=>({...m,wine:wineMap[m.wineId]||null}))
+  const vendFilt=_mov.filter(m=>m.tipo==="scarico").map(m=>({...m,wine:wineMap[m.wineId]||null}))
     .filter(m=>m.wine&&(!analyticsRegione||m.wine.regione===analyticsRegione)&&(!analyticsTipo||m.wine.tipologia===analyticsTipo));
   const totQty=vendFilt.reduce((a,m)=>a+m.qty,0);
   const totRicavo=vendFilt.reduce((a,m)=>a+calcRicavoMovimento(m,m.wine),0);
@@ -1770,12 +1828,12 @@ function renderPlancia(){
   const tipoPie=TIPOLOGIE.filter(t=>_giacByTipo[t]>0).map(t=>({name:t,value:_giacByTipo[t]}));
 
   // ── ACQUISTI ──
-  const carichi=movements.filter(m=>m.tipo==="carico");
+  const carichi=_mov.filter(m=>m.tipo==="carico");
   function getAcquistiPerPeriodo(periodo){
     const buckets={};
     carichi.forEach(m=>{
       const w=wineMap[m.wineId];
-      const p=parseFloat(m.prezzoAcqLotto)||parseFloat(w?.prezzoAcq)||0;
+      const p=costoCarico(m,w);
       const iva=(parseInt(w?.iva)||22)/100;
       const data=m.data||""; if(!data) return;
       let key;
@@ -1810,9 +1868,114 @@ function renderPlancia(){
     {label:"Valore Potenziale",value:fmt(s.valoreCarta),sub:"prezzo carta × giacenza",cls:"c-green"},
     {label:"Margine Lordo",value:fmt(s.margineLordoTot),sub:"potenziale vendita",cls:"c-blue"},
   ];
-  let html=`<div style="font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4);margin-bottom:8px">Stato Cantina</div>
+  // ═══ DIREZIONE — Stato Patrimoniale & Conto Economico ═══
+  const _pf=v=>parseFloat(v)||0;
+  const capImmob=_pf(s.valoreTot);                 // costo inventario corrente
+  const valRealizzo=_pf(s.valoreCarta);            // prezzo carta × giacenza
+  const margAbs=_pf(s.margineLordoTot);            // margine teorico assoluto
+  const margPct=valRealizzo>0?(margAbs/valRealizzo*100):0; // ponderato sul realizzo
+  // Conto economico ultimi 30 giorni (test coerenza: parseFloat||0, guard NaN)
+  const _d30=new Date(); _d30.setDate(_d30.getDate()-30); const _cut30=_d30.toISOString().slice(0,10);
+  let costo30=0,ricavo30=0,cQ30=0,sQ30=0;
+  movements.filter(m=>!m.deleted&&(m.data||"")>=_cut30).forEach(m=>{
+    const w=wineMap[m.wineId]; const q=parseInt(m.qty)||0;
+    if(m.tipo==="carico"){ const p=costoCarico(m,w); const iva=(parseInt(w?.iva)||22)/100; costo30+=p*(1+iva)*q; cQ30+=q; }
+    else if(m.tipo==="scarico"){ ricavo30+=_pf(calcRicavoMovimento(m,w)); sQ30+=q; }
+  });
+  const netto30=ricavo30-costo30;
+  const _bigCard=(label,val,sub,color)=>`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:18px 20px">
+    <div style="font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:10px">${label}</div>
+    <div style="font-family:'Montserrat',sans-serif;font-weight:300;font-size:1.9rem;line-height:1;color:${color||'var(--txt)'}">${val}</div>
+    <div style="font-size:11px;color:var(--txt4);margin-top:8px">${sub}</div>
+  </div>`;
+
+  let html=`<div style="font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4);margin-bottom:10px">Direzione · Stato Patrimoniale</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:16px">
+      ${_bigCard("Capitale Immobilizzato",fmt(capImmob),"costo inventario corrente (ex IVA)","var(--amber)")}
+      ${_bigCard("Valore Potenziale di Realizzo",fmt(valRealizzo),"prezzo carta × giacenza","#30D158")}
+      ${_bigCard("Margine Teorico Medio",fmtN(margPct,1)+"%","≈ "+fmt(margAbs)+" potenziale","#007AFF")}
+      ${_bigCard("Volume Fisico Totale",fmtN(s.refAttive,0)+" ref.",fmtN(s.giacenzaTot,0)+" bottiglie totali","var(--amber3)")}
+    </div>
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px 20px;margin-bottom:22px">
+      <div style="font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:12px">Conto Economico · ultimi 30 giorni</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px">
+        <div><div style="font-size:11px;color:var(--txt4);margin-bottom:4px">Costo Carichi</div><div style="font-family:'Montserrat',sans-serif;font-size:1.3rem;color:#FF453A">${fmt(costo30)}</div><div style="font-size:10px;color:var(--txt4)">${fmtN(cQ30,0)} bt · IVA incl.</div></div>
+        <div><div style="font-size:11px;color:var(--txt4);margin-bottom:4px">Ricavo Scarichi</div><div style="font-family:'Montserrat',sans-serif;font-size:1.3rem;color:#30D158">${fmt(ricavo30)}</div><div style="font-size:10px;color:var(--txt4)">${fmtN(sQ30,0)} bt · a carta</div></div>
+        <div><div style="font-size:11px;color:var(--txt4);margin-bottom:4px">Flusso Netto</div><div style="font-family:'Montserrat',sans-serif;font-size:1.3rem;color:${netto30>=0?'#30D158':'#FF453A'}">${netto30>=0?'+':''}${fmt(netto30)}</div><div style="font-size:10px;color:var(--txt4)">ricavo − costo carichi</div></div>
+      </div>
+    </div>
+    <div style="font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4);margin-bottom:8px">Stato Cantina</div>
     <div class="kpi-grid g3" style="margin-bottom:12px">${kpiStato1.map(_kpiCard).join("")}</div>
     <div class="kpi-grid g3" style="margin-bottom:20px">${kpiStato2.map(_kpiCard).join("")}</div>`;
+
+  // ═══ APPROVVIGIONAMENTO & FORNITORI (carichi attivi ≥ 2026-01-01) ═══
+  const _fEpoch="2026-01-01";
+  const _fCarichi=movements.filter(m=>!m.deleted&&m.tipo==="carico"&&(m.data||"")>=_fEpoch);
+  const _fAgg={}; const _fOrdiniSet=new Set();
+  let _fTot=0,_fBt=0;
+  // DIAG costo lotto: righe carico che NON hanno prezzoAcqLotto e ricadono su w.prezzoAcq (potenz. svalutato)
+  let _fManqBt=0,_fManqRighe=0,_fManqImp=0;
+  _fCarichi.forEach(m=>{
+    const w=wineMap[m.wineId];
+    const key=((m.fornitore||w?.distributore||"").trim())||"Fornitore Sconosciuto"; // antibug .sort/type
+    const pLot=_pf(m.prezzoAcqLotto);
+    const lotMissing=pLot<=0;                 // fallback attivo su w.prezzoAcq
+    const p=pLot||_pf(w?.prezzoAcq);
+    const iva=(parseInt(w?.iva)||22)/100;
+    const q=parseInt(m.qty)||0;
+    const imp=p*(1+iva)*q;
+    if(!_fAgg[key]) _fAgg[key]={forn:key,spesa:0,bt:0,ordini:new Set(),manqBt:0,manqRighe:0,manqImp:0};
+    _fAgg[key].spesa+=imp; _fAgg[key].bt+=q;
+    if(lotMissing){ _fAgg[key].manqBt+=q; _fAgg[key].manqRighe++; _fAgg[key].manqImp+=imp; _fManqBt+=q; _fManqRighe++; _fManqImp+=imp; }
+    const ordKey=(m.fattura||m.data||"")+"";
+    _fAgg[key].ordini.add(ordKey); _fOrdiniSet.add(key+"|"+ordKey);
+    _fTot+=imp; _fBt+=q;
+  });
+  const _fRank=Object.values(_fAgg).map(x=>({forn:x.forn,spesa:x.spesa,bt:x.bt,nOrdini:x.ordini.size,manqBt:x.manqBt,manqRighe:x.manqRighe,manqImp:x.manqImp})).sort((a,b)=>b.spesa-a.spesa);
+  const _fCostoMedio=_fBt>0?_fTot/_fBt:0;
+  const _fDiary=[..._fCarichi].sort((a,b)=>(b.data||"").localeCompare(a.data||"")||(b.ts||0)-(a.ts||0)).slice(0,5);
+
+  html+=`<style>@media(max-width:640px){.pl-forn-grid{grid-template-columns:1fr!important}}</style>
+  <div style="font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4);margin:2px 0 8px">Approvvigionamento & Fornitori · da ${_fEpoch.slice(0,4)}</div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:14px">
+    ${_bigCard("Totale Speso",fmt(_fTot),"carichi IVA incl.","#30D158")}
+    ${_bigCard("Bottiglie Comprate",fmtN(_fBt,0),"volume acquistato","var(--amber)")}
+    ${_bigCard("Frequenza Ordini",fmtN(_fOrdiniSet.size,0),"bolle/date uniche","#007AFF")}
+    ${_bigCard("Costo Medio / bt",fmt(_fCostoMedio),"IVA incl. per bottiglia","var(--amber3)")}
+  </div>
+  <div class="pl-forn-grid" style="display:grid;grid-template-columns:3fr 2fr;gap:14px;margin-bottom:24px">
+    <div class="card" style="padding:0">
+      <div style="padding:12px 18px;border-bottom:1px solid var(--border);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--txt2)">🏭 Classifica Fornitori · spesa</div>
+      ${_fManqRighe>0?`<div style="margin:8px 12px;padding:9px 12px;background:rgba(255,159,10,.12);border:1px solid rgba(180,83,9,.5);border-radius:8px;font-size:11px;color:var(--amber);line-height:1.45">
+        ⚠️ <b>${fmtN(_fManqRighe,0)}</b> carich${_fManqRighe===1?'i':'i'} su <b>${fmtN(_fCarichi.length,0)}</b> (<b>${fmtN(_fManqBt,0)}</b> bt) senza <code>prezzoAcqLotto</code> → stimati sul costo corrente della scheda, potenzialmente svalutato.
+        <span style="color:var(--txt3)">Valore su fallback: <b style="color:var(--amber)">${fmt(_fManqImp)}</b> · ${_fTot>0?fmtN(_fManqImp/_fTot*100,0):0}% del totale poggia su costi non affidabili.</span>
+      </div>`:""}
+      <div style="padding:4px 0">
+        ${_fRank.length===0?`<div style="padding:24px;text-align:center;color:var(--txt4);font-size:11px">Nessun carico dal ${_fEpoch}</div>`:
+        _fRank.slice(0,12).map((r,i)=>`<div style="display:flex;align-items:center;gap:12px;padding:9px 18px;border-bottom:1px solid var(--border)">
+          <span style="font-size:11px;color:var(--txt4);width:18px;font-family:'Montserrat',sans-serif">${i+1}</span>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;color:var(--txt1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${h(r.forn)}${r.manqBt>0?` <span title="${fmtN(r.manqRighe,0)} carichi senza costo lotto · ${fmt(r.manqImp)} su fallback" style="display:inline-block;font-size:9px;color:var(--amber);border:1px solid rgba(180,83,9,.5);background:rgba(255,159,10,.12);border-radius:4px;padding:0 5px;vertical-align:middle;font-family:'Montserrat',sans-serif">⚠ ${fmtN(r.manqBt,0)}</span>`:""}</div>
+            <div style="font-size:10px;color:var(--txt4)">${fmtN(r.bt,0)} bt · ${r.nOrdini} ordin${r.nOrdini===1?'e':'i'}</div>
+          </div>
+          <div style="font-family:'Montserrat',sans-serif;color:var(--amber);font-size:.95rem;white-space:nowrap">${fmt(r.spesa)}</div>
+        </div>`).join("")}
+      </div>
+    </div>
+    <div class="card" style="padding:0">
+      <div style="padding:12px 18px;border-bottom:1px solid var(--border);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--txt2)">🗓 Ultimi Carichi</div>
+      <div style="padding:4px 0">
+        ${_fDiary.length===0?`<div style="padding:24px;text-align:center;color:var(--txt4);font-size:11px">—</div>`:
+        _fDiary.map(m=>{const w=wineMap[m.wineId];const key=((m.fornitore||w?.distributore||"").trim())||"Fornitore Sconosciuto";const p=costoCarico(m,w);const iva=(parseInt(w?.iva)||22)/100;const q=parseInt(m.qty)||0;const imp=p*(1+iva)*q;return `<div style="display:flex;align-items:center;gap:10px;padding:9px 18px;border-bottom:1px solid var(--border)">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:12px;color:var(--txt1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${h(key)}</div>
+            <div style="font-size:10px;color:var(--txt4)">${m.data||'—'} · ${fmtN(q,0)} bt</div>
+          </div>
+          <div style="font-family:'Montserrat',sans-serif;color:var(--txt2);font-size:.9rem;white-space:nowrap">${fmt(imp)}</div>
+        </div>`;}).join("")}
+      </div>
+    </div>
+  </div>`;
 
   // widget ordini
   const owColor=ordiniOpen.length>0?"rgba(255,159,10,.15)":"rgba(20,83,45,.2)";
@@ -1902,47 +2065,109 @@ function renderPlancia(){
     </div>
   </div>`;
 
-  // ── Report per Fornitore (importo totale corrisposto + ordini fatti) ──
+  // ── Storico Acquisti (KPI + dettaglio per periodo) — layout da Analytics ──
+  const totAcqQty=carichi.reduce((s,m)=>s+m.qty,0);
+  const totAcqNetto=carichi.reduce((s,m)=>{const w=wineMap[m.wineId];const p=costoCarico(m,w);return s+p*m.qty;},0);
+  const totAcqIva=carichi.reduce((s,m)=>{const w=wineMap[m.wineId];const p=costoCarico(m,w);const iva=(parseInt(w?.iva)||22)/100;return s+p*iva*m.qty;},0);
+  const totAcqConIva=totAcqNetto+totAcqIva;
+  html+=`<div class="kpi-grid g4" style="margin-bottom:16px">
+    ${[
+      {label:"Bottiglie Acquistate",value:fmtN(totAcqQty,0),sub:"totale carichi",cls:"c-amber"},
+      {label:"Spesa Netta (ex IVA)",value:fmt(totAcqNetto),sub:"imponibile totale",cls:"c-blue"},
+      {label:"IVA Assolta",value:fmt(totAcqIva),sub:"IVA su acquisti",cls:"c-orange"},
+      {label:"Spesa Totale (IVA incl.)",value:fmt(totAcqConIva),sub:"esborso effettivo",cls:"c-green"},
+    ].map(_kpiCard).join("")}
+  </div>`;
+  html+=`<div class="card" style="padding:0;margin-bottom:20px">
+    <div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+      <div style="display:flex;align-items:center;gap:6px"><span style="color:#c084fc">📋</span><span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Dettaglio Acquisti per ${periodoLabels[analyticsAcquistiPeriodo]}</span></div>
+      <div style="display:flex;gap:4px">${["giorno","settimana","mese"].map(p=>`<button class="${analyticsAcquistiPeriodo===p?"btn-primary btn-sm":"btn-outline btn-sm"}" onclick="analyticsAcquistiPeriodo='${p}';render()">${periodoLabels[p]}</button>`).join("")}</div>
+    </div>
+    ${acquistiData.length===0?`<div style="padding:32px;text-align:center;color:var(--txt4);font-size:11px">Nessun carico registrato</div>`:`
+    <div style="overflow-x:auto;max-height:300px;overflow-y:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">
+      <thead><tr style="border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg2)">
+        ${[periodoLabels[analyticsAcquistiPeriodo],"Bottiglie","Netto","IVA","Totale IVA incl."].map((c,i)=>`<th style="text-align:${i?'right':'left'};padding:8px ${i?'12px':'20px'};color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase">${c}</th>`).join("")}
+      </tr></thead>
+      <tbody>${[...acquistiData].reverse().map(d=>`<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:7px 20px;color:var(--txt2)">${h(d.key)}</td>
+        <td style="padding:7px 12px;text-align:right;color:var(--amber)">${fmtN(d.qty,0)}</td>
+        <td style="padding:7px 12px;text-align:right;color:var(--txt2)">${fmt(d.costoNetto)}</td>
+        <td style="padding:7px 12px;text-align:right;color:var(--txt3)">${fmt(d.costoConIva-d.costoNetto)}</td>
+        <td style="padding:7px 12px;text-align:right;color:#30D158;font-weight:600">${fmt(d.costoConIva)}</td>
+      </tr>`).join("")}</tbody>
+      <tfoot><tr style="border-top:2px solid var(--border2)">
+        <td style="padding:10px 20px;color:var(--txt3);font-size:9px;letter-spacing:.1em;text-transform:uppercase">Totale</td>
+        <td style="padding:10px 12px;text-align:right;color:var(--amber)">${fmtN(totAcqQty,0)}</td>
+        <td style="padding:10px 12px;text-align:right;color:var(--txt2)">${fmt(totAcqNetto)}</td>
+        <td style="padding:10px 12px;text-align:right;color:var(--txt3)">${fmt(totAcqIva)}</td>
+        <td style="padding:10px 12px;text-align:right;color:#30D158;font-weight:600">${fmt(totAcqConIva)}</td>
+      </tr></tfoot>
+    </table></div>`}
+  </div>`;
+
+  // ── Breakdown Ordini per Fornitore (gen→oggi) — paginato ──
   const spesaForn={};
   carichi.forEach(m=>{
     const w=wineMap[m.wineId];
     const forn=((m.fornitore||w?.distributore||"").trim())||"—";
-    const p=parseFloat(m.prezzoAcqLotto)||parseFloat(w?.prezzoAcq)||0;
+    const p=costoCarico(m,w);
     const iva=(parseInt(w?.iva)||22)/100;
-    if(!spesaForn[forn]) spesaForn[forn]={forn,spesa:0,bottiglie:0};
+    if(!spesaForn[forn]) spesaForn[forn]={forn,spesa:0,bottiglie:0,valMag:0};
     spesaForn[forn].spesa+=p*(1+iva)*m.qty;
     spesaForn[forn].bottiglie+=m.qty;
   });
-  const ordPerForn={};
-  orders.forEach(o=>{const f=((o.fornitore||"").trim())||"—";ordPerForn[f]=(ordPerForn[f]||0)+1;});
-  const reportForn=Object.values(spesaForn).map(r=>({...r,ordini:ordPerForn[r.forn]||0})).sort((a,b)=>b.spesa-a.spesa);
+  // Valore magazzino corrente per fornitore (distributore del vino)
+  wines.forEach(w=>{
+    const forn=((w.distributore||"").trim())||"—";
+    if(!spesaForn[forn]) spesaForn[forn]={forn,spesa:0,bottiglie:0,valMag:0};
+    spesaForn[forn].valMag+=calcValore(w);
+  });
+  const reportForn=Object.values(spesaForn).sort((a,b)=>b.spesa-a.spesa);
   const totSpesaForn=reportForn.reduce((a,r)=>a+r.spesa,0);
   const totBtForn=reportForn.reduce((a,r)=>a+r.bottiglie,0);
-  const totOrdForn=reportForn.reduce((a,r)=>a+r.ordini,0);
+  const totValMag=reportForn.reduce((a,r)=>a+r.valMag,0);
+
+  const FORN_PAGE=12;
+  const nPagesF=Math.max(1,Math.ceil(reportForn.length/FORN_PAGE));
+  if(planciaFornPage>=nPagesF) planciaFornPage=nPagesF-1;
+  if(planciaFornPage<0) planciaFornPage=0;
+  const pageStart=planciaFornPage*FORN_PAGE;
+  const pageForn=reportForn.slice(pageStart,pageStart+FORN_PAGE);
 
   html+=`<div class="card" style="padding:0;margin-bottom:20px">
-    <div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px"><span style="color:var(--amber3)">🏭</span><span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Report per Fornitore — Importo Corrisposto</span><span style="margin-left:auto;font-size:10px;color:var(--txt4)">${reportForn.length} fornitori</span></div>
+    <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span style="color:#007AFF">🏭</span>
+      <span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Ordini per Fornitore · gen→oggi</span>
+      <span style="margin-left:auto;text-align:right"><span style="font-family:'Montserrat',sans-serif;color:#30D158;font-size:.95rem">${fmt(totSpesaForn)}</span><span style="color:var(--txt4);font-size:9px;letter-spacing:.1em;text-transform:uppercase;margin-left:6px">${fmtN(totBtForn,0)} bt · ${reportForn.length} fornitori</span></span>
+    </div>
     ${reportForn.length===0?`<div style="padding:32px;text-align:center;color:var(--txt4);font-size:11px">Nessun carico registrato</div>`:`
     <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">
       <thead><tr style="border-bottom:1px solid var(--border)">
-        <th style="text-align:left;padding:8px 20px;color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase">Fornitore</th>
-        <th style="text-align:right;padding:8px 12px;color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase">Importo Corrisposto</th>
-        <th style="text-align:right;padding:8px 12px;color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase">Bottiglie</th>
-        <th style="text-align:right;padding:8px 20px;color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase">Ordini Fatti</th>
+        <th style="text-align:left;padding:9px 20px;color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase">#</th>
+        <th style="text-align:left;padding:9px 12px;color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase">Fornitore</th>
+        <th style="text-align:right;padding:9px 12px;color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase">Bottiglie</th>
+        <th style="text-align:right;padding:9px 12px;color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase">Importo Pagato</th>
+        <th style="text-align:right;padding:9px 20px;color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase">Valore a Magazzino</th>
       </tr></thead>
-      <tbody>${reportForn.map(r=>`<tr style="border-bottom:1px solid var(--border)">
-        <td style="padding:8px 20px;color:var(--txt2)">${h(r.forn)}</td>
-        <td style="padding:8px 12px;text-align:right;font-family:'Montserrat',sans-serif;color:var(--amber)">${fmt(r.spesa)}</td>
-        <td style="padding:8px 12px;text-align:right;color:var(--txt3)">${r.bottiglie}</td>
-        <td style="padding:8px 20px;text-align:right;color:${r.ordini>0?'var(--txt2)':'var(--txt4)'}">${r.ordini}</td>
+      <tbody>${pageForn.map((r,i)=>`<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:9px 20px;color:var(--txt4);font-family:'Montserrat',sans-serif;font-size:10px">${pageStart+i+1}</td>
+        <td style="padding:9px 12px;color:var(--txt1);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(r.forn)}</td>
+        <td style="padding:9px 12px;text-align:right;color:var(--txt3)">${fmtN(r.bottiglie,0)}</td>
+        <td style="padding:9px 12px;text-align:right;font-family:'Montserrat',sans-serif;color:var(--amber)">${fmt(r.spesa)}</td>
+        <td style="padding:9px 20px;text-align:right;font-family:'Montserrat',sans-serif;color:var(--txt2)">${fmt(r.valMag)}</td>
       </tr>`).join("")}</tbody>
       <tfoot><tr style="border-top:2px solid var(--border2)">
-        <td style="padding:10px 20px;color:var(--txt3);font-size:9px;letter-spacing:.1em;text-transform:uppercase">Totale</td>
-        <td style="padding:10px 12px;text-align:right;font-family:'Montserrat',sans-serif;color:#30D158;font-weight:600">${fmt(totSpesaForn)}</td>
-        <td style="padding:10px 12px;text-align:right;color:var(--txt2)">${totBtForn}</td>
-        <td style="padding:10px 20px;text-align:right;color:var(--txt2)">${totOrdForn}</td>
+        <td colspan="2" style="padding:11px 20px;color:var(--txt3);font-size:9px;letter-spacing:.1em;text-transform:uppercase">Totale (tutti)</td>
+        <td style="padding:11px 12px;text-align:right;color:var(--txt2)">${fmtN(totBtForn,0)}</td>
+        <td style="padding:11px 12px;text-align:right;font-family:'Montserrat',sans-serif;color:#30D158;font-weight:600">${fmt(totSpesaForn)}</td>
+        <td style="padding:11px 20px;text-align:right;font-family:'Montserrat',sans-serif;color:var(--txt2)">${fmt(totValMag)}</td>
       </tr></tfoot>
-    </table></div>`}
+    </table></div>
+    ${nPagesF>1?`<div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:10px">
+      <button class="btn-outline btn-sm" ${planciaFornPage===0?"disabled style=\"opacity:.35;cursor:default\"":""} onclick="planciaFornPage--;render()">‹ Prec</button>
+      <span style="font-size:10px;color:var(--txt4);letter-spacing:.08em">${pageStart+1}–${Math.min(pageStart+FORN_PAGE,reportForn.length)} di ${reportForn.length} · pag. ${planciaFornPage+1}/${nPagesF}</span>
+      <button class="btn-outline btn-sm" ${planciaFornPage>=nPagesF-1?"disabled style=\"opacity:.35;cursor:default\"":""} onclick="planciaFornPage++;render()">Succ ›</button>
+    </div>`:""}`}
   </div>`;
 
   // ═══════════════ GESTIONE & CARTA ═══════════════
@@ -1953,7 +2178,7 @@ function renderPlancia(){
   // Ultima vendita + venduto storico/90g per vino
   const lastSale={}, sold90={};
   const cutoff90=_iso(new Date(nowD.getTime()-90*86400000));
-  movements.forEach(m=>{
+  _mov.forEach(m=>{
     if(m.tipo!=="scarico") return;
     const d=m.data||"";
     if(d&&(!lastSale[m.wineId]||d>lastSale[m.wineId])) lastSale[m.wineId]=d;
@@ -1993,7 +2218,7 @@ function renderPlancia(){
 
   // Pareto margine (globale, non filtrato)
   const margByWine={};
-  movements.forEach(m=>{ if(m.tipo!=="scarico") return; const w=wineMap[m.wineId]; if(!w) return; margByWine[m.wineId]=(margByWine[m.wineId]||0)+(calcRicavoMovimento(m,w)-calcCostoMovimento(m,w)); });
+  _mov.forEach(m=>{ if(m.tipo!=="scarico") return; const w=wineMap[m.wineId]; if(!w) return; margByWine[m.wineId]=(margByWine[m.wineId]||0)+(calcRicavoMovimento(m,w)-calcCostoMovimento(m,w)); });
   const margArr=Object.values(margByWine).sort((a,b)=>b-a);
   const totMargG=margArr.reduce((a,x)=>a+x,0);
   const top20n=Math.max(1,Math.ceil(margArr.length*0.2));
@@ -2006,11 +2231,11 @@ function renderPlancia(){
   // Cash flow 12 mesi (incassi stimati vs uscite carichi IVA incl.)
   const cashMap={};
   for(let i=11;i>=0;i--){const d=new Date(nowD.getFullYear(),nowD.getMonth()-i,1);const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;cashMap[key]={label:d.toLocaleString("it-IT",{month:"short",year:"2-digit"}),ricavo:0,spesa:0};}
-  movements.forEach(m=>{
+  _mov.forEach(m=>{
     const k=(m.data||"").slice(0,7); if(!cashMap[k]) return;
     const w=wineMap[m.wineId];
     if(m.tipo==="scarico"&&w) cashMap[k].ricavo+=calcRicavoMovimento(m,w);
-    else if(m.tipo==="carico"){ const p=parseFloat(m.prezzoAcqLotto)||parseFloat(w?.prezzoAcq)||0; const iva=(parseInt(w?.iva)||22)/100; cashMap[k].spesa+=p*(1+iva)*m.qty; }
+    else if(m.tipo==="carico"){ const p=costoCarico(m,w); const iva=(parseInt(w?.iva)||22)/100; cashMap[k].spesa+=p*(1+iva)*m.qty; }
   });
   const cashData=Object.values(cashMap);
 
@@ -2470,9 +2695,10 @@ function _refreshPop(wineId, el){
 }
 
 function _updateScaricoCounts(){
-  // Conta solo righe visibili (filtro ricerca potrebbe nasconderne alcune)
+  // Conta solo righe/card visibili (filtro ricerca potrebbe nasconderne alcune)
+  const _SEL = "#ssp-list .ssp-card, #ssp-table tbody tr, #scarico-serata-table tbody tr";
   let totBt = 0, righe = 0;
-  document.querySelectorAll("#ssp-table tbody tr, #scarico-serata-table tbody tr").forEach(tr => {
+  document.querySelectorAll(_SEL).forEach(tr => {
     if(tr.style.display === "none") return;
     const input = tr.querySelector("input[type=number]");
     if(!input) return;
@@ -2481,7 +2707,7 @@ function _updateScaricoCounts(){
   });
   // Calcola ricavo stimato in tempo reale
   let totRicavoStimato = 0;
-  document.querySelectorAll("#ssp-table tbody tr, #scarico-serata-table tbody tr").forEach(tr => {
+  document.querySelectorAll(_SEL).forEach(tr => {
     if(tr.style.display === "none") return;
     const inp = tr.querySelector("input[type=number]");
     if(!inp) return;
@@ -2509,6 +2735,37 @@ function _updateScaricoCounts(){
 }
 
 
+// ── Scarico serata (card mobile-first): staging qty, nessun tocco ai lotti FIFO ──
+function _sspRefreshCard(wid){
+  const w=wines.find(x=>x.id===wid); if(!w) return;
+  const card=document.querySelector(`#ssp-list .ssp-card[data-wid="${wid}"]`); if(!card) return;
+  const q=parseInt(scaricoSerata.qtys[wid])||0;
+  const giac=parseInt(w.giacenza)||0;
+  const carta=parseFloat(w.prezzoCarta)||0;
+  const hasVal=q>0, over=q>giac;
+  card.style.borderColor=hasVal?'rgba(255,69,58,.35)':'var(--border2)';
+  card.style.background=hasVal?'rgba(255,69,58,.06)':'rgba(28,28,30,.5)';
+  const inp=card.querySelector('.ssp-qty');
+  if(inp){ inp.style.borderColor=over?'#ef4444':hasVal?'rgba(239,68,68,.5)':'var(--border2)'; inp.style.color=over?'#FF453A':hasVal?'#FF6B6B':'var(--txt)'; }
+  const ric=card.querySelector('.ssp-ric');
+  if(ric){ ric.textContent=hasVal&&carta?('· ricavo '+fmt(q*carta)):''; ric.style.color=hasVal&&carta?'#30D158':'var(--txt4)'; }
+}
+function _sspInput(wid,val){
+  const q=Math.max(0,parseInt(val)||0);
+  if(q>0) scaricoSerata.qtys[wid]=String(q); else delete scaricoSerata.qtys[wid];
+  _sspRefreshCard(wid); _updateScaricoCounts();
+}
+function _sspStep(wid,delta){
+  const w=wines.find(x=>x.id===wid);
+  const max=w?parseInt(w.giacenza)||0:0;
+  let q=parseInt(scaricoSerata.qtys[wid])||0;
+  q=Math.min(max,Math.max(0,q+delta));
+  if(q>0) scaricoSerata.qtys[wid]=String(q); else delete scaricoSerata.qtys[wid];
+  const card=document.querySelector(`#ssp-list .ssp-card[data-wid="${wid}"]`);
+  const inp=card?.querySelector('.ssp-qty');
+  if(inp) inp.value=q>0?q:'';
+  _sspRefreshCard(wid); _updateScaricoCounts();
+}
 function _ieriStr(){ const d=new Date(); d.setDate(d.getDate()-1); return d.toISOString().split("T")[0]; }
 let scaricoSerata = {
   open: false,
@@ -2611,23 +2868,18 @@ function registraScaricaSingoloVino(wineId){
   scheduleSave();
   notify(`🍾 ${wine.nome} — ${qty} bottigli${qty===1?"a":"e"} scaricata`);
 
-  // Aggiorna solo la riga nel DOM senza re-render completo
-  const tr = document.querySelector(`#ssp-table tr[data-wid="${wineId}"]`);
-  if(tr){
+  // Aggiorna solo la card nel DOM senza re-render completo
+  const card = document.querySelector(`#ssp-list .ssp-card[data-wid="${wineId}"]`);
+  if(card){
     const newGiac = wines.find(w=>w.id===wineId)?.giacenza ?? 0;
     if(newGiac === 0){
-      tr.remove(); // vino esaurito: rimuovi dalla lista
+      card.remove(); // vino esaurito: rimuovi dalla lista
     } else {
-      // Aggiorna giacenza e resetta input
-      const giacEl = tr.querySelector('.ssp-giac');
+      const giacEl = card.querySelector('.ssp-giac');
       if(giacEl) giacEl.textContent = newGiac;
-      const inp = tr.querySelector('input[type=number]');
-      if(inp){ inp.value=''; inp.style.borderColor=''; inp.style.color=''; }
-      const cb = tr.querySelector('input[type=checkbox]');
-      if(cb) cb.checked = false;
-      tr.style.background = '';
-      // Aggiorna max
-      if(inp) inp.max = newGiac;
+      const inp = card.querySelector('.ssp-qty');
+      if(inp){ inp.value=''; inp.max = newGiac; }
+      _sspRefreshCard(wineId);
     }
   }
   _updateScaricoCounts();
@@ -2938,55 +3190,47 @@ function renderScaricoSerataPage(){
           <div style="flex:1;min-width:160px;position:relative;margin-left:8px">
             <span style="position:absolute;left:9px;top:50%;transform:translateY(-50%);color:var(--txt3);pointer-events:none;font-size:12px">&#128269;</span>
             <input type="text" class="form-input" style="padding-left:28px" placeholder="Cerca vino, produttore, annata..."
-              oninput="(function(v){document.querySelectorAll('#ssp-table tbody tr').forEach(tr=>{const txt=tr.textContent.toLowerCase();tr.style.display=txt.includes(v.toLowerCase())?'':'none'})})(this.value)">
+              oninput="(function(v){document.querySelectorAll('#ssp-list .ssp-card').forEach(c=>{const txt=c.textContent.toLowerCase();c.style.display=txt.includes(v.toLowerCase())?'':'none'})})(this.value)">
           </div>
         </div>
       </div>
-      <div style="overflow-x:auto"><table id="ssp-table" style="width:100%;border-collapse:collapse">
-        <thead><tr>
-          <th style="text-align:left">Vino</th>
-          <th style="text-align:left">Produttore</th>
-          <th style="text-align:center">${badge('Tipo')}</th>
-          <th style="text-align:center;color:var(--amber3);background:rgba(255,159,10,.08);cursor:pointer" onclick="const _sy=window.scrollY;scaricoSerata.sort='giacenza';render();requestAnimationFrame(()=>window.scrollTo(0,_sy))" title="Ordina per giacenza">Giacenza${sortKey==='giacenza'?' ↓':''}</th>
-          <th style="text-align:center;color:var(--txt);background:rgba(255,69,58,.08);min-width:110px">Scarico</th>
-          <th style="text-align:right;color:#30D158;background:rgba(48,209,88,.06);min-width:80px">Ricavo</th>
-          <th style="width:52px;background:rgba(255,69,58,.08)"></th>
-        </tr></thead>
-        <tbody>
-          ${winiDisponibili.map(w=>{
-            const qVal=scaricoSerata.qtys[w.id]||"";
-            const qNum=parseInt(qVal)||0;
-            const overLimit=qNum>w.giacenza;
-            const hasVal=qNum>0;
-            return `<tr data-wid="${w.id}" style="${hasVal?"background:rgba(255,69,58,.06)":""}">
-              <td style="word-break:break-word;white-space:normal;min-width:90px">
-                <div style="font-size:13px;${hasVal?"color:var(--txt)":"color:var(--txt2)"};word-break:break-word;white-space:normal;line-height:1.35">${h(w.nome)}</div>
-                ${w.annata?`<div style="font-size:10px;color:var(--amber);margin-top:1px">${h(w.annata)}</div>`:''}
-                <div style="font-size:10px;color:var(--txt4);margin-top:1px" class="ssp-prod-mobile">${h(w.produttore)}</div>
-              </td>
-              <td style="color:var(--txt3);font-size:11px" class="ssp-col-desktop">${h(w.produttore)}</td>
-              <td style="text-align:center">${badge(w.tipologia)}</td>
-              <td class="ssp-giac" style="text-align:center;font-family:'Montserrat',sans-serif;font-size:1.1rem;color:var(--amber3);background:rgba(255,159,10,.05)">${w.giacenza}</td>
-              <td style="text-align:center;background:rgba(255,69,58,.04)">
-                <input type="number" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" min="0" max="${w.giacenza}" step="1" class="form-input"
-                  style="width:80px;text-align:center;font-family:'Montserrat',sans-serif;font-size:1.1rem;padding:4px 8px;${overLimit?"border-color:#ef4444;color:#FF453A":hasVal?"border-color:rgba(239,68,68,.5);color:#FF6B6B":""}"
-                  value="${qVal}" placeholder="0"
-                  oninput="scaricoSerata.qtys['${w.id}']=this.value;const cb=document.querySelector('#ssp-table tr[data-wid=\\'${w.id}\\'] input[type=checkbox]');if(cb)cb.checked=(parseInt(this.value)||0)>0;_updateScaricoCounts()">
-              </td>
-              <td class="ssp-ricavo-${w.id}" style="text-align:right;font-size:11px;color:${hasVal&&w.prezzoCarta?'#30D158':'var(--txt4)'};background:rgba(48,209,88,.04);padding:4px 10px;white-space:nowrap">
-                ${hasVal&&w.prezzoCarta?fmt(qNum*parseFloat(w.prezzoCarta)):'—'}
-              </td>
-              <td style="text-align:center;padding:4px 6px;background:rgba(255,69,58,.04)">
-                <button onclick="registraScaricaSingoloVino('${w.id}')"
-                  style="width:40px;height:40px;border-radius:8px;border:1px solid rgba(255,69,58,.4);background:rgba(255,69,58,.15);color:#FF6B6B;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s"
-                  onmouseover="if((parseInt(scaricoSerata.qtys['${w.id}'])||0)>0){this.style.background='rgba(255,69,58,.35)';this.style.color='#fff'}"
-                  onmouseout="this.style.background='rgba(255,69,58,.15)';this.style.color='#FF6B6B'"
-                  title="Scarica ora questo vino">✓</button>
-              </td>
-            </tr>`;
-          }).join("")}
-        </tbody>
-      </table></div>
+      <div id="ssp-list" style="display:flex;flex-direction:column;gap:8px;padding:0 14px 8px">
+        ${winiDisponibili.map(w=>{
+          // Antibug: record parziale/corrotto → fallback silenzioso, nessun crash
+          if(!w||!w.id) return "";
+          const nome=h(w.nome||"— senza nome —");
+          const prod=h((w.produttore||"").trim()||"—");
+          const annata=w.annata?h(w.annata):"N.V.";
+          const tipo=w.tipologia||"";
+          const giac=parseInt(w.giacenza)||0;
+          const carta=parseFloat(w.prezzoCarta)||0;
+          const qVal=scaricoSerata.qtys[w.id]||"";
+          const qNum=parseInt(qVal)||0;
+          const overLimit=qNum>giac;
+          const hasVal=qNum>0;
+          return `<div class="ssp-card" data-wid="${w.id}" style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:14px;border:1px solid ${hasVal?'rgba(255,69,58,.35)':'var(--border2)'};background:${hasVal?'rgba(255,69,58,.06)':'rgba(28,28,30,.5)'};transition:border-color .15s,background .15s">
+            <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px">
+              <div style="font-size:15px;font-weight:600;color:${hasVal?'var(--txt)':'var(--txt1)'};word-break:break-word;line-height:1.2">${nome}</div>
+              <div style="font-size:12px;color:var(--txt4);display:flex;align-items:center;gap:6px;flex-wrap:wrap;line-height:1.3">
+                <span>${prod}</span><span style="opacity:.45">·</span><span style="color:var(--amber)">${annata}</span>${tipo?`<span style="opacity:.45">·</span>${badge(tipo)}`:''}
+              </div>
+              <div style="font-size:11px;color:var(--txt4);margin-top:1px">Giacenza <span class="ssp-giac" style="color:var(--amber3);font-family:'Montserrat',sans-serif">${giac}</span> bt<span class="ssp-ric" style="color:${hasVal&&carta?'#30D158':'var(--txt4)'};margin-left:8px">${hasVal&&carta?'· ricavo '+fmt(qNum*carta):''}</span></div>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+              <button type="button" onclick="_sspStep('${w.id}',-1)" aria-label="Diminuisci"
+                style="width:46px;height:46px;border-radius:12px;border:1px solid var(--border2);background:rgba(58,58,60,.4);color:var(--txt2);font-size:24px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;touch-action:manipulation">−</button>
+              <input type="number" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" min="0" max="${giac}" step="1" class="ssp-qty"
+                value="${qVal}" placeholder="0"
+                style="width:54px;height:46px;text-align:center;font-family:'Montserrat',sans-serif;font-size:1.2rem;border-radius:10px;border:1px solid ${overLimit?'#ef4444':hasVal?'rgba(239,68,68,.5)':'var(--border2)'};background:var(--bg);color:${overLimit?'#FF453A':hasVal?'#FF6B6B':'var(--txt)'}"
+                oninput="_sspInput('${w.id}',this.value)">
+              <button type="button" onclick="_sspStep('${w.id}',1)" aria-label="Aumenta"
+                style="width:46px;height:46px;border-radius:12px;border:1px solid rgba(255,69,58,.4);background:rgba(255,69,58,.15);color:#FF6B6B;font-size:24px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;touch-action:manipulation">+</button>
+              <button type="button" onclick="registraScaricaSingoloVino('${w.id}')" title="Scarica ora questo vino"
+                style="width:46px;height:46px;border-radius:12px;border:1px solid rgba(48,209,88,.4);background:rgba(48,209,88,.12);color:#30D158;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;touch-action:manipulation">✓</button>
+            </div>
+          </div>`;
+        }).join("")}
+      </div>
     </div>
 
     ${actionBarHtml}
@@ -5082,7 +5326,7 @@ function renderExport(){
   const wineMap=Object.fromEntries(wines.map(w=>[w.id,w]));
   const carichi=movements.filter(m=>m.tipo==="carico");
   let totImponibileAcq=0,totIvaAcq=0;
-  carichi.forEach(m=>{const w=wineMap[m.wineId];const p=parseFloat(m.prezzoAcqLotto)||parseFloat(w?.prezzoAcq)||0;const imp=p*m.qty;totImponibileAcq+=imp;totIvaAcq+=imp*((parseInt(w?.iva)||22)/100);});
+  carichi.forEach(m=>{const w=wineMap[m.wineId];const p=costoCarico(m,w);const imp=p*m.qty;totImponibileAcq+=imp;totIvaAcq+=imp*((parseInt(w?.iva)||22)/100);});
   let totPerdite=0,totIvaPerd=0;
   fallate.forEach(f=>{const w=wineMap[f.wineId];const p=parseFloat(w?.prezzoAcq)||0;const vc=p*f.qty;totPerdite+=vc;totIvaPerd+=vc*((parseInt(w?.iva)||22)/100);});
   const totIvaStock=wines.reduce((s,w)=>s+calcValore(w)*((parseInt(w.iva)||22)/100),0);
@@ -5133,6 +5377,7 @@ function renderExport(){
       {icon:"📑",tag:"B",title:"Registro Acquisti",desc:"Ordine cronologico con n° fattura, fornitore, imponibile per riga, IVA assolta. Pronto per la contabilità.",badge:"background:rgba(30,64,175,.4);color:#93c5fd;border-color:rgba(37,99,235,.5)",fn:"exportAcquistiCSV()",label:"Esporta Acquisti CSV"},
       {icon:"⚠️",tag:"C",title:"Registro Perdite / Fallate",desc:"Perdite da scaricare a bilancio: valore costo, IVA su merce persa, totale perdita. Ordine cronologico.",badge:"background:rgba(255,69,58,.2);color:#FF6B6B;border-color:#CC3025",fn:"exportFallateCSV()",label:"Esporta Fallate CSV"},
       {icon:"↕️",tag:"D",title:"Tutti i Movimenti",desc:"Log completo carico e scarico con valore del movimento, riferimenti fattura e note.",badge:"background:var(--bg3);color:#e7e5e4;border-color:var(--border2)",fn:"exportMovimentiCSV()",label:"Esporta Movimenti CSV"},
+      {icon:"🏭",tag:"E",title:"Report Fornitori (Commercialista)",desc:"Carichi attivi dal 1° gennaio 2026: data, fornitore, ID ordine, bottiglie e totale speso. Testi ripuliti da virgole per Excel.",badge:"background:rgba(0,122,255,.2);color:#93c5fd;border-color:rgba(0,122,255,.5)",fn:"exportFornitoriCSV()",label:"Esporta Fornitori CSV"},
     ].map(card=>`<div class="export-card"><div class="export-icon">${card.icon}</div><div style="flex:1"><div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span class="export-tag" style="${card.badge}">${card.tag}</span><span style="font-family:'Montserrat',sans-serif;font-size:13px;color:var(--txt)">${card.title}</span></div><p class="export-desc">${card.desc}</p><button class="btn-primary btn-sm" onclick="${card.fn}">↓ ${card.label}</button></div></div>`).join("")}
   </div>
   <div style="margin-top:20px;padding:16px 20px;background:var(--bg2);border:1px solid var(--border)">
@@ -5780,7 +6025,7 @@ function applyBulkEdit(){
         const q=parseInt(m.qty)||0;
         if(q<=0) return;
         if(m.tipo==="carico"){
-          const pAcq=parseFloat(m.prezzoAcqLotto)||parseFloat(w.prezzoAcq)||0;
+          const pAcq=costoCarico(m,w);
           const lot={id:m.id+"_lot",data:m.data,fattura:m.fattura||"",fornitore:m.fornitore||"",prezzoAcq:pAcq,iva:w.iva||22,qtyCaricata:q,qtyRimanente:q};
           wines[wIdx]={...w,giacenza:w.giacenza+q,lots:[...(w.lots||[]),lot]};
         } else {
@@ -5924,9 +6169,92 @@ function exportAcquistiCSV(){
   const carichi=[...movements].filter(m=>m.tipo==="carico").sort((a,b)=>(a.data||"").localeCompare(b.data||""));
   const headers=["Data","N° Fattura","Fornitore/Distributore","Produttore","Nome Vino","Annata","Tipologia","Qtà","P.Acquisto/bt","IVA %","Imponibile","IVA Assolta","Totale Riga","Note"];
   let totQty=0,totImp=0,totIva=0;
-  const rows=carichi.map(m=>{const w=wineMap[m.wineId];const p=parseFloat(m.prezzoAcqLotto)||parseFloat(w?.prezzoAcq)||0;const iva=parseInt(w?.iva)||22;const imp=p*m.qty;const iv=imp*(iva/100);totQty+=m.qty;totImp+=imp;totIva+=iv;return [m.data,m.fattura||"—",m.fornitore||w?.distributore||"—",m.produttore||w?.produttore||"",m.wineName,w?.annata||"",w?.tipologia||"",m.qty,fmtN(p),iva+"%",fmtN(imp),fmtN(iv),fmtN(imp+iv),m.note||""];});
+  const rows=carichi.map(m=>{const w=wineMap[m.wineId];const p=costoCarico(m,w);const iva=parseInt(w?.iva)||22;const imp=p*m.qty;const iv=imp*(iva/100);totQty+=m.qty;totImp+=imp;totIva+=iv;return [m.data,m.fattura||"—",m.fornitore||w?.distributore||"—",m.produttore||w?.produttore||"",m.wineName,w?.annata||"",w?.tipologia||"",m.qty,fmtN(p),iva+"%",fmtN(imp),fmtN(iv),fmtN(imp+iv),m.note||""];});
   dlCSV(toCSV([headers,...rows,[],["","","","","","","TOTALE",totQty,"","",fmtN(totImp),fmtN(totIva),fmtN(totImp+totIva),""]]),`registro_acquisti_${dateStr.replace(/\//g,"-")}.csv`);
   notify("📥 Acquisti esportati");
+}
+// ── BACKFILL COSTI LOTTO ────────────────────────────────────────────────────────
+// Ripara i carichi legacy privi di prezzoAcqLotto (che ricadono su w.prezzoAcq
+// corrente, potenz. svalutato → totali fornitori sgonfiati ~€40.911). Recupera il
+// costo storico VERO in cascata: (1) lotto FIFO per id "mov.id+_lot", (2) lotto per
+// match data+fattura+qtyCaricata, (3) riga ordine collegato via fattura (prezzoAcq
+// al netto di scontoRef riga e o.sconto ordine).
+//   backfillCostiLotto()      → DRY-RUN: stampa tabella + impatto sui totali, non scrive
+//   backfillCostiLotto(true)  → APPLICA: muta movements (immutabile) + scheduleSave()
+// ⚠️ PRIMA DI APPLICARE fai un backup (export JSON o cm_take_backup()).
+function backfillCostiLotto(apply=false){
+  const EPOCH="2026-01-01";
+  const _n=v=>parseFloat(v)||0;
+  const wineMap=Object.fromEntries(wines.map(w=>[w.id,w]));
+  const ordByFatt={};
+  (orders||[]).forEach(o=>{const k=String(o.numeroFattura||o.fattura||"").trim(); if(k)(ordByFatt[k]=ordByFatt[k]||[]).push(o);});
+
+  const resolve=(m,w)=>{
+    const lots=(w&&w.lots)||[];
+    let l=lots.find(x=>x.id===m.id+"_lot");                                   // 1) id deterministico
+    if(l&&_n(l.prezzoAcq)>0) return {p:_n(l.prezzoAcq),src:"lotId"};
+    l=lots.find(x=>(x.data||"")===(m.data||"")&&String(x.fattura||"")===String(m.fattura||"")&&_n(x.qtyCaricata)===_n(m.qty)&&_n(x.prezzoAcq)>0); // 2) match
+    if(l) return {p:_n(l.prezzoAcq),src:"lotMatch"};
+    for(const o of (ordByFatt[String(m.fattura||"").trim()]||[])){            // 3) riga ordine
+      const scOrd=_n(o.sconto);
+      const r=(o.referenze||[]).find(x=>x.wineId===m.wineId||String(x.nomeVino||"").trim()===String(m.wineName||"").trim());
+      if(r&&_n(r.prezzoAcq)>0){
+        const net=_n(r.prezzoAcq)*(1-_n(r.scontoRef)/100)*(1-scOrd/100);
+        if(net>0) return {p:net,src:"ordine"};
+      }
+    }
+    return null;
+  };
+
+  const patch=new Map(), irr=[];
+  movements.forEach(m=>{
+    if(m.deleted||m.tipo!=="carico"||_n(m.prezzoAcqLotto)>0) return;
+    const w=wineMap[m.wineId]; const r=resolve(m,w);
+    if(r) patch.set(m.id,{...r,fornitore:(m.fornitore||w?.distributore||"?"),wine:m.wineName,qty:_n(m.qty),fallback:_n(w?.prezzoAcq)});
+    else irr.push({id:m.id,vino:m.wineName,data:m.data,fattura:m.fattura||"",fornitore:(m.fornitore||w?.distributore||"?")});
+  });
+
+  const totEpoch=useLot=>movements.filter(m=>!m.deleted&&m.tipo==="carico"&&(m.data||"")>=EPOCH).reduce((s,m)=>{
+    const w=wineMap[m.wineId]; const iva=(parseInt(w?.iva)||22)/100; const q=_n(m.qty);
+    let p=_n(m.prezzoAcqLotto)||_n(w?.prezzoAcq); if(useLot&&patch.has(m.id)) p=patch.get(m.id).p;
+    return s+p*(1+iva)*q;
+  },0);
+  const totPre=totEpoch(false), totPost=totEpoch(true);
+
+  console.log(`[BACKFILL COSTI LOTTO] apply=${apply} — risolti ${patch.size}, irrisolti ${irr.length}`);
+  console.table([...patch].map(([id,v])=>({id,vino:v.wine,fornitore:v.fornitore,qty:v.qty,fallback_svalutato:v.fallback.toFixed(2),costo_recuperato:v.p.toFixed(2),fonte:v.src})));
+  if(irr.length){ console.log("Irrisolti (richiedono correzione manuale):"); console.table(irr); }
+  console.log(`Totale fornitori (≥${EPOCH})  PRIMA € ${totPre.toFixed(2)}  →  DOPO € ${totPost.toFixed(2)}  (Δ +€ ${(totPost-totPre).toFixed(2)})`);
+
+  if(!apply){ console.log("Dry-run: nessuna scrittura. Rilancia backfillCostiLotto(true) per applicare (dopo backup)."); return {risolti:patch.size,irrisolti:irr.length,totPre,totPost}; }
+  if(!patch.size){ notify("Backfill: nessun carico da correggere","ok"); return {risolti:0,irrisolti:irr.length}; }
+  movements=movements.map(m=> patch.has(m.id) ? {...m,prezzoAcqLotto:patch.get(m.id).p,_backfill:patch.get(m.id).src} : m);
+  scheduleSave();
+  notify(`✅ Backfill: ${patch.size} carichi corretti, ${irr.length} irrisolti · totale fornitori +€${(totPost-totPre).toFixed(0)}`,"ok");
+  return {risolti:patch.size,irrisolti:irr.length,totPre,totPost};
+}
+
+function exportFornitoriCSV(){
+  const dateStr=new Date().toLocaleDateString("it-IT");
+  const wineMap=Object.fromEntries(wines.map(w=>[w.id,w]));
+  const EPOCH="2026-01-01";
+  const carichi=movements.filter(m=>!m.deleted&&m.tipo==="carico"&&(m.data||"")>=EPOCH)
+    .sort((a,b)=>(a.data||"").localeCompare(b.data||""));
+  const clean=s=>String(s??"").replace(/[;,\r\n]+/g," ").trim(); // pulizia virgole/pv interne
+  const headers=["Data","Fornitore","ID_Ordine","Bottiglie_Totali","Totale_Speso_Euro"];
+  let tQ=0,tT=0;
+  const rows=carichi.map(m=>{
+    const w=wineMap[m.wineId];
+    const forn=clean((m.fornitore||w?.distributore||"").trim()||"Fornitore Sconosciuto");
+    const p=costoCarico(m,w);
+    const iva=(parseInt(w?.iva)||22)/100;
+    const q=parseInt(m.qty)||0;
+    const tot=p*(1+iva)*q;
+    tQ+=q; tT+=tot;
+    return [m.data||"",forn,clean(m.fattura||m.data||"—"),q,fmtN(tot,2)];
+  });
+  dlCSV(toCSV([headers,...rows,[],["","","TOTALE",tQ,fmtN(tT,2)]]),`fornitori_${EPOCH.slice(0,4)}_al_${dateStr.replace(/\//g,"-")}.csv`);
+  notify("📥 Report fornitori esportato");
 }
 function exportFallateCSV(){
   const dateStr=new Date().toLocaleDateString("it-IT");
@@ -5948,7 +6276,7 @@ function exportMovimentiCSV(){
     // M7: per scarichi usa costoUnitarioIva snapshot; per carichi usa prezzoAcqLotto del lotto
     const p=m.tipo==="scarico"
       ? (m.costoUnitarioIva || parseFloat(w?.prezzoAcq)||0)
-      : (parseFloat(m.prezzoAcqLotto)||parseFloat(w?.prezzoAcq)||0);
+      : (costoCarico(m,w));
     return [m.data,m.tipo.toUpperCase(),m.fattura||"",m.fornitore||"",m.wineName,m.produttore||"",m.nazione||w?.nazione||"",w?.annata||"",(m.tipo==="carico"?"+":"-")+m.qty,fmtN(p),(parseInt(w?.iva)||22)+"%",fmtN(p*m.qty),m.note||""];});
   dlCSV(toCSV([headers,...rows]),`movimenti_${dateStr.replace(/\//g,"-")}.csv`);
   notify("📥 Movimenti esportati");
@@ -6932,7 +7260,7 @@ function exportBilancioCSV(){
   const wineMap=Object.fromEntries(wines.map(w=>[w.id,w]));
   const carichi=[...movements].filter(m=>m.tipo==="carico").sort((a,b)=>(a.data||"").localeCompare(b.data||""));
   const fallSorted=[...fallate].sort((a,b)=>(a.data||"").localeCompare(b.data||""));
-  let totImpAcq=0,totIvaAcq=0;carichi.forEach(m=>{const w=wineMap[m.wineId];const p=parseFloat(m.prezzoAcqLotto)||parseFloat(w?.prezzoAcq)||0;const imp=p*m.qty;totImpAcq+=imp;totIvaAcq+=imp*((parseInt(w?.iva)||22)/100);});
+  let totImpAcq=0,totIvaAcq=0;carichi.forEach(m=>{const w=wineMap[m.wineId];const p=costoCarico(m,w);const imp=p*m.qty;totImpAcq+=imp;totIvaAcq+=imp*((parseInt(w?.iva)||22)/100);});
   let totValStock=0,totIvaStock=0;wines.forEach(w=>{const vc=calcValore(w);totValStock+=vc;totIvaStock+=vc*((parseInt(w.iva)||22)/100);});
   let totPerdite=0,totIvaPerd=0;fallSorted.forEach(f=>{const w=wineMap[f.wineId];const p=parseFloat(w?.prezzoAcq)||0;const vc=p*f.qty;totPerdite+=vc;totIvaPerd+=vc*((parseInt(w?.iva)||22)/100);});
   const s=getStats();const lines=[];
@@ -6951,7 +7279,7 @@ function exportBilancioCSV(){
   lines.push(""); lines.push("");
   lines.push(row("C — REGISTRO ACQUISTI"));
   lines.push(row("Data","N° Fattura","Fornitore","Nome Vino","Annata","Qtà","P.Acq/bt","IVA%","Imponibile","IVA Assolta","Totale Riga"));
-  carichi.forEach(m=>{const w=wineMap[m.wineId];const p=parseFloat(m.prezzoAcqLotto)||parseFloat(w?.prezzoAcq)||0;const iva=parseInt(w?.iva)||22;const imp=p*m.qty;const iv=imp*(iva/100);lines.push(row(m.data,m.fattura||"—",m.fornitore||w?.distributore||"—",m.wineName,w?.annata||"",m.qty,fmtN(p),iva+"%",fmtN(imp),fmtN(iv),fmtN(imp+iv)));});
+  carichi.forEach(m=>{const w=wineMap[m.wineId];const p=costoCarico(m,w);const iva=parseInt(w?.iva)||22;const imp=p*m.qty;const iv=imp*(iva/100);lines.push(row(m.data,m.fattura||"—",m.fornitore||w?.distributore||"—",m.wineName,w?.annata||"",m.qty,fmtN(p),iva+"%",fmtN(imp),fmtN(iv),fmtN(imp+iv)));});
   lines.push(""); lines.push("");
   lines.push(row("D — REGISTRO PERDITE / FALLATE"));
   lines.push(row("Data","Nome Vino","Produttore","Tipologia","Qtà","P.Acq/bt","Val.Costo Perdita","IVA su Perdita","Totale Perdita","Motivazione","Note"));
@@ -6967,10 +7295,11 @@ function exportBilancioCSV(){
 function exportBackupJSON(){
   const dateStr = new Date().toISOString().slice(0,10);
   const backup = {
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     wines,
     movements,
+    movements_ledger: movements, // ledger append-only completo (chiave canonica)
     fallate,
     orders,
     alertSoglie,
@@ -7076,14 +7405,21 @@ function importBackupJSON(event){
   reader.onload = e => {
     try {
       const data = JSON.parse(e.target.result);
-      if(!data.wines || !Array.isArray(data.wines)) throw new Error("Formato non valido");
+      // ── Validazione strutturale robusta: blocca prima di qualsiasi commit distruttivo ──
+      if(!data || typeof data!=="object" || Array.isArray(data)) throw new Error("File non valido o vuoto");
+      if(!Array.isArray(data.wines) || data.wines.length===0) throw new Error("Nessun vino nel backup (file vuoto o corrotto)");
+      if(!data.wines.every(w=>w && typeof w==="object" && w.id)) throw new Error("Struttura vini non valida (id mancante)");
+      // ledger: chiave canonica movements_ledger, fallback storico movements
+      const mov = Array.isArray(data.movements_ledger) ? data.movements_ledger
+                : Array.isArray(data.movements) ? data.movements : null;
+      if(mov && !mov.every(m=>m && typeof m==="object")) throw new Error("Struttura movimenti non valida");
       // _confirmModal è non-blocking: la catch gestisce solo il parse JSON
       _confirmModal(
-        `Importare <strong>${data.wines.length} vini</strong>?<br><span style="font-size:11px;color:var(--txt4)">I dati esistenti verranno sostituiti.</span>`,
+        `Importare <strong>${data.wines.length} vini</strong>${mov?` e <strong>${mov.length} movimenti</strong>`:""}?<br><span style="font-size:11px;color:var(--txt4)">I dati esistenti verranno sostituiti.</span>`,
         "📥 Importa",
         () => {
           wines = data.wines;
-          if(data.movements) movements = data.movements;
+          if(mov) movements = mov;
           if(data.fallate) fallate = data.fallate;
           if(data.orders) orders = data.orders;
           if(data.alertSoglie) alertSoglie = data.alertSoglie;
