@@ -42,7 +42,7 @@ let search = "", filterTipo = "tutti", filterFormato = "tutti",
     filterGiacenza = "tutti", // "tutti"|"esaurito"|"basso"|"ok"
     invSort = "tipologia", invSortDir = 1; // 1=asc, -1=desc
 let filterVitigni = new Set(); // multi-select vitigni (chiavi lowercase); Set vuoto = tutti
-let analyticsRegione = "", analyticsTipo = "", analyticsAcquistiPeriodo = "mese";
+let analyticsRegione = "", analyticsNazione = "", analyticsTipo = "", analyticsAcquistiPeriodo = "mese";
 let planciaFornPage = 0; // paginazione tabella fornitori (Plancia)
 let movForm = {wineId:"",tipo:"carico",qty:1,data:today(),fattura:"",fornitore:"",note:"",prezzoAcqLotto:"",_wineText:"",_newProduttore:"",_newTipologia:"Rosso",_newPrezzoCarta:"",_newVitigni:"",_newZona:"",_newAnnata:"",_newRegione:"",_newNazione:"Italia",_newIva:22,_newDistributore:"",_tipologia:"",_newMode:false};
 let fallForm = {wineId:"",qty:1,motivo:"Tappo difettoso (TCA)",data:today(),note:""};
@@ -1561,7 +1561,7 @@ function _buildInventarioList(){
   const q=search.toLowerCase();
   const fvit=[...filterVitigni];
   let list=wines.filter(w=>{
-    const mq=!q||[w.nome,w.produttore,w.distributore,w.regione,w.vitigni,w.annata,w.nazione].some(f=>(f||"").toLowerCase().includes(q));
+    const mq=!q||_fuzzyMatch(q,[w.nome,w.produttore,w.distributore,w.regione,w.vitigni,w.annata,w.nazione,w.tipologia,w.denominazione].filter(Boolean).join(" "),w.sku);
     const mt=filterTipo==="tutti"||w.tipologia===filterTipo;
     const wVit=(w.vitigni||"").split(/[,;/&+]+/).map(v=>v.trim().toLowerCase());
     const mv=!fvit.length||fvit.every(g=>wVit.includes(g));
@@ -1811,26 +1811,39 @@ function renderInventarioOnly(){
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
 function renderPlancia(){
+  // ══════════════════════════ COMPUTE PHASE ══════════════════════════
   const s=getStats();
   const wineMap=Object.fromEntries(wines.map(w=>[w.id,w]));
   const regioni=[...new Set(wines.map(w=>w.regione).filter(Boolean))].sort();
   const tipoList=[...new Set(wines.map(w=>w.tipologia).filter(Boolean))].sort();
+  const _wineNaz={}, _naz2reg={};
+  wines.forEach(w=>{ const nz=inferPaese(w.nazione,w.regione,w.zona)||""; _wineNaz[w.id]=nz; if(w.regione){ (_naz2reg[nz]=_naz2reg[nz]||new Set()).add(w.regione); } });
+  const nazioni=[...new Set(wines.map(w=>_wineNaz[w.id]).filter(Boolean))].sort();
+  const regioniFiltrate=analyticsNazione?[...(_naz2reg[analyticsNazione]||new Set())].sort():regioni;
 
-  // Cutoff reporting: conteggio dei FLUSSI da gennaio 2026 (lo stato/giacenza resta corrente)
   const _EPOCH="2026-01-01";
   const _mov=movements.filter(m=>(m.data||"")>=_EPOCH);
 
-  // ── FLOW: vendite filtrate per regione/tipologia ──
+  // helpers
+  const _pf=v=>parseFloat(v)||0;
+  const _kpiCard=k=>`<div class="kpi-card"><div class="kpi-label">${k.label}</div><div class="kpi-val ${k.cls}">${k.value}</div><div class="kpi-sub">${k.sub}</div></div>`;
+  const _bigCard=(label,val,sub,color)=>`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:18px 20px">
+    <div style="font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:10px">${label}</div>
+    <div style="font-family:'Montserrat',sans-serif;font-weight:300;font-size:1.9rem;line-height:1;color:${color||'var(--txt)'}">${val}</div>
+    <div style="font-size:11px;color:var(--txt4);margin-top:8px">${sub}</div>
+  </div>`;
+
+  // ── VENDITE filtrate (regione/tipologia/nazione) ──
   const vendFilt=_mov.filter(m=>m.tipo==="scarico").map(m=>({...m,wine:wineMap[m.wineId]||null}))
-    .filter(m=>m.wine&&(!analyticsRegione||m.wine.regione===analyticsRegione)&&(!analyticsTipo||m.wine.tipologia===analyticsTipo));
+    .filter(m=>m.wine&&(!analyticsNazione||_wineNaz[m.wine.id]===analyticsNazione)&&(!analyticsRegione||m.wine.regione===analyticsRegione)&&(!analyticsTipo||m.wine.tipologia===analyticsTipo));
   const totQty=vendFilt.reduce((a,m)=>a+m.qty,0);
   const totRicavo=vendFilt.reduce((a,m)=>a+calcRicavoMovimento(m,m.wine),0);
   const totCosto=vendFilt.reduce((a,m)=>a+calcCostoMovimento(m,m.wine),0);
   const totMargine=totRicavo-totCosto;
 
-  // Trend ultimi 12 mesi (rolling): ricavo (barre) + margine (linea, asse dx)
+  // Trend 12 mesi rolling
   const now=new Date(), monthMap={};
-  for(let i=11;i>=0;i--){const d=new Date(now.getFullYear(),now.getMonth()-i,1);const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;monthMap[key]={key,label:d.toLocaleString("it-IT",{month:"short",year:"2-digit"}),ricavo:0,costo:0,vendute:0};}
+  for(let i=11;i>=0;i--){const d=new Date(now.getFullYear(),now.getMonth()-i,1);const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;if(key<"2026-01")continue;monthMap[key]={key,label:d.toLocaleString("it-IT",{month:"short",year:"2-digit"}),ricavo:0,costo:0,vendute:0};}
   const wineMarginMap={};
   vendFilt.forEach(m=>{
     const key=(m.data||"").slice(0,7);
@@ -1842,17 +1855,17 @@ function renderPlancia(){
   const trendData=Object.values(monthMap).map(d=>({...d,margine:d.ricavo-d.costo}));
   const topMargin=Object.values(wineMarginMap).sort((a,b)=>b.margine-a.margine).slice(0,10);
 
-  // Best sellers Top 5 per bottiglie
+  // Best sellers Top 5
   const bySales={};
   vendFilt.forEach(m=>{if(!bySales[m.wineId])bySales[m.wineId]={wineName:m.wineName,produttore:m.produttore,qty:0,ricavo:0,costo:0};bySales[m.wineId].qty+=m.qty;bySales[m.wineId].ricavo+=calcRicavoMovimento(m,m.wine);bySales[m.wineId].costo+=calcCostoMovimento(m,m.wine);});
   const bestSellers=Object.values(bySales).sort((a,b)=>b.qty-a.qty).slice(0,5);
   const maxQty=bestSellers[0]?.qty||1;
 
-  // ── STOCK: giacenza per tipologia (snapshot, non filtrato) ──
+  // STOCK per tipologia (snapshot)
   const _giacByTipo=wines.reduce((acc,w)=>{if(w.giacenza>0)acc[w.tipologia]=(acc[w.tipologia]||0)+w.giacenza;return acc;},{});
   const tipoPie=TIPOLOGIE.filter(t=>_giacByTipo[t]>0).map(t=>({name:t,value:_giacByTipo[t]}));
 
-  // ── ACQUISTI ──
+  // ACQUISTI per periodo
   const carichi=_mov.filter(m=>m.tipo==="carico");
   function getAcquistiPerPeriodo(periodo){
     const buckets={};
@@ -1873,16 +1886,13 @@ function renderPlancia(){
   const acquistiData=getAcquistiPerPeriodo(analyticsAcquistiPeriodo);
   const periodoLabels={giorno:"Giorno",settimana:"Settimana",mese:"Mese"};
 
-  // ── ordini aperti (widget) ──
+  // ordini aperti (widget)
   const ordiniOpen=orders.filter(o=>o.stato==="attesa"||o.stato==="confermato_pendente");
   const ordiniPending=orders.filter(o=>o.stato==="confermato_pendente");
   const ordiniValTot=ordiniOpen.reduce((acc,o)=>(o.referenze||[]).reduce((x,r)=>x+(parseFloat(r.prezzoAcq)||0)*(1+(parseInt(r.iva)||22)/100)*(parseInt(r.qty)||0),acc),0);
   const ordiniQtyTot=ordiniOpen.reduce((acc,o)=>(o.referenze||[]).reduce((x,r)=>x+(parseInt(r.qty)||0),acc),0);
 
-  // ═══════════════ HTML ═══════════════
-  const _kpiCard=k=>`<div class="kpi-card"><div class="kpi-label">${k.label}</div><div class="kpi-val ${k.cls}">${k.value}</div><div class="kpi-sub">${k.sub}</div></div>`;
-
-  // KPI STATO cantina (snapshot)
+  // KPI STATO cantina
   const kpiStato1=[
     {label:"Ref. Attive",value:s.refAttive,sub:`su ${s.referenze} totali`,cls:"c-amber"},
     {label:"Ref. Terminate",value:s.refEsaurite,sub:"giacenza esaurita",cls:"c-red"},
@@ -1893,13 +1903,14 @@ function renderPlancia(){
     {label:"Valore Potenziale",value:fmt(s.valoreCarta),sub:"prezzo carta × giacenza",cls:"c-green"},
     {label:"Margine Lordo",value:fmt(s.margineLordoTot),sub:"potenziale vendita",cls:"c-blue"},
   ];
-  // ═══ DIREZIONE — Stato Patrimoniale & Conto Economico ═══
-  const _pf=v=>parseFloat(v)||0;
-  const capImmob=_pf(s.valoreTot);                 // costo inventario corrente
-  const valRealizzo=_pf(s.valoreCarta);            // prezzo carta × giacenza
-  const margAbs=_pf(s.margineLordoTot);            // margine teorico assoluto
-  const margPct=valRealizzo>0?(margAbs/valRealizzo*100):0; // ponderato sul realizzo
-  // Conto economico ultimi 30 giorni (test coerenza: parseFloat||0, guard NaN)
+
+  // DIREZIONE — patrimonio
+  const capImmob=_pf(s.valoreTot);
+  const valRealizzo=_pf(s.valoreCarta);
+  const margAbs=_pf(s.margineLordoTot);
+  const margPct=valRealizzo>0?(margAbs/valRealizzo*100):0;
+
+  // Conto economico ultimi 30 giorni (cassa)
   const _d30=new Date(); _d30.setDate(_d30.getDate()-30); const _cut30=_d30.toISOString().slice(0,10);
   let costo30=0,ricavo30=0,cQ30=0,sQ30=0;
   movements.filter(m=>!m.deleted&&(m.data||"")>=_cut30).forEach(m=>{
@@ -1908,43 +1919,18 @@ function renderPlancia(){
     else if(m.tipo==="scarico"){ ricavo30+=_pf(calcRicavoMovimento(m,w)); sQ30+=q; }
   });
   const netto30=ricavo30-costo30;
-  const _bigCard=(label,val,sub,color)=>`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:18px 20px">
-    <div style="font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:10px">${label}</div>
-    <div style="font-family:'Montserrat',sans-serif;font-weight:300;font-size:1.9rem;line-height:1;color:${color||'var(--txt)'}">${val}</div>
-    <div style="font-size:11px;color:var(--txt4);margin-top:8px">${sub}</div>
-  </div>`;
 
-  let html=`<div style="font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4);margin-bottom:10px">Direzione · Stato Patrimoniale</div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:16px">
-      ${_bigCard("Capitale Immobilizzato",fmt(capImmob),"costo inventario corrente (ex IVA)","var(--amber)")}
-      ${_bigCard("Valore Potenziale di Realizzo",fmt(valRealizzo),"prezzo carta × giacenza","#30D158")}
-      ${_bigCard("Margine Teorico Medio",fmtN(margPct,1)+"%","≈ "+fmt(margAbs)+" potenziale","#007AFF")}
-      ${_bigCard("Volume Fisico Totale",fmtN(s.refAttive,0)+" ref.",fmtN(s.giacenzaTot,0)+" bottiglie totali","var(--amber3)")}
-    </div>
-    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px 20px;margin-bottom:22px">
-      <div style="font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:12px">Conto Economico · ultimi 30 giorni</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px">
-        <div><div style="font-size:11px;color:var(--txt4);margin-bottom:4px">Costo Carichi</div><div style="font-family:'Montserrat',sans-serif;font-size:1.3rem;color:#FF453A">${fmt(costo30)}</div><div style="font-size:10px;color:var(--txt4)">${fmtN(cQ30,0)} bt · IVA incl.</div></div>
-        <div><div style="font-size:11px;color:var(--txt4);margin-bottom:4px">Ricavo Scarichi</div><div style="font-family:'Montserrat',sans-serif;font-size:1.3rem;color:#30D158">${fmt(ricavo30)}</div><div style="font-size:10px;color:var(--txt4)">${fmtN(sQ30,0)} bt · a carta</div></div>
-        <div><div style="font-size:11px;color:var(--txt4);margin-bottom:4px">Flusso Netto</div><div style="font-family:'Montserrat',sans-serif;font-size:1.3rem;color:${netto30>=0?'#30D158':'#FF453A'}">${netto30>=0?'+':''}${fmt(netto30)}</div><div style="font-size:10px;color:var(--txt4)">ricavo − costo carichi</div></div>
-      </div>
-    </div>
-    <div style="font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4);margin-bottom:8px">Stato Cantina</div>
-    <div class="kpi-grid g3" style="margin-bottom:12px">${kpiStato1.map(_kpiCard).join("")}</div>
-    <div class="kpi-grid g3" style="margin-bottom:20px">${kpiStato2.map(_kpiCard).join("")}</div>`;
-
-  // ═══ APPROVVIGIONAMENTO & FORNITORI (carichi attivi ≥ 2026-01-01) ═══
+  // APPROVVIGIONAMENTO & FORNITORI (carichi ≥ 2026-01-01)
   const _fEpoch="2026-01-01";
   const _fCarichi=movements.filter(m=>!m.deleted&&m.tipo==="carico"&&(m.data||"")>=_fEpoch);
-  const _fAgg={}; const _fOrdiniSet=new Set();
+  const _fAgg={};
   let _fTot=0,_fBt=0;
-  // DIAG costo lotto: righe carico che NON hanno prezzoAcqLotto e ricadono su w.prezzoAcq (potenz. svalutato)
   let _fManqBt=0,_fManqRighe=0,_fManqImp=0;
   _fCarichi.forEach(m=>{
     const w=wineMap[m.wineId];
-    const key=((m.fornitore||w?.distributore||"").trim())||"Fornitore Sconosciuto"; // antibug .sort/type
+    const key=((m.fornitore||w?.distributore||"").trim())||"Fornitore Sconosciuto";
     const pLot=_pf(m.prezzoAcqLotto);
-    const lotMissing=pLot<=0;                 // fallback attivo su w.prezzoAcq
+    const lotMissing=pLot<=0;
     const p=pLot||_pf(w?.prezzoAcq);
     const iva=(parseInt(w?.iva)||22)/100;
     const q=parseInt(m.qty)||0;
@@ -1953,19 +1939,218 @@ function renderPlancia(){
     _fAgg[key].spesa+=imp; _fAgg[key].bt+=q;
     if(lotMissing){ _fAgg[key].manqBt+=q; _fAgg[key].manqRighe++; _fAgg[key].manqImp+=imp; _fManqBt+=q; _fManqRighe++; _fManqImp+=imp; }
     const ordKey=(m.fattura||m.data||"")+"";
-    _fAgg[key].ordini.add(ordKey); _fOrdiniSet.add(key+"|"+ordKey);
+    _fAgg[key].ordini.add(ordKey);
     _fTot+=imp; _fBt+=q;
   });
   const _fRank=Object.values(_fAgg).map(x=>({forn:x.forn,spesa:x.spesa,bt:x.bt,nOrdini:x.ordini.size,manqBt:x.manqBt,manqRighe:x.manqRighe,manqImp:x.manqImp})).sort((a,b)=>b.spesa-a.spesa);
   const _fCostoMedio=_fBt>0?_fTot/_fBt:0;
   const _fDiary=[..._fCarichi].sort((a,b)=>(b.data||"").localeCompare(a.data||"")||(b.ts||0)-(a.ts||0)).slice(0,5);
+  const _nOrdiniPeriodo=orders.filter(o=>(o.dataOrdine||"")>=_fEpoch).length;
 
+  // Storico Acquisti — totali
+  const totAcqQty=carichi.reduce((a,m)=>a+m.qty,0);
+  const totAcqNetto=carichi.reduce((a,m)=>{const w=wineMap[m.wineId];const p=costoCarico(m,w);return a+p*m.qty;},0);
+  const totAcqIva=carichi.reduce((a,m)=>{const w=wineMap[m.wineId];const p=costoCarico(m,w);const iva=(parseInt(w?.iva)||22)/100;return a+p*iva*m.qty;},0);
+  const totAcqConIva=totAcqNetto+totAcqIva;
+
+  // Breakdown Ordini per Fornitore (gen→oggi) — paginato
+  const spesaForn={};
+  carichi.forEach(m=>{
+    const w=wineMap[m.wineId];
+    const forn=((m.fornitore||w?.distributore||"").trim())||"Fornitore Sconosciuto";
+    const p=costoCarico(m,w);
+    const iva=(parseInt(w?.iva)||22)/100;
+    if(!spesaForn[forn]) spesaForn[forn]={forn,spesa:0,bottiglie:0,valMag:0};
+    spesaForn[forn].spesa+=p*(1+iva)*m.qty;
+    spesaForn[forn].bottiglie+=m.qty;
+  });
+  wines.forEach(w=>{
+    const forn=((w.distributore||"").trim())||"Fornitore Sconosciuto";
+    if(!spesaForn[forn]) spesaForn[forn]={forn,spesa:0,bottiglie:0,valMag:0};
+    spesaForn[forn].valMag+=calcValore(w);
+  });
+  const reportForn=Object.values(spesaForn).sort((a,b)=>b.spesa-a.spesa);
+  const totSpesaForn=reportForn.reduce((a,r)=>a+r.spesa,0);
+  const totBtForn=reportForn.reduce((a,r)=>a+r.bottiglie,0);
+  const totValMag=reportForn.reduce((a,r)=>a+r.valMag,0);
+  const FORN_PAGE=12;
+  const nPagesF=Math.max(1,Math.ceil(reportForn.length/FORN_PAGE));
+  if(planciaFornPage>=nPagesF) planciaFornPage=nPagesF-1;
+  if(planciaFornPage<0) planciaFornPage=0;
+  const pageStart=planciaFornPage*FORN_PAGE;
+  const pageForn=reportForn.slice(pageStart,pageStart+FORN_PAGE);
+
+  // GESTIONE & CARTA — derivati
+  const nowD=new Date();
+  const _days=(a,b)=>Math.floor((b-a)/86400000);
+  const _iso=d=>d.toISOString().slice(0,10);
+  const lastSale={}, sold90={};
+  const cutoff90=_iso(new Date(nowD.getTime()-90*86400000));
+  _mov.forEach(m=>{
+    if(m.tipo!=="scarico") return;
+    const d=m.data||"";
+    if(d&&(!lastSale[m.wineId]||d>lastSale[m.wineId])) lastSale[m.wineId]=d;
+    if(d>=cutoff90) sold90[m.wineId]=(sold90[m.wineId]||0)+m.qty;
+  });
+  const deadStock=[], markupRows=[];
+  let inCartaCount=0, frescoCount=0, cartaSenzaPrezzo=0, capitaleFermo=0;
+  wines.forEach(w=>{
+    const g=parseInt(w.giacenza)||0;
+    const carta=parseFloat(w.prezzoCarta)||0;
+    const costo=calcCostoIvaBottiglia(w);
+    if(carta>0) inCartaCount++;
+    if(w.inFresco) frescoCount++;
+    if(g>0&&carta<=0) cartaSenzaPrezzo++;
+    if(g>0){
+      const ls=lastSale[w.id];
+      const giorni=ls?_days(new Date(ls),nowD):null;
+      if(giorni===null||giorni>=180){ capitaleFermo+=calcValore(w); deadStock.push({nome:w.nome,produttore:w.produttore,g,valore:calcValore(w),giorni}); }
+    }
+    if(carta>0&&costo>0) markupRows.push(carta/costo);
+  });
+  deadStock.sort((a,b)=>b.valore-a.valore);
+
+  // Rotazione (DIO), slow movers in alto
+  const rotazione=wines.filter(w=>(parseInt(w.giacenza)||0)>0).map(w=>{
+    const g=parseInt(w.giacenza)||0;
+    const perDay=(sold90[w.id]||0)/90;
+    return {nome:w.nome,produttore:w.produttore,annata:w.annata,g,venduti90:sold90[w.id]||0,dio:perDay>0?g/perDay:Infinity};
+  }).sort((a,b)=>b.dio-a.dio);
+
+  const markupMed=markupRows.length?markupRows.reduce((a,x)=>a+x,0)/markupRows.length:0;
+
+  // Pareto margine (globale)
+  const margByWine={};
+  _mov.forEach(m=>{ if(m.tipo!=="scarico") return; const w=wineMap[m.wineId]; if(!w) return; margByWine[m.wineId]=(margByWine[m.wineId]||0)+(calcRicavoMovimento(m,w)-calcCostoMovimento(m,w)); });
+  const margArr=Object.values(margByWine).sort((a,b)=>b-a);
+  const totMargG=margArr.reduce((a,x)=>a+x,0);
+  const top20n=Math.max(1,Math.ceil(margArr.length*0.2));
+  const paretoPct=totMargG>0?margArr.slice(0,top20n).reduce((a,x)=>a+x,0)/totMargG*100:0;
+
+  // Alert riordino
+  let cEsaur=0,cMin=0,cRiord=0;
+  wines.forEach(w=>{ const g=parseInt(w.giacenza)||0, sg=_getSoglie(w.id); if(g===0)cEsaur++; else if(g<=sg.min)cMin++; else if(g<=sg.riordino)cRiord++; });
+
+  // Cash flow 12 mesi
+  const cashMap={};
+  const _cfEpoch="2026-01";
+  for(let i=11;i>=0;i--){const d=new Date(nowD.getFullYear(),nowD.getMonth()-i,1);const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;if(key<_cfEpoch)continue;cashMap[key]={label:d.toLocaleString("it-IT",{month:"short",year:"2-digit"}),ricavo:0,spesa:0};}
+  _mov.forEach(m=>{
+    const k=(m.data||"").slice(0,7); if(!cashMap[k]) return;
+    const w=wineMap[m.wineId];
+    if(m.tipo==="scarico"&&w) cashMap[k].ricavo+=calcRicavoMovimento(m,w);
+    else if(m.tipo==="carico"){ const p=costoCarico(m,w); const iva=(parseInt(w?.iva)||22)/100; cashMap[k].spesa+=p*(1+iva)*m.qty; }
+  });
+  const cashData=Object.values(cashMap);
+
+  const coperturaPct=s.refAttive?inCartaCount/s.refAttive*100:0;
+
+  // tabella generica (dead stock + rotazione)
+  const _tbl=(title,icon,rows,cols,empty)=>`<div class="card" style="padding:0">
+    <div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px"><span style="color:var(--amber3)">${icon}</span><span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">${title}</span>${rows.length>10?`<span style="margin-left:auto;font-size:10px;color:var(--txt4)">top 10 di ${rows.length}</span>`:""}</div>
+    ${rows.length===0?`<div style="padding:28px;text-align:center;color:#30D158;font-size:11px">${empty}</div>`:`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">
+      <thead><tr style="border-bottom:1px solid var(--border)">${cols.map(c=>`<th style="text-align:${c.r?'right':'left'};padding:7px ${c.r?'12px':'20px'};color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.08em;text-transform:uppercase">${c.h}</th>`).join("")}</tr></thead>
+      <tbody>${rows.slice(0,10).map(row=>`<tr style="border-bottom:1px solid var(--border)">${cols.map(c=>`<td style="padding:7px ${c.r?'12px':'20px'};text-align:${c.r?'right':'left'};${c.style||'color:var(--txt2)'}">${c.render(row)}</td>`).join("")}</tr>`).join("")}</tbody>
+    </table></div>`}
+  </div>`;
+
+  const _dsCard=_tbl("Capitale Fermo · nessuna vendita da 180+ gg","🧊",deadStock,[
+      {h:"Vino",render:r=>`<div style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(r.nome)}</div><div style="color:var(--txt4);font-size:10px">${h(r.produttore||'—')}</div>`},
+      {h:"Giac.",r:true,style:"color:var(--txt3)",render:r=>r.g},
+      {h:"Valore",r:true,style:"font-family:'Montserrat',sans-serif;color:#FF6B6B",render:r=>fmt(r.valore)},
+      {h:"Ferma da",r:true,style:"color:var(--txt3);font-size:10px",render:r=>r.giorni===null?"mai venduto":`${r.giorni} gg`},
+    ],"Nessun capitale immobilizzato");
+  const _dsFooter=deadStock.length?`<div style="padding:10px 20px;border-top:1px solid var(--border2);display:flex;justify-content:space-between;font-size:10px"><span style="color:var(--txt4);text-transform:uppercase;letter-spacing:.1em">Capitale fermo totale</span><span style="font-family:'Montserrat',sans-serif;color:#FF6B6B">${fmt(capitaleFermo)}</span></div>`:"";
+  const _dsCardWithFooter=_dsFooter?_dsCard.replace(/<\/div>\s*$/,_dsFooter+"</div>"):_dsCard;
+
+  const _rotCard=_tbl("Rotazione Lenta · giorni di giacenza (DIO, base 90 gg)","🐌",rotazione,[
+    {h:"Vino",render:r=>`<div style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(r.nome)}${r.annata?` <span style="color:var(--txt4);font-size:10px">${h(r.annata)}</span>`:""}</div><div style="color:var(--txt4);font-size:10px">${h(r.produttore||'—')}</div>`},
+    {h:"Giac.",r:true,style:"color:var(--txt3)",render:r=>r.g},
+    {h:"Venduti 90gg",r:true,style:"color:var(--txt3)",render:r=>r.venduti90},
+    {h:"Giorni stock",r:true,style:"font-family:'Montserrat',sans-serif;color:var(--amber)",render:r=>r.dio===Infinity?"∞":Math.round(r.dio)},
+  ],"Nessuna referenza in giacenza");
+
+  // ══════════════════════════ RENDER PHASE ══════════════════════════
+  // ─────────── §1 · DIREZIONE / PATRIMONIO ───────────
+  let html=`<div style="font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4);margin-bottom:10px">Direzione · Stato Patrimoniale</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:16px">
+      ${_bigCard("Capitale Immobilizzato",fmt(capImmob),"costo inventario corrente (ex IVA)","var(--amber)")}
+      ${_bigCard("Valore Potenziale di Realizzo",fmt(valRealizzo),"prezzo carta × giacenza","#30D158")}
+      ${_bigCard("Margine Teorico Medio",fmtN(margPct,1)+"%","≈ "+fmt(margAbs)+" potenziale","#007AFF")}
+      ${_bigCard("Volume Fisico Totale",fmtN(s.refAttive,0)+" ref.",fmtN(s.giacenzaTot,0)+" bottiglie totali","var(--amber3)")}
+    </div>
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px 20px;margin-bottom:22px">
+      <div style="font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:12px">Conto Economico · Cassa ultimi 30 giorni</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px">
+        <div><div style="font-size:11px;color:var(--txt4);margin-bottom:4px">Costo Carichi</div><div style="font-family:'Montserrat',sans-serif;font-size:1.3rem;color:#FF453A">${fmt(costo30)}</div><div style="font-size:10px;color:var(--txt4)">${fmtN(cQ30,0)} bt · IVA incl. · ultimi 30 gg</div></div>
+        <div><div style="font-size:11px;color:var(--txt4);margin-bottom:4px">Ricavo Scarichi</div><div style="font-family:'Montserrat',sans-serif;font-size:1.3rem;color:#30D158">${fmt(ricavo30)}</div><div style="font-size:10px;color:var(--txt4)">${fmtN(sQ30,0)} bt · a carta · ultimi 30 gg</div></div>
+        <div><div style="font-size:11px;color:var(--txt4);margin-bottom:4px">Flusso Netto</div><div style="font-family:'Montserrat',sans-serif;font-size:1.3rem;color:${netto30>=0?'#30D158':'#FF453A'}">${netto30>=0?'+':''}${fmt(netto30)}</div><div style="font-size:10px;color:var(--txt4)">ricavo − costo carichi</div></div>
+      </div>
+    </div>`;
+
+  // ─────────── §2 · VENDITE & ROTAZIONE ───────────
+  html+=`<div style="font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4);margin:28px 0 10px">Vendite & Rotazione</div>`;
+  // Filtri performance
+  html+=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
+    <span style="font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4)">Performance</span>
+    <select class="form-select" style="width:auto" onchange="analyticsNazione=this.value;analyticsRegione='';render()">
+      <option value="">Tutte le nazioni</option>
+      ${nazioni.map(n=>`<option value="${h(n)}" ${analyticsNazione===n?"selected":""}>${h(n)}</option>`).join("")}
+    </select>
+    <select class="form-select" style="width:auto" onchange="analyticsRegione=this.value;render()"${regioniFiltrate.length===0?" disabled":""}>
+      <option value="">${analyticsNazione?"Tutte le regioni · "+h(analyticsNazione):"Tutte le regioni"}</option>
+      ${regioniFiltrate.map(r=>`<option value="${h(r)}" ${analyticsRegione===r?"selected":""}>${h(r)}</option>`).join("")}
+    </select>
+    <select class="form-select" style="width:auto" onchange="analyticsTipo=this.value;render()">
+      <option value="">Tutte le tipologie</option>
+      ${tipoList.map(t=>`<option value="${t}" ${analyticsTipo===t?"selected":""}>${h(t)}</option>`).join("")}
+    </select>
+    ${(analyticsNazione||analyticsRegione||analyticsTipo)?`<button class="btn-outline btn-sm" onclick="analyticsNazione='';analyticsRegione='';analyticsTipo='';render()">✕ Reset</button>`:""}
+    <span style="margin-left:auto;font-size:10px;color:var(--txt4)">${totQty} bottiglie vendute</span>
+  </div>`;
+  // KPI performance
+  html+=`<div class="kpi-grid g4" style="margin-bottom:20px">
+    ${[{label:"Bottiglie Vendute",v:totQty,cls:"c-amber",sub:"scarichi totali"},{label:"Costo Venduto",v:fmt(totCosto),cls:"c-red",sub:"costo+IVA"},{label:"Ricavo Totale",v:fmt(totRicavo),cls:"c-green",sub:"a prezzo carta"},{label:"Margine Realizzato",v:fmt(totMargine),cls:totMargine>=0?"c-blue":"c-red",sub:totRicavo?`${fmtN(totMargine/totRicavo*100,1)}% del ricavo`:"—"}].map(k=>`<div class="kpi-card"><div class="kpi-label">${k.label}</div><div class="kpi-val ${k.cls}">${k.v}</div><div class="kpi-sub">${k.sub}</div></div>`).join("")}
+  </div>`;
+  // Trend | Top 10 margine
+  html+=`<div class="kpi-grid g2" style="margin-bottom:20px">
+    <div class="card">
+      <div class="section-label"><span>📈 Trend Mensile · Ricavo & Margine</span></div>
+      <div class="chart-container" style="height:240px"><canvas id="ch-trend"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="section-label"><span>💰 Top 10 per Margine Realizzato</span></div>
+      ${topMargin.length===0?`<div style="text-align:center;padding:24px;color:var(--txt4);font-size:11px">Nessuna vendita registrata</div>`:`<div class="chart-container" style="height:300px"><canvas id="ch-topmargin"></canvas></div>`}
+    </div>
+  </div>`;
+  // Best Sellers Top 5
+  html+=`<div class="card" style="padding:0;margin-bottom:12px">
+    <div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px"><span style="color:var(--amber3)">🏆</span><span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Best Sellers — Top 5 per Bottiglie</span></div>
+    <div style="padding:16px;display:flex;flex-direction:column;gap:12px">
+      ${bestSellers.length===0?`<div style="text-align:center;padding:24px;color:var(--txt4);font-size:11px">Nessuna vendita registrata</div>`:
+      bestSellers.map((b,i)=>{const marg=b.ricavo-b.costo;const mp=b.ricavo?(marg/b.ricavo*100):0;return `<div>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+          <span style="font-size:10px;color:var(--txt4);width:16px">#${i+1}</span>
+          <div style="flex:1;min-width:0"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px">${h(b.wineName)}</div><div style="color:var(--txt4);font-size:10px">${h(b.produttore)}</div></div>
+          <div style="text-align:right"><div style="color:var(--amber);font-family:'Montserrat',sans-serif;font-size:1rem">${b.qty} bt</div><div style="color:${mp>=0?"#30D158":"#FF453A"};font-size:10px">${fmtN(mp,1)}% marg.</div></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;padding-left:26px">
+          <div class="mini-bar"><div class="mini-bar-fill" style="width:${Math.min(100,(b.qty/maxQty)*100)}%"></div></div>
+          <span style="font-size:10px;color:#30D158;width:72px;text-align:right">${fmt(marg)}</span>
+        </div>
+      </div>`}).join("")}
+    </div>
+  </div>`;
+  // Rotazione Lenta (spostata qui, subito dopo Best Sellers)
+  html+=`<div style="margin-bottom:20px">${_rotCard}</div>`;
+
+  // ─────────── §3 · APPROVVIGIONAMENTO & FORNITORI (+ cash flow uscite) ───────────
   html+=`<style>@media(max-width:640px){.pl-forn-grid{grid-template-columns:1fr!important}}</style>
-  <div style="font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4);margin:2px 0 8px">Approvvigionamento & Fornitori · da ${_fEpoch.slice(0,4)}</div>
+  <div style="font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4);margin:28px 0 8px">Approvvigionamento & Fornitori · da gen 2026</div>
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:14px">
-    ${_bigCard("Totale Speso",fmt(_fTot),"carichi IVA incl.","#30D158")}
-    ${_bigCard("Bottiglie Comprate",fmtN(_fBt,0),"volume acquistato","var(--amber)")}
-    ${_bigCard("Frequenza Ordini",fmtN(_fOrdiniSet.size,0),"bolle/date uniche","#007AFF")}
+    ${_bigCard("Totale Speso",fmt(_fTot),"carichi IVA incl. · da gen 2026","#30D158")}
+    ${_bigCard("Bottiglie Comprate",fmtN(_fBt,0),"volume acquistato · da gen 2026","var(--amber)")}
+    ${_bigCard("Ordini Effettuati",fmtN(_nOrdiniPeriodo,0),"ordini dal 2026","#007AFF")}
     ${_bigCard("Costo Medio / bt",fmt(_fCostoMedio),"IVA incl. per bottiglia","var(--amber3)")}
   </div>
   <div class="pl-forn-grid" style="display:grid;grid-template-columns:3fr 2fr;gap:14px;margin-bottom:24px">
@@ -2001,8 +2186,7 @@ function renderPlancia(){
       </div>
     </div>
   </div>`;
-
-  // widget ordini
+  // widget ordini aperti
   const owColor=ordiniOpen.length>0?"rgba(255,159,10,.15)":"rgba(20,83,45,.2)";
   const owBorder=ordiniOpen.length>0?"rgba(180,83,9,.5)":"rgba(21,128,61,.4)";
   html+=`<div style="background:${owColor};border:1px solid ${owBorder};padding:14px 20px;margin-bottom:24px;display:flex;align-items:center;gap:20px;flex-wrap:wrap">
@@ -2019,82 +2203,15 @@ function renderPlancia(){
     </div>
     <button class="btn-outline btn-sm" onclick="go('ordini')" style="${ordiniOpen.length>0?"border-color:var(--amber3);color:var(--amber)":"border-color:rgba(21,128,61,.5);color:#30D158"}">${ordiniOpen.length>0?"Vai agli ordini →":"Crea ordine →"}</button>
   </div>`;
-
-  // Filtri (agiscono sulla zona performance/andamento)
-  html+=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
-    <span style="font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4)">Performance</span>
-    <select class="form-select" style="width:auto" onchange="analyticsRegione=this.value;render()">
-      <option value="">Tutte le regioni</option>
-      ${regioni.map(r=>`<option value="${r}" ${analyticsRegione===r?"selected":""}>${h(r)}</option>`).join("")}
-    </select>
-    <select class="form-select" style="width:auto" onchange="analyticsTipo=this.value;render()">
-      <option value="">Tutte le tipologie</option>
-      ${tipoList.map(t=>`<option value="${t}" ${analyticsTipo===t?"selected":""}>${h(t)}</option>`).join("")}
-    </select>
-    ${(analyticsRegione||analyticsTipo)?`<button class="btn-outline btn-sm" onclick="analyticsRegione='';analyticsTipo='';render()">✕ Reset</button>`:""}
-    <span style="margin-left:auto;font-size:10px;color:var(--txt4)">${totQty} bottiglie vendute</span>
-  </div>`;
-
-  // KPI PERFORMANCE
-  html+=`<div class="kpi-grid g4" style="margin-bottom:20px">
-    ${[{label:"Bottiglie Vendute",v:totQty,cls:"c-amber",sub:"scarichi totali"},{label:"Costo Venduto",v:fmt(totCosto),cls:"c-red",sub:"costo+IVA"},{label:"Ricavo Totale",v:fmt(totRicavo),cls:"c-green",sub:"a prezzo carta"},{label:"Margine Realizzato",v:fmt(totMargine),cls:totMargine>=0?"c-blue":"c-red",sub:totRicavo?`${fmtN(totMargine/totRicavo*100,1)}% del ricavo`:"—"}].map(k=>`<div class="kpi-card"><div class="kpi-label">${k.label}</div><div class="kpi-val ${k.cls}">${k.v}</div><div class="kpi-sub">${k.sub}</div></div>`).join("")}
-  </div>`;
-
-  // ── ANDAMENTO: Trend | Storico Acquisti ──
-  html+=`<div class="kpi-grid g2" style="margin-bottom:20px">
-    <div class="card">
-      <div class="section-label"><span>📈 Trend Mensile · Ricavo & Margine</span></div>
-      <div class="chart-container" style="height:240px"><canvas id="ch-trend"></canvas></div>
+  // Acquisti per periodo (chart, splittato)
+  html+=`<div class="card" style="padding:0;margin-bottom:20px">
+    <div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+      <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--amber3)">📦</span><span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Acquisti per ${periodoLabels[analyticsAcquistiPeriodo]}</span></div>
+      <div style="display:flex;gap:4px">${["giorno","settimana","mese"].map(p=>`<button class="${analyticsAcquistiPeriodo===p?"btn-primary btn-sm":"btn-outline btn-sm"}" onclick="analyticsAcquistiPeriodo='${p}';render()">${periodoLabels[p]}</button>`).join("")}</div>
     </div>
-    <div class="card" style="padding:0">
-      <div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
-        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--amber3)">📦</span><span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Acquisti per ${periodoLabels[analyticsAcquistiPeriodo]}</span></div>
-        <div style="display:flex;gap:4px">${["giorno","settimana","mese"].map(p=>`<button class="${analyticsAcquistiPeriodo===p?"btn-primary btn-sm":"btn-outline btn-sm"}" onclick="analyticsAcquistiPeriodo='${p}';render()">${periodoLabels[p]}</button>`).join("")}</div>
-      </div>
-      ${acquistiData.length===0?`<div style="padding:32px;text-align:center;color:var(--txt4);font-size:11px">Nessun carico registrato</div>`:`<div style="padding:20px"><div class="chart-container" style="height:200px"><canvas id="chart-acquisti"></canvas></div></div>`}
-    </div>
+    ${acquistiData.length===0?`<div style="padding:32px;text-align:center;color:var(--txt4);font-size:11px">Nessun carico registrato</div>`:`<div style="padding:20px"><div class="chart-container" style="height:200px"><canvas id="chart-acquisti"></canvas></div></div>`}
   </div>`;
-
-  // ── Top 10 Margine | Giacenza per Tipologia ──
-  html+=`<div class="kpi-grid g2" style="margin-bottom:20px">
-    <div class="card">
-      <div class="section-label"><span>💰 Top 10 per Margine Realizzato</span></div>
-      ${topMargin.length===0?`<div style="text-align:center;padding:24px;color:var(--txt4);font-size:11px">Nessuna vendita registrata</div>`:`<div class="chart-container" style="height:300px"><canvas id="ch-topmargin"></canvas></div>`}
-    </div>
-    <div class="card">
-      <div class="section-label"><span>🎯 Giacenza per Tipologia</span></div>
-      ${tipoPie.length===0?`<div style="text-align:center;padding:24px;color:var(--txt4);font-size:11px">Nessun dato</div>`:`
-      <div style="display:flex;align-items:center;gap:16px">
-        <div style="width:52%;min-width:130px;height:220px;position:relative"><canvas id="ch-pie"></canvas></div>
-        <div class="pie-legend" style="flex:1">${tipoPie.map((d,i)=>`<div class="pie-row"><div style="display:flex;align-items:center;gap:6px"><div class="pie-dot" style="background:${PIE_COLORS[i%PIE_COLORS.length]}"></div><span style="color:var(--txt2);text-transform:uppercase">${h(d.name)}</span></div><span style="color:var(--amber)">${d.value} bt</span></div>`).join("")}</div>
-      </div>`}
-    </div>
-  </div>`;
-
-  // ── Best Sellers Top 5 (striscia) ──
-  html+=`<div class="card" style="padding:0;margin-bottom:12px">
-    <div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px"><span style="color:var(--amber3)">🏆</span><span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Best Sellers — Top 5 per Bottiglie</span></div>
-    <div style="padding:16px;display:flex;flex-direction:column;gap:12px">
-      ${bestSellers.length===0?`<div style="text-align:center;padding:24px;color:var(--txt4);font-size:11px">Nessuna vendita registrata</div>`:
-      bestSellers.map((b,i)=>{const marg=b.ricavo-b.costo;const mp=b.ricavo?(marg/b.ricavo*100):0;return `<div>
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
-          <span style="font-size:10px;color:var(--txt4);width:16px">#${i+1}</span>
-          <div style="flex:1;min-width:0"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px">${h(b.wineName)}</div><div style="color:var(--txt4);font-size:10px">${h(b.produttore)}</div></div>
-          <div style="text-align:right"><div style="color:var(--amber);font-family:'Montserrat',sans-serif;font-size:1rem">${b.qty} bt</div><div style="color:${mp>=0?"#30D158":"#FF453A"};font-size:10px">${fmtN(mp,1)}% marg.</div></div>
-        </div>
-        <div style="display:flex;align-items:center;gap:8px;padding-left:26px">
-          <div class="mini-bar"><div class="mini-bar-fill" style="width:${Math.min(100,(b.qty/maxQty)*100)}%"></div></div>
-          <span style="font-size:10px;color:#30D158;width:72px;text-align:right">${fmt(marg)}</span>
-        </div>
-      </div>`}).join("")}
-    </div>
-  </div>`;
-
-  // ── Storico Acquisti (KPI + dettaglio per periodo) — layout da Analytics ──
-  const totAcqQty=carichi.reduce((s,m)=>s+m.qty,0);
-  const totAcqNetto=carichi.reduce((s,m)=>{const w=wineMap[m.wineId];const p=costoCarico(m,w);return s+p*m.qty;},0);
-  const totAcqIva=carichi.reduce((s,m)=>{const w=wineMap[m.wineId];const p=costoCarico(m,w);const iva=(parseInt(w?.iva)||22)/100;return s+p*iva*m.qty;},0);
-  const totAcqConIva=totAcqNetto+totAcqIva;
+  // Storico Acquisti (KPI + dettaglio)
   html+=`<div class="kpi-grid g4" style="margin-bottom:16px">
     ${[
       {label:"Bottiglie Acquistate",value:fmtN(totAcqQty,0),sub:"totale carichi",cls:"c-amber"},
@@ -2129,36 +2246,7 @@ function renderPlancia(){
       </tr></tfoot>
     </table></div>`}
   </div>`;
-
-  // ── Breakdown Ordini per Fornitore (gen→oggi) — paginato ──
-  const spesaForn={};
-  carichi.forEach(m=>{
-    const w=wineMap[m.wineId];
-    const forn=((m.fornitore||w?.distributore||"").trim())||"—";
-    const p=costoCarico(m,w);
-    const iva=(parseInt(w?.iva)||22)/100;
-    if(!spesaForn[forn]) spesaForn[forn]={forn,spesa:0,bottiglie:0,valMag:0};
-    spesaForn[forn].spesa+=p*(1+iva)*m.qty;
-    spesaForn[forn].bottiglie+=m.qty;
-  });
-  // Valore magazzino corrente per fornitore (distributore del vino)
-  wines.forEach(w=>{
-    const forn=((w.distributore||"").trim())||"—";
-    if(!spesaForn[forn]) spesaForn[forn]={forn,spesa:0,bottiglie:0,valMag:0};
-    spesaForn[forn].valMag+=calcValore(w);
-  });
-  const reportForn=Object.values(spesaForn).sort((a,b)=>b.spesa-a.spesa);
-  const totSpesaForn=reportForn.reduce((a,r)=>a+r.spesa,0);
-  const totBtForn=reportForn.reduce((a,r)=>a+r.bottiglie,0);
-  const totValMag=reportForn.reduce((a,r)=>a+r.valMag,0);
-
-  const FORN_PAGE=12;
-  const nPagesF=Math.max(1,Math.ceil(reportForn.length/FORN_PAGE));
-  if(planciaFornPage>=nPagesF) planciaFornPage=nPagesF-1;
-  if(planciaFornPage<0) planciaFornPage=0;
-  const pageStart=planciaFornPage*FORN_PAGE;
-  const pageForn=reportForn.slice(pageStart,pageStart+FORN_PAGE);
-
+  // Breakdown Ordini per Fornitore (paginato)
   html+=`<div class="card" style="padding:0;margin-bottom:20px">
     <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap">
       <span style="color:#007AFF">🏭</span>
@@ -2194,86 +2282,34 @@ function renderPlancia(){
       <button class="btn-outline btn-sm" ${planciaFornPage>=nPagesF-1?"disabled style=\"opacity:.35;cursor:default\"":""} onclick="planciaFornPage++;render()">Succ ›</button>
     </div>`:""}`}
   </div>`;
+  // Cash Flow (uscite) — spostato in Approvvigionamento
+  html+=`<div class="card" style="margin-bottom:16px">
+    <div class="section-label"><span>💶 Cash Flow Mensile · Incassi stimati vs Uscite · da gen 2026</span></div>
+    <div class="chart-container" style="height:240px"><canvas id="ch-cashflow"></canvas></div>
+  </div>`;
 
-  // ═══════════════ GESTIONE & CARTA ═══════════════
-  const nowD=new Date();
-  const _days=(a,b)=>Math.floor((b-a)/86400000);
-  const _iso=d=>d.toISOString().slice(0,10);
-
-  // Ultima vendita + venduto storico/90g per vino
-  const lastSale={}, sold90={};
-  const cutoff90=_iso(new Date(nowD.getTime()-90*86400000));
-  _mov.forEach(m=>{
-    if(m.tipo!=="scarico") return;
-    const d=m.data||"";
-    if(d&&(!lastSale[m.wineId]||d>lastSale[m.wineId])) lastSale[m.wineId]=d;
-    if(d>=cutoff90) sold90[m.wineId]=(sold90[m.wineId]||0)+m.qty;
-  });
-
-  // Derivati per referenza: dead stock, margine sottosoglia carta, markup, copertura
-  const deadStock=[], margineAlert=[], markupRows=[];
-  let inCartaCount=0, frescoCount=0, cartaSenzaPrezzo=0, capitaleFermo=0;
-  wines.forEach(w=>{
-    const g=parseInt(w.giacenza)||0;
-    const carta=parseFloat(w.prezzoCarta)||0;
-    const costo=calcCostoIvaBottiglia(w);
-    if(carta>0) inCartaCount++;
-    if(w.inFresco) frescoCount++;
-    if(g>0&&carta<=0) cartaSenzaPrezzo++;
-    if(g>0){
-      const ls=lastSale[w.id];
-      const giorni=ls?_days(new Date(ls),nowD):null;
-      if(giorni===null||giorni>=180){ capitaleFermo+=calcValore(w); deadStock.push({nome:w.nome,produttore:w.produttore,g,valore:calcValore(w),giorni}); }
-    }
-    if(carta>0&&costo>0&&carta<=costo) margineAlert.push({nome:w.nome,produttore:w.produttore,carta,costo,g});
-    if(carta>0&&costo>0) markupRows.push(carta/costo);
-  });
-  deadStock.sort((a,b)=>b.valore-a.valore);
-  margineAlert.sort((a,b)=>(a.carta-a.costo)-(b.carta-b.costo));
-
-  // Rotazione (DIO = giacenza / vendite-al-giorno su 90g); slow movers in alto
-  const rotazione=wines.filter(w=>(parseInt(w.giacenza)||0)>0).map(w=>{
-    const g=parseInt(w.giacenza)||0;
-    const perDay=(sold90[w.id]||0)/90;
-    return {nome:w.nome,g,venduti90:sold90[w.id]||0,dio:perDay>0?g/perDay:Infinity};
-  }).sort((a,b)=>b.dio-a.dio);
-
-  // Markup medio
-  const markupMed=markupRows.length?markupRows.reduce((a,x)=>a+x,0)/markupRows.length:0;
-
-  // Pareto margine (globale, non filtrato)
-  const margByWine={};
-  _mov.forEach(m=>{ if(m.tipo!=="scarico") return; const w=wineMap[m.wineId]; if(!w) return; margByWine[m.wineId]=(margByWine[m.wineId]||0)+(calcRicavoMovimento(m,w)-calcCostoMovimento(m,w)); });
-  const margArr=Object.values(margByWine).sort((a,b)=>b-a);
-  const totMargG=margArr.reduce((a,x)=>a+x,0);
-  const top20n=Math.max(1,Math.ceil(margArr.length*0.2));
-  const paretoPct=totMargG>0?margArr.slice(0,top20n).reduce((a,x)=>a+x,0)/totMargG*100:0;
-
-  // Alert riordino (esaurite / sotto min / da riordinare)
-  let cEsaur=0,cMin=0,cRiord=0;
-  wines.forEach(w=>{ const g=parseInt(w.giacenza)||0, sg=_getSoglie(w.id); if(g===0)cEsaur++; else if(g<=sg.min)cMin++; else if(g<=sg.riordino)cRiord++; });
-
-  // Cash flow 12 mesi (incassi stimati vs uscite carichi IVA incl.)
-  const cashMap={};
-  for(let i=11;i>=0;i--){const d=new Date(nowD.getFullYear(),nowD.getMonth()-i,1);const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;cashMap[key]={label:d.toLocaleString("it-IT",{month:"short",year:"2-digit"}),ricavo:0,spesa:0};}
-  _mov.forEach(m=>{
-    const k=(m.data||"").slice(0,7); if(!cashMap[k]) return;
-    const w=wineMap[m.wineId];
-    if(m.tipo==="scarico"&&w) cashMap[k].ricavo+=calcRicavoMovimento(m,w);
-    else if(m.tipo==="carico"){ const p=costoCarico(m,w); const iva=(parseInt(w?.iva)||22)/100; cashMap[k].spesa+=p*(1+iva)*m.qty; }
-  });
-  const cashData=Object.values(cashMap);
-
-  // ── HTML ──
-  html+=`<div style="font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4);margin:28px 0 10px">Gestione & Carta</div>`;
-
-  // Alert riordino (cliccabili → inventario)
+  // ─────────── §4 · STATO CANTINA / ALERT ───────────
+  html+=`<div style="font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4);margin:28px 0 8px">Stato Cantina</div>
+    <div class="kpi-grid g3" style="margin-bottom:12px">${kpiStato1.map(_kpiCard).join("")}</div>
+    <div class="kpi-grid g3" style="margin-bottom:20px">${kpiStato2.map(_kpiCard).join("")}</div>`;
+  // Alert riordino
   html+=`<div class="kpi-grid g3" style="margin-bottom:16px">
     ${[{l:"Esaurite",v:cEsaur,c:"#FF453A"},{l:"Sotto minimo",v:cMin,c:"#fb923c"},{l:"Da riordinare",v:cRiord,c:"#fbbf24"}].map(a=>`<div class="kpi-card" style="cursor:pointer" onclick="go('inventario')"><div class="kpi-label">${a.l}</div><div class="kpi-val" style="color:${a.c}">${a.v}</div><div class="kpi-sub">referenze · vai all'inventario →</div></div>`).join("")}
   </div>`;
+  // Giacenza per Tipologia (pie, spostata qui)
+  html+=`<div class="card" style="margin-bottom:16px">
+    <div class="section-label"><span>🎯 Giacenza per Tipologia</span></div>
+    ${tipoPie.length===0?`<div style="text-align:center;padding:24px;color:var(--txt4);font-size:11px">Nessun dato</div>`:`
+    <div style="display:flex;align-items:center;gap:16px">
+      <div style="width:52%;min-width:130px;height:220px;position:relative"><canvas id="ch-pie"></canvas></div>
+      <div class="pie-legend" style="flex:1">${tipoPie.map((d,i)=>`<div class="pie-row"><div style="display:flex;align-items:center;gap:6px"><div class="pie-dot" style="background:${PIE_COLORS[i%PIE_COLORS.length]}"></div><span style="color:var(--txt2);text-transform:uppercase">${h(d.name)}</span></div><span style="color:var(--amber)">${d.value} bt</span></div>`).join("")}</div>
+    </div>`}
+  </div>`;
+  // Dead stock
+  html+=`<div style="margin-bottom:20px">${_dsCardWithFooter}</div>`;
 
-  // KPI carta
-  const coperturaPct=s.refAttive?inCartaCount/s.refAttive*100:0;
+  // ─────────── §5 · CARTA / COPERTURA ───────────
+  html+=`<div style="font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4);margin:28px 0 10px">Carta & Copertura</div>`;
   html+=`<div class="kpi-grid g4" style="margin-bottom:8px">
     ${[
       {label:"Copertura Carta",value:`${fmtN(coperturaPct,0)}%`,sub:`${inCartaCount} in carta su ${s.refAttive} attive`,cls:"c-amber"},
@@ -2283,52 +2319,8 @@ function renderPlancia(){
     ].map(_kpiCard).join("")}
   </div>`;
 
-  // Cash flow
-  html+=`<div class="card" style="margin-bottom:16px">
-    <div class="section-label"><span>💶 Cash Flow Mensile · Incassi stimati vs Uscite</span></div>
-    <div class="chart-container" style="height:240px"><canvas id="ch-cashflow"></canvas></div>
-  </div>`;
-
-  // Tabelle: Dead stock | Margine sottosoglia
-  const _tbl=(title,icon,rows,cols,empty)=>`<div class="card" style="padding:0">
-    <div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px"><span style="color:var(--amber3)">${icon}</span><span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">${title}</span>${rows.length>10?`<span style="margin-left:auto;font-size:10px;color:var(--txt4)">top 10 di ${rows.length}</span>`:""}</div>
-    ${rows.length===0?`<div style="padding:28px;text-align:center;color:#30D158;font-size:11px">${empty}</div>`:`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">
-      <thead><tr style="border-bottom:1px solid var(--border)">${cols.map(c=>`<th style="text-align:${c.r?'right':'left'};padding:7px ${c.r?'12px':'20px'};color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.08em;text-transform:uppercase">${c.h}</th>`).join("")}</tr></thead>
-      <tbody>${rows.slice(0,10).map(row=>`<tr style="border-bottom:1px solid var(--border)">${cols.map(c=>`<td style="padding:7px ${c.r?'12px':'20px'};text-align:${c.r?'right':'left'};${c.style||'color:var(--txt2)'}">${c.render(row)}</td>`).join("")}</tr>`).join("")}</tbody>
-    </table></div>`}
-  </div>`;
-
-  const _dsCard=_tbl("Capitale Fermo · nessuna vendita da 180+ gg","🧊",deadStock,[
-      {h:"Vino",render:r=>`<div style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(r.nome)}</div><div style="color:var(--txt4);font-size:10px">${h(r.produttore||'—')}</div>`},
-      {h:"Giac.",r:true,style:"color:var(--txt3)",render:r=>r.g},
-      {h:"Valore",r:true,style:"font-family:'Montserrat',sans-serif;color:#FF6B6B",render:r=>fmt(r.valore)},
-      {h:"Ferma da",r:true,style:"color:var(--txt3);font-size:10px",render:r=>r.giorni===null?"mai venduto":`${r.giorni} gg`},
-    ],"Nessun capitale immobilizzato");
-  const _dsFooter=deadStock.length?`<div style="padding:10px 20px;border-top:1px solid var(--border2);display:flex;justify-content:space-between;font-size:10px"><span style="color:var(--txt4);text-transform:uppercase;letter-spacing:.1em">Capitale fermo totale</span><span style="font-family:'Montserrat',sans-serif;color:#FF6B6B">${fmt(capitaleFermo)}</span></div>`:"";
-  // inietta il footer prima della chiusura del card dead stock
-  const _dsCardWithFooter=_dsFooter?_dsCard.replace(/<\/div>\s*$/,_dsFooter+"</div>"):_dsCard;
-
-  html+=`<div class="kpi-grid g2" style="margin-bottom:16px">
-    ${_dsCardWithFooter}
-    ${_tbl("Margine Sottosoglia · carta ≤ costo+IVA","⚠️",margineAlert,[
-      {h:"Vino",render:r=>`<div style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(r.nome)}</div><div style="color:var(--txt4);font-size:10px">${h(r.produttore||'—')}</div>`},
-      {h:"Costo+IVA",r:true,style:"color:var(--txt3)",render:r=>fmt(r.costo)},
-      {h:"Carta",r:true,style:"color:var(--amber)",render:r=>fmt(r.carta)},
-      {h:"Δ",r:true,style:"font-family:'Montserrat',sans-serif;color:#FF453A",render:r=>fmt(r.carta-r.costo)},
-    ],"Tutte le referenze in carta sono a margine positivo")}
-  </div>`;
-
-  // Rotazione slow movers
-  html+=_tbl("Rotazione Lenta · giorni di giacenza (DIO, base 90 gg)","🐌",rotazione,[
-    {h:"Vino",render:r=>`<div style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(r.nome)}</div>`},
-    {h:"Giac.",r:true,style:"color:var(--txt3)",render:r=>r.g},
-    {h:"Venduti 90gg",r:true,style:"color:var(--txt3)",render:r=>r.venduti90},
-    {h:"Giorni stock",r:true,style:"font-family:'Montserrat',sans-serif;color:var(--amber)",render:r=>r.dio===Infinity?"∞":Math.round(r.dio)},
-  ],"Nessuna referenza in giacenza");
-  html+=`<div style="margin-bottom:20px"></div>`;
-
+  // ── window state per initPlanciaCharts (invariato) ──
   window._plCash={labels:cashData.map(d=>d.label),ricavo:cashData.map(d=>Math.round(d.ricavo*100)/100),spesa:cashData.map(d=>Math.round(d.spesa*100)/100),saldo:cashData.map(d=>Math.round((d.ricavo-d.spesa)*100)/100)};
-
   window._plTrend=trendData;
   window._plTopMargin=topMargin;
   window._plPie=tipoPie;
@@ -2397,13 +2389,13 @@ function _renderWineRow(w){
   const annataHtml=w.annata||`<span style="color:var(--txt4)">N.V.</span>`;
   const regioneHtml=(w.regione?`<span>${h(w.regione)}</span>`:'')+(w.nazione?`${w.regione?' · ':''}<span style="color:var(--amber3);font-weight:600">${h(w.nazione)}</span>`:'');
   const nomeEsc=h(w.nome).replace(/'/g,"\\'");
-  return `<tr class="${rowClass}" data-sel-id="${w.id}" data-wine-id="${w.id}" style="cursor:pointer">
+  return `<tr class="${rowClass}" data-sel-id="${w.id}" data-wine-id="${w.id}" style="cursor:pointer;vertical-align:middle">
     ${cbHtml}
     <td class="col-fornitore" style="color:var(--txt3);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:90px">${h(w.distributore||'—')}</td>
-    <td style="color:var(--txt2);max-width:150px;line-height:1.3;word-break:break-word;vertical-align:top">${h(w.produttore)}</td>
-    <td style="vertical-align:top"><div style="min-width:170px;line-height:1.3;word-break:break-word;font-size:11px">${h(w.nome)}${fmtBadge}</div>${zonaHtml}</td>
+    <td style="color:var(--txt2);max-width:150px;line-height:1.3;word-break:break-word;vertical-align:middle">${h(w.produttore)}</td>
+    <td style="vertical-align:middle"><div style="min-width:170px;line-height:1.3;word-break:break-word;font-size:11px">${h(w.nome)}${fmtBadge}</div>${zonaHtml}</td>
     <td class="col-annata"><span style="color:var(--amber);font-family:'Montserrat',sans-serif;white-space:nowrap;font-size:11px">${annataHtml}</span></td>
-    <td class="col-vitigni" style="color:var(--txt3);font-size:10px;line-height:1.3;word-break:break-word;max-width:150px;vertical-align:top">${h(w.vitigni||'—')}</td>
+    <td class="col-vitigni" style="color:var(--txt3);font-size:10px;line-height:1.3;word-break:break-word;max-width:150px;vertical-align:middle">${h(w.vitigni||'—')}</td>
     <td>${badge(w.tipologia)}</td>
     <td class="col-regione" style="color:var(--txt3);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:110px">${regioneHtml}</td>
     <td class="r" style="border-left:1px solid var(--border);white-space:nowrap">${fmt(w.prezzoAcq)}</td>
@@ -6378,6 +6370,75 @@ function convertiCaricoInCorrezione(ids, apply=false){
   return {convertiti:target.length,saltati:skip.length,perMese};
 }
 
+// ── RICOSTRUZIONE ORDINI DA CARICHI ORFANI ───────────────────────────────────────
+// Trova i carichi (≥ 2026-01-01) NON collegati ad alcun ordine (inseriti a mano,
+// non tramite la sezione Ordini) e crea i record ordine mancanti con stato "caricato".
+// È PURAMENTE ADDITIVO: NON tocca giacenza, lotti né movimenti — crea solo il record
+// ordine (metadati), che poi appare negli Ordini evasi ed è modificabile lì.
+// Idempotente: non ricrea ordini già ricostruiti/esistenti.
+//   ricostruisciOrdiniDaCarichi()            → DRY-RUN, tutti i mesi
+//   ricostruisciOrdiniDaCarichi("2026-07")   → DRY-RUN, solo quel mese
+//   ricostruisciOrdiniDaCarichi(null, true)  → APPLICA (backup JSON automatico)
+function ricostruisciOrdiniDaCarichi(mese, apply=false){
+  const _n=v=>parseFloat(v)||0;
+  const _norm=s=>String(s??"").trim().toLowerCase().replace(/\s+/g," ");
+  const wineMap=Object.fromEntries(wines.map(w=>[w.id,w]));
+  const EPOCH="2026-01-01";
+  // fatture già coperte da ordini esistenti
+  const ordFatt=new Set();
+  (orders||[]).forEach(o=>{[o.numeroFattura,o.fattura].forEach(f=>{const k=_norm(f);if(k)ordFatt.add(k);});});
+  // "copertura" fornitore|data|wineId da referenze di ordini esistenti (idempotenza)
+  const covered=new Set();
+  (orders||[]).forEach(o=>{ const forn=_norm(o.fornitore); const dc=String(o.dataArrivo||o.dataCarico||"").slice(0,10);
+    (o.referenze||[]).forEach(r=>{ if(r.wineId) covered.add(forn+"|"+dc+"|"+r.wineId); }); });
+  const isOrphan=m=>{
+    if(_norm(m.note).startsWith("da ordine")) return false;              // creato da un ordine
+    const kf=_norm(m.fattura); if(kf&&ordFatt.has(kf)) return false;     // fattura già in un ordine
+    const w=wineMap[m.wineId]; const forn=_norm(m.fornitore||w?.distributore||"");
+    if(covered.has(forn+"|"+String(m.data||"").slice(0,10)+"|"+m.wineId)) return false; // già rappresentato
+    return true;
+  };
+  const carichi=movements.filter(m=>!m.deleted&&m.tipo==="carico"&&(m.data||"")>=EPOCH
+    &&(!mese||String(m.data||"").slice(0,7)===mese)&&isOrphan(m));
+  if(!carichi.length){ console.log(`[RICOSTRUISCI ORDINI] Nessun carico orfano${mese?" nel mese "+mese:""} (≥ ${EPOCH}).`); return {gruppi:0,carichi:0}; }
+
+  // raggruppa per fornitore + (fattura || data)
+  const groups={};
+  carichi.forEach(m=>{ const w=wineMap[m.wineId];
+    const forn=((m.fornitore||w?.distributore||"").trim())||"Fornitore Sconosciuto";
+    const fatt=(m.fattura||"").trim();
+    const key=forn+"||"+(fatt||("data:"+String(m.data||"").slice(0,10)));
+    (groups[key]=groups[key]||{forn,fatt,mov:[]}).mov.push(m);
+  });
+  const plan=Object.values(groups).map(g=>{
+    const datas=g.mov.map(m=>String(m.data||"").slice(0,10)).filter(Boolean).sort();
+    const dataOrdine=datas[0]||today(), dataArrivo=datas[datas.length-1]||dataOrdine;
+    let bt=0,spesa=0;
+    const referenze=g.mov.map(m=>{ const w=wineMap[m.wineId];
+      const q=parseInt(m.qty)||0, p=costoCarico(m,w), iva=(parseInt(w?.iva)||22)/100;
+      bt+=q; spesa+=p*(1+iva)*q;
+      return {id:uid(),wineId:m.wineId,nomeVino:m.wineName||w?.nome||"—",produttore:m.produttore||w?.produttore||"",
+        annata:w?.annata||"",tipologia:w?.tipologia||"Rosso",formato:parseFloat(w?.formato)||0.75,
+        qty:q,qtyArr:q,prezzoAcq:_n(p),iva:parseInt(w?.iva)||22};
+    });
+    return {forn:g.forn,fatt:g.fatt,dataOrdine,dataArrivo,n_ref:referenze.length,bt,spesa:_n(spesa),referenze};
+  }).sort((a,b)=>a.dataOrdine.localeCompare(b.dataOrdine));
+
+  console.log(`[RICOSTRUISCI ORDINI] apply=${apply} — ${plan.length} ordini da creare da ${carichi.length} carichi orfani${mese?" (mese "+mese+")":""}`);
+  console.table(plan.map(p=>({fornitore:p.forn,fattura:p.fatt||"—",dataOrdine:p.dataOrdine,referenze:p.n_ref,bottiglie:p.bt,spesa_IVA:p.spesa.toFixed(2)})));
+  console.log("→ Verranno creati con stato 'caricato' (già ricevuti). NON toccano giacenza/lotti/movimenti: solo il record ordine, poi modificabile/eliminabile dalla sezione Ordini.");
+  if(!apply){ console.log(`Dry-run: nessuna scrittura. Applica con: ricostruisciOrdiniDaCarichi(${mese?`"${mese}", `:"null, "}true)`); return {gruppi:plan.length,carichi:carichi.length}; }
+
+  try{ exportBackupJSON(); }catch(e){ console.warn("Backup JSON non riuscito:",e); }
+  const nuovi=plan.map(p=>({id:uid(),fornitore:p.forn,dataOrdine:p.dataOrdine,dataArrivo:p.dataArrivo,dataCarico:p.dataArrivo,
+    numeroFattura:p.fatt||"",note:"Ricostruito da carichi",stato:"caricato",sconto:0,referenze:p.referenze}));
+  orders=[...orders,...nuovi];
+  scheduleSave(); clearTimeout(saveTimer); _flushSave();
+  notify(`✅ ${nuovi.length} ordini ricostruiti da ${carichi.length} carichi (backup scaricato)`,"ok");
+  if(section==="ordini"||section==="dashboard") render();
+  return {creati:nuovi.length,carichi:carichi.length};
+}
+
 // ── BACKFILL SKU ─────────────────────────────────────────────────────────────────
 // Assegna un SKU alle referenze che ne sono prive, in ordine d'inserimento,
 // proseguendo dal numero massimo esistente. Immutabile una volta assegnato.
@@ -6812,7 +6873,9 @@ function exitMobileMode(){
 
 function mobFilter(q){
   _mobQuery = q.toLowerCase().trim();
-  _renderMobList();
+  if(_mobView === "fresco") _renderMobFrescoList();
+  else if(_mobView === "storico") _renderMobStorico();
+  else _renderMobList();
 }
 
 function _renderMobList(){
@@ -7275,26 +7338,38 @@ function mobSwitchView(view){
     }
     if(t) t.classList.toggle("active", k === view);
   });
+  // Il log azioni ha senso solo su Scarico: nascondilo altrove (evita "Nessuna azione ancora" fuori contesto)
+  const logEl = document.getElementById("mob-log");
+  if(logEl) logEl.style.display = (view === "scarico") ? "" : "none";
+  const searchEl = document.getElementById("mob-search");
+  if(searchEl) searchEl.placeholder = (view === "fresco")
+    ? "Cerca vino da mettere/togliere dal fresco…"
+    : (view === "storico") ? "Cerca negli scarichi…"
+    : "Cerca vino, produttore, annata…";
   if(view === "storico") _renderMobStorico();
   else if(view === "fresco") _renderMobFrescoList();
+  else _renderMobList();
   _updateStoricoBadge();
 }
 
 function _renderMobFrescoList(){
   const el = document.getElementById("mob-fresco-list");
   if(!el) return;
-  const list = wines.filter(w => (parseInt(w.giacenza)||0) > 0);
+  let list = wines.filter(w => (parseInt(w.giacenza)||0) > 0);
+  const cnt = list.filter(w => w.inFresco).length; // stato: totale in fresco (non filtrato dalla ricerca)
+  const cntEl = document.getElementById("mob-fresco-count");
+  if(cntEl) cntEl.textContent = cnt + (cnt===1 ? " vino" : " vini");
+
+  const q = _mobQuery;
+  if(q) list = list.filter(w => _fuzzyMatch(q, [w.nome,w.produttore,w.annata,w.denominazione,w.tipologia,w.vitigni].filter(Boolean).join(" "), w.sku));
   list.sort((a,b) => {
     const fa = a.inFresco?0:1, fb = b.inFresco?0:1;
     if(fa !== fb) return fa - fb;
     return (a.nome||"").localeCompare(b.nome||"");
   });
-  const cnt = list.filter(w => w.inFresco).length;
-  const cntEl = document.getElementById("mob-fresco-count");
-  if(cntEl) cntEl.textContent = cnt + (cnt===1 ? " vino" : " vini");
 
   if(list.length === 0){
-    el.innerHTML = `<div class="mob-stor-empty">Nessun vino disponibile in cantina</div>`;
+    el.innerHTML = `<div class="mob-stor-empty">${q ? "Nessun vino trovato per «"+h(q)+"»" : "Nessun vino disponibile in cantina"}</div>`;
     return;
   }
   el.innerHTML = list.map(w => {
@@ -7333,35 +7408,54 @@ function _renderMobStorico(){
   const totEl = document.getElementById("mob-stor-totale");
   if(!el) return;
 
-  const righe = _mobLog.filter(e => e.movId); // solo scarichi reali (no "↩ Annullato")
-  const totBt = righe.filter(e => !e.annullato).reduce((s, e) => s + (e.qty||0), 0);
-  if(totEl) totEl.textContent = totBt > 0 ? `${totBt} bottiglie` : "0 bottiglie";
+  const wineMap = Object.fromEntries(wines.map(w => [w.id, w]));
+  // Scarichi di questa sessione mobile (hanno lo snapshot per annulla/modifica sicuri)
+  const sessById = {};
+  _mobLog.forEach(e => { if(e.movId) sessById[e.movId] = e; });
+
+  // Storico REALE dal ledger: tutti gli scarichi non eliminati, recenti prima
+  let righe = movements
+    .filter(m => !m.deleted && m.tipo === "scarico")
+    .sort((a,b) => String(b.data||"").localeCompare(String(a.data||"")) || (b.ts||0)-(a.ts||0));
+
+  // Totale "serata" = bottiglie scaricate oggi
+  const oggi = today();
+  const totOggi = righe.filter(m => String(m.data||"").slice(0,10) === oggi).reduce((s,m) => s + (parseInt(m.qty)||0), 0);
+  if(totEl) totEl.textContent = `${totOggi} bt oggi`;
 
   _updateStoricoBadge();
 
+  const q = _mobQuery;
+  if(q) righe = righe.filter(m => {
+    const w = wineMap[m.wineId];
+    const hay = [m.wineName, w?.nome, m.produttore, w?.produttore, w?.annata, w?.vitigni].filter(Boolean).join(" ");
+    return _fuzzyMatch(q, hay, w?.sku);
+  });
+
   if(righe.length === 0){
-    el.innerHTML = `<div class="mob-stor-empty">Nessuno scarico registrato<br><span style="font-size:10px;opacity:.5">Gli scarichi di questa sessione appariranno qui</span></div>`;
+    el.innerHTML = `<div class="mob-stor-empty">${q ? "Nessuno scarico trovato per «"+h(q)+"»" : "Nessuno scarico registrato"}</div>`;
     return;
   }
 
-  el.innerHTML = righe.map(entry => {
-    const wine = wines.find(w => w.id === entry.wineId);
-    const wineName = wine ? (wine.nome + (wine.annata ? " " + wine.annata : "")) : entry.desc;
-    const produttore = wine ? (wine.produttore || "") : "";
-    const isAnnullato = entry.annullato;
-
-    return `<div class="mob-stor-row${isAnnullato ? " annullato" : ""}" data-movid="${entry.movId}">
+  const MAX = 300;
+  el.innerHTML = righe.slice(0, MAX).map(m => {
+    const wine = wineMap[m.wineId];
+    const wineName = wine ? (wine.nome + (wine.annata ? " " + wine.annata : "")) : (m.wineName || "—");
+    const produttore = wine ? (wine.produttore || "") : (m.produttore || "");
+    const sess = sessById[m.id];
+    const annullabile = sess && !sess.annullato;
+    const meta = (_fmtDataIT(m.data) || (sess ? sess.ts : "")) + (produttore ? " · " + h(produttore) : "");
+    return `<div class="mob-stor-row" data-movid="${m.id}">
       <div class="mob-stor-info">
         <div class="mob-stor-name">${h(wineName)}</div>
-        <div class="mob-stor-meta">${entry.ts}${produttore ? " · " + h(produttore) : ""}${isAnnullato ? " · <em>annullato</em>" : ""}</div>
+        <div class="mob-stor-meta">${meta}</div>
       </div>
-      <div class="mob-stor-qty">${entry.qty}</div>
+      <div class="mob-stor-qty">${parseInt(m.qty)||0}</div>
       <div class="mob-stor-actions">
-        ${isAnnullato
-          ? `<span class="mob-stor-annullato-badge">Annullato</span>`
-          : `<button class="mob-stor-btn mob-stor-btn-edit" onclick="mobOpenSheet('${entry.movId}')" title="Modifica">✏️</button>
-             <button class="mob-stor-btn mob-stor-btn-del" onclick="mobAnnullaStorico('${entry.movId}')" title="Annulla">✕</button>`
-        }
+        ${annullabile
+          ? `<button class="mob-stor-btn mob-stor-btn-edit" onclick="mobOpenSheet('${m.id}')" title="Modifica">✏️</button>
+             <button class="mob-stor-btn mob-stor-btn-del" onclick="mobAnnullaStorico('${m.id}')" title="Annulla">✕</button>`
+          : ``}
       </div>
     </div>`;
   }).join("");
