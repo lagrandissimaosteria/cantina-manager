@@ -1504,7 +1504,7 @@ function render(){
   else if(section==="inventario") c.innerHTML=renderInventario();
   else if(section==="scarico-serata") c.innerHTML=renderScaricoSerataPage();
   else if(section==="report-serata"){ go("scarico-serata"); return; }
-  else if(section==="movimenti"){movForm.data=today();fallForm.data=today();c.innerHTML=renderMovimenti();}
+  else if(section==="movimenti"){if(!movForm.data)movForm.data=today();if(!fallForm.data)fallForm.data=today();c.innerHTML=renderMovimenti();}
   else if(section==="fallate") c.innerHTML=renderFallate();
   else if(section==="ordini"){
     c.innerHTML=renderOrdini();
@@ -3707,6 +3707,7 @@ function renderOrdini(){
       <td style="display:flex;gap:6px;align-items:center;padding:6px 14px">
         <button class="btn-outline btn-sm" onclick="apriModalRicezione('${o.id}')" title="Conferma arrivo" style="border-color:rgba(22,163,74,.4);color:#30D158">📦 Ricevi</button>
         <button class="btn-outline btn-sm" onclick="apriOrdineModal('${o.id}')" title="Modifica ordine">✏️</button>
+        <button class="btn-outline btn-sm" onclick="duplicaOrdine('${o.id}')" title="Duplica ordine" style="border-color:rgba(191,95,255,.35);color:#bf5fff">⧉</button>
         <button class="btn-outline btn-sm" onclick="stampaOrdine('${o.id}')" title="Stampa / Salva PDF" style="border-color:rgba(0,122,255,.3);color:#007AFF">🖨️</button>
         <button class="btn-outline btn-sm" onclick="emailOrdine('${o.id}')" title="Invia via email" style="border-color:rgba(255,159,10,.3);color:var(--amber)">✉️</button>
         <button class="btn-outline btn-sm" onclick="whatsappOrdine('${o.id}')" title="Invia su WhatsApp" style="border-color:rgba(37,211,102,.3);color:#25D366">🟢</button>
@@ -3756,6 +3757,8 @@ function renderOrdini(){
       <td style="white-space:nowrap">
         <button class="btn-outline btn-sm" onclick="mostraDettaglioOrdine('${o.id}')" style="font-size:9px;padding:2px 8px;color:var(--txt4)">dettaglio</button>
         <button class="btn-outline btn-sm" onclick="apriOrdineEvasoModal('${o.id}')" style="font-size:9px;padding:2px 8px;color:var(--amber);border-color:rgba(255,159,10,.25)">✏️</button>
+        <button class="btn-outline btn-sm" onclick="duplicaOrdine('${o.id}')" style="font-size:9px;padding:2px 8px;color:#bf5fff;border-color:rgba(191,95,255,.25)" title="Duplica in nuovo ordine">⧉</button>
+        <button class="btn-outline btn-sm" onclick="annullaRicezione('${o.id}')" style="font-size:9px;padding:2px 8px;color:#30D158;border-color:rgba(22,163,74,.3)" title="Annulla ricezione e rimetti in attesa">↩︎ ricezione</button>
         <button onclick="deleteEvaso('${o.id}')" style="color:#FF453A;font-size:12px;background:none;border:none;cursor:pointer;margin-left:4px;padding:2px 4px" title="Elimina ordine evaso">🗑️</button>
       </td>
     </tr>
@@ -3878,7 +3881,7 @@ function renderOrdini(){
       </div>
     </div>
     <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end">
-      <div class="search-wrap" style="flex:1;min-width:160px"><span class="search-icon">🔍</span><input class="form-input" style="padding-left:28px;font-size:11px" placeholder="Cerca vino, fornitore…" value="${h(storicoQ)}" oninput="storicoQ=this.value;render()"></div>
+      <div class="search-wrap" style="flex:1;min-width:160px"><span class="search-icon">🔍</span><input id="storico-search" class="form-input" style="padding-left:28px;font-size:11px" placeholder="Cerca vino, fornitore…" value="${h(storicoQ)}" oninput="storicoQ=this.value;renderOrdiniOnly()"></div>
       <div style="min-width:140px"><select class="form-select" style="font-size:11px" onchange="storicoForn=this.value;render()">
         <option value="">Tutti i fornitori</option>
         ${fornEvasi.map(f=>`<option value="${h(f)}" ${storicoForn===f?"selected":""}>${h(f)}</option>`).join("")}
@@ -3912,6 +3915,79 @@ function renderOrdini(){
       </div>
     </div>
   </div>`;
+}
+
+// Re-render chirurgico della sezione Ordini con debounce e ripristino focus/caret
+// sul campo di ricerca storico — evita la perdita di focus dopo il primo carattere.
+let _storicoDebounce=null;
+function renderOrdiniOnly(){
+  clearTimeout(_storicoDebounce);
+  _storicoDebounce=setTimeout(()=>{
+    if(section!=="ordini") return;
+    const c=document.getElementById("content");
+    if(!c) return;
+    const inp=document.getElementById("storico-search");
+    const pos=inp?inp.selectionStart:null;
+    const sy=window.scrollY;
+    c.innerHTML=renderOrdini();
+    afterRender();
+    window.scrollTo(0,sy);
+    const n=document.getElementById("storico-search");
+    if(n){ n.focus(); if(pos!==null){ try{n.setSelectionRange(pos,pos);}catch{} } }
+  },160);
+}
+
+// Duplica un ordine (attivo, bozza o evaso) in un NUOVO ordine in attesa.
+// Apre la modale precompilata: qtyArr azzerate, data ordine = oggi, id nuovo alla salvataggio.
+function duplicaOrdine(id){
+  const src = orders.find(o=>o.id===id) || _bozzeSb.find(b=>b.id===id);
+  if(!src){ notify("Ordine non trovato","err"); return; }
+  const allFornitori=[...new Set([...wines.map(w=>w.distributore),...orders.map(o=>o.fornitore)].filter(Boolean))].sort();
+  const allProduttori=[...new Set([...wines.map(w=>w.produttore),...orders.flatMap(o=>(o.referenze||[]).map(r=>r.produttore))].filter(Boolean))].sort();
+  const allNomi=[...new Set(wines.map(w=>w.nome).filter(Boolean))].sort();
+  const srcRefs = src.referenze || (src.righe||[]).map(r=>({
+    wineId:r.wine_id, nomeVino:r.nome_vino||"", produttore:r.produttore||"", annata:r.annata||"",
+    tipologia:r.tipologia||"Rosso", prezzoAcq:r.prezzo_acq||0, iva:r.iva||22, qty:r.qty_ordinata||1,
+    formato:r.formato||0.75, regione:r.regione||"", zona:r.zona||"", nazione:r.nazione||"Italia",
+    prezzoCarta:r.prezzo_carta||"", vitigni:r.vitigni||""
+  }));
+  ordineModalData={
+    id:null,
+    dataOrdine:today(),
+    fornitore:src.fornitore||src.distributore||"",
+    note:src.note||"",
+    sconto:parseFloat(src.sconto)||0,
+    referenze:srcRefs.map(r=>{ const {qtyArr,id:_,...rest}=r; return {...rest,id:uid(),scontoRef:parseFloat(r.scontoRef)||0}; })
+  };
+  if(!ordineModalData.referenze.length) ordineModalData.referenze.push(_newRef());
+  document.getElementById("ordine-modal-title").textContent="➕ Nuovo Ordine (copia)";
+  _renderOrdineModalBody(allFornitori, allProduttori, allNomi);
+  document.getElementById("ordine-modal-backdrop").classList.remove("hidden");
+}
+
+// Annulla la ricezione di un ordine evaso: storna il carico dal magazzino
+// (giacenze, lotti, movimenti) e riporta l'ordine "in attesa" per poterlo
+// ricevere di nuovo correttamente.
+function annullaRicezione(id){
+  const o=orders.find(x=>x.id===id);
+  if(!o){ notify("Ordine non trovato","err"); return; }
+  if(o.stato!=="caricato" && o.stato!=="confermato_pendente"){ notify("L'ordine non risulta ricevuto","err"); return; }
+  const totQty=(o.referenze||[]).reduce((s,r)=>s+(parseInt(r.qtyArr??r.qty)||0),0);
+  _confirmModal(
+    `Annullare la ricezione di <strong>${h(o.fornitore||'—')}</strong> del ${h(o.dataOrdine||'—')}?<br><span style="color:var(--txt3);font-size:12px">Verranno stornate ${totQty} bottiglie dal magazzino e l'ordine tornerà «in attesa» per una nuova ricezione.</span>`,
+    "🔄 Annulla ricezione",
+    ()=>{
+      _rollbackOrdine(o);
+      (o.referenze||[]).forEach(r=>{ delete r.qtyArr; });
+      o.stato="attesa";
+      o.dataArrivo=""; o.dataCarico="";
+      delete o.numeroFattura; delete o.fattura;
+      scheduleSave(); clearTimeout(saveTimer); _flushSave();
+      notify(`🔄 Ricezione annullata (−${totQty} bt) · ordine di nuovo in attesa`);
+      render();
+    },
+    'danger'
+  );
 }
 
 function editFattura(id){
@@ -5387,34 +5463,9 @@ function renderExport(){
           📥 Importa Backup
           <input type="file" accept=".json" onchange="importBackupJSON(event)" style="display:none">
         </label>
-        <label class="btn-outline btn-sm" style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border:1px solid rgba(59,130,246,.4);color:#93c5fd;font-size:11px;letter-spacing:.04em" title="Importa nazioni/regioni da file ODS/XLSX (match produttore+nome vino)">🌍 Aggiorna Nazioni<input type="file" accept=".ods,.xlsx,.xls" onchange="importNazioniDaFile(event)" style="display:none"></label>
-
         <button class="btn-outline btn-sm" onclick="openDuplicatiModal()" style="border-color:rgba(191,95,255,.4);color:#bf5fff" title="Trova e fondi vini duplicati nel database">🔍 Trova Duplicati</button>
         <button class="btn-primary" onclick="exportBilancioCSV()">↓ Esporta Bilancio Completo</button>
       </div>
-    </div>
-    <div class="bilancio-grid">
-      ${["Voce","Qtà","Imponibile","IVA","Totale IVA incl."].map(hd=>`<div class="bilancio-cell bilancio-header">${hd}</div>`).join("")}
-      <div class="bilancio-cell" style="color:#e7e5e4">Acquisti (carichi)</div>
-      <div class="bilancio-cell" style="color:var(--amber)">${carichi.reduce((s,m)=>s+m.qty,0)} bt</div>
-      <div class="bilancio-cell" style="color:var(--amber)">${fmt(totImponibileAcq)}</div>
-      <div class="bilancio-cell" style="color:var(--amber)">${fmt(totIvaAcq)}</div>
-      <div class="bilancio-cell" style="color:var(--txt);font-weight:600">${fmt(totImponibileAcq+totIvaAcq)}</div>
-      <div class="bilancio-cell" style="color:#e7e5e4">Perdite / Fallate</div>
-      <div class="bilancio-cell" style="color:#FF453A">${fallate.reduce((s,f)=>s+f.qty,0)} bt</div>
-      <div class="bilancio-cell" style="color:#FF453A">(${fmt(totPerdite)})</div>
-      <div class="bilancio-cell" style="color:#ef4444">(${fmt(totIvaPerd)})</div>
-      <div class="bilancio-cell" style="color:#FF6B6B;font-weight:600">(${fmt(totPerdite+totIvaPerd)})</div>
-      <div class="bilancio-cell" style="color:#e7e5e4">Giacenza attuale</div>
-      <div class="bilancio-cell" style="color:#30D158">${s.giacenzaTot} bt</div>
-      <div class="bilancio-cell" style="color:#30D158">${fmt(s.valoreTot)}</div>
-      <div class="bilancio-cell" style="color:#22c55e">${fmt(totIvaStock)}</div>
-      <div class="bilancio-cell" style="color:#bbf7d0;font-weight:600">${fmt(s.valoreTot+totIvaStock)}</div>
-      <div class="bilancio-cell" style="border-bottom:none;color:#e7e5e4">Potenziale di vendita</div>
-      <div class="bilancio-cell" style="border-bottom:none;color:#007AFF">${s.giacenzaTot} bt</div>
-      <div class="bilancio-cell" style="border-bottom:none;color:#007AFF">${fmt(s.valoreCarta)}</div>
-      <div class="bilancio-cell" style="border-bottom:none;color:var(--txt4)">—</div>
-      <div class="bilancio-cell" style="border-bottom:none;color:#bfdbfe;font-weight:600">${fmt(s.valoreCarta)}</div>
     </div>
   </div>
   <div class="kpi-grid g2">
@@ -6368,6 +6419,21 @@ function convertiCaricoInCorrezione(ids, apply=false){
   notify(`✅ ${target.length} carichi → correzione · spesa tolta €${tolta.toFixed(0)} (backup JSON scaricato)`,"ok");
   if(section==="movimenti"||section==="dashboard") render();
   return {convertiti:target.length,saltati:skip.length,perMese};
+}
+
+// ── RETTIFICA CARICHI LUGLIO 2026 ────────────────────────────────────────────────
+// A luglio 2026 NON ci sono stati ordini reali: i carichi datati luglio 2026 sono
+// aggiustamenti di giacenza e vanno riclassificati come RETTIFICA (segno +) — così
+// NON contano più come spesa/acquisto in plancia, fornitori ed export, mentre la
+// giacenza e i lotti FIFO restano intatti. I carichi con data ≠ 2026-07 NON vengono
+// toccati.
+//   rettificaCarichiLuglio()      → DRY-RUN (nessuna scrittura)
+//   rettificaCarichiLuglio(true)  → APPLICA (backup JSON automatico)
+function rettificaCarichiLuglio(apply=false){
+  const ids=movements.filter(m=>m.tipo==="carico"&&!m.deleted&&String(m.data||"").slice(0,7)==="2026-07").map(m=>m.id);
+  if(!ids.length){ console.log("Nessun carico datato 2026-07 da riclassificare."); notify("Nessun carico di luglio 2026 trovato","err"); return; }
+  console.log(`[RETTIFICA LUGLIO] ${ids.length} carichi datati 2026-07 → rettifica giacenza (apply=${apply})`);
+  return convertiCaricoInCorrezione(ids, apply);
 }
 
 // ── RICOSTRUZIONE ORDINI DA CARICHI ORFANI ───────────────────────────────────────
