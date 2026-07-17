@@ -272,14 +272,58 @@ const _REGIONE_TO_PAESE = {
   // ── GIAPPONE ──
   "yamanashi":"Giappone","nagano":"Giappone","hokkaido":"Giappone","yamagata":"Giappone",
 };
-// ── PAESE → REGIONI (invertito da _REGIONE_TO_PAESE, DRY) ─────────────────────
-// Datalist a cascata negli ordini: scelta nazione → regioni relative. Sempre
-// free-text (aggiunta di nuove nazioni/regioni consentita). Le regioni proprie
-// dell'utente (da wines/orders) vengono unite a quelle predefinite.
-function _titleCaseReg(s){ return (s||"").split(/(\s|-)/).map(t=>t?t.charAt(0).toUpperCase()+t.slice(1):t).join(""); }
-const _PAESE_TO_REGIONI=(()=>{ const m={}; for(const [reg,p] of Object.entries(_REGIONE_TO_PAESE)){ (m[p]=m[p]||new Set()).add(_titleCaseReg(reg)); } const o={}; for(const p in m){ o[p]=[...m[p]].sort((a,b)=>a.localeCompare(b,"it")); } return o; })();
-function _ordNazioni(){ const s=new Set(Object.keys(_PAESE_TO_REGIONI)); (wines||[]).forEach(w=>{ if(w.nazione) s.add(w.nazione); }); (orders||[]).forEach(o=>(o.referenze||[]).forEach(r=>{ if(r.nazione) s.add(r.nazione); })); const arr=[...s].filter(Boolean).sort((a,b)=>a.localeCompare(b,"it")); return ["Italia",...arr.filter(x=>x!=="Italia")]; }
-function _ordRegioniPer(naz){ const key=(naz||"").trim(), kl=key.toLowerCase(), s=new Set(); if(_PAESE_TO_REGIONI[key]) _PAESE_TO_REGIONI[key].forEach(r=>s.add(r)); (wines||[]).forEach(w=>{ if(w.regione&&(w.nazione||"").toLowerCase()===kl) s.add(w.regione); }); (orders||[]).forEach(o=>(o.referenze||[]).forEach(r=>{ if(r.regione&&(r.nazione||"").toLowerCase()===kl) s.add(r.regione); })); const seen=new Map(); s.forEach(r=>{ const lk=r.toLowerCase(); if(!seen.has(lk)) seen.set(lk,r); }); return [...seen.values()].sort((a,b)=>a.localeCompare(b,"it")); }
+// ── PAESE → REGIONI (lista curata) ───────────────────────────────────────────
+// Suggerimenti per la tendina "Regione" negli ordini. Elenco CURATO e pulito
+// (grafie canoniche, niente duplicati/sinonimi/denominazioni spurie). Le regioni
+// prese dai vini dell'utente vengono aggiunte SOLO se inferPaese le riconosce
+// come appartenenti a quel paese → esclude dai suggerimenti regioni straniere
+// taggate male, refusi e nomi non-regione (es. distributori). Il campo resta
+// free-text: qualsiasi valore nuovo si può sempre digitare a mano.
+const _PAESE_TO_REGIONI = {
+  "Italia": ["Abruzzo","Basilicata","Calabria","Campania","Emilia-Romagna","Friuli Venezia Giulia","Lazio","Liguria","Lombardia","Marche","Molise","Piemonte","Puglia","Sardegna","Sicilia","Toscana","Trentino Alto Adige","Umbria","Valle d'Aosta","Valtellina","Veneto"],
+  "Francia": ["Alsazia","Ardeche","Auvergne","Beaujolais","Bordeaux","Borgogna","Chablis","Champagne","Cotes Catalanes","Jura","Languedoc","Loira","Provenza","Rodano","Roussillon","Savoia","Sud Ouest"],
+  "Germania": ["Ahr","Baden","Franconia","Mosella","Nahe","Pfalz","Rheingau","Rheinhessen","Württemberg"],
+  "Austria": ["Burgenland","Kamptal","Kremstal","Neusiedlersee","Steiermark","Thermenregion","Wachau","Wagram","Wien"],
+  "Spagna": ["Andalusia","Bierzo","Castilla y Leon","Catalogna","Jerez","Jumilla","Navarra","Penedès","Priorat","Rias Baixas","Ribera del Duero","Rioja","Rueda","Sierra de Gredos"],
+  "Portogallo": ["Alentejo","Bairrada","Dão","Douro","Lisboa","Serra da Estrela","Vinho Verde"],
+  "Slovenia": ["Brda","Collio Sloveno","Karst","Primorska","Stajerska","Vipava"],
+  "Grecia": ["Macedonia","Naoussa","Nemea","Peloponneso","Santorini"],
+  "Svizzera": ["Aargau","Ticino","Vallese","Vaud"],
+  "Ungheria": ["Balaton","Eger","Tokaj","Villany"],
+  "Serbia": ["Negotinska Krajina","Sumadija"],
+  "Croazia": ["Dalmazia","Istria","Slavonia"],
+  "Cile": ["Casablanca","Colchagua","Maipo Valley","Maule"],
+  "Argentina": ["Mendoza","Patagonia","Salta"],
+  "Stati Uniti": ["Napa Valley","Oregon","Sonoma","Willamette Valley"],
+  "Australia": ["Barossa Valley","Margaret River","McLaren Vale","Victoria","Yarra Valley"],
+  "Nuova Zelanda": ["Central Otago","Hawke's Bay","Marlborough","Nelson"],
+  "Sudafrica": ["Stellenbosch","Swartland","Western Cape"],
+  "Georgia": ["Imereti","Kakheti","Kartli"],
+  "Libano": ["Bekaa"],
+  "Bulgaria": ["Danube Plain","Trakia"],
+  "Romania": ["Dealu Mare","Moldova"]
+};
+// chiave normalizzata per dedup: case/accenti/trattini/spazi-insensitive
+function _regKey(s){ return (s||"").toString().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[-–—\/]/g," ").replace(/\s+/g," ").trim(); }
+function _ordNazioni(){
+  const seen=new Set(), out=[];
+  const push=v=>{ const k=_regKey(v); if(v&&k&&!seen.has(k)){ seen.add(k); out.push(String(v).trim()); } };
+  Object.keys(_PAESE_TO_REGIONI).forEach(push);
+  (wines||[]).forEach(w=>{ if(w.nazione) push(w.nazione); });
+  (orders||[]).forEach(o=>(o.referenze||[]).forEach(r=>{ if(r.nazione) push(r.nazione); }));
+  out.sort((a,b)=>a.localeCompare(b,"it"));
+  return ["Italia",...out.filter(x=>_regKey(x)!=="italia")];
+}
+function _ordRegioniPer(naz){
+  const kl=_regKey(naz);
+  const seen=new Set(), out=[];
+  const push=v=>{ const k=_regKey(v); if(v&&k&&!seen.has(k)){ seen.add(k); out.push(String(v).trim()); } };
+  (_PAESE_TO_REGIONI[(naz||"").trim()]||[]).forEach(push);
+  const consider=r=>{ if(!r) return; const p=inferPaese("", r, ""); if(p && _regKey(p)===kl) push(r); };
+  (wines||[]).forEach(w=>{ if(_regKey(w.nazione)===kl) consider(w.regione); });
+  (orders||[]).forEach(o=>(o.referenze||[]).forEach(r=>{ if(_regKey(r.nazione)===kl) consider(r.regione); }));
+  return out.sort((a,b)=>a.localeCompare(b,"it"));
+}
 function inferPaese(nazione, regione, zona){
   if(nazione) return nazione;
   // Prova prima regione, poi zona
