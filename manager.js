@@ -272,6 +272,14 @@ const _REGIONE_TO_PAESE = {
   // ── GIAPPONE ──
   "yamanashi":"Giappone","nagano":"Giappone","hokkaido":"Giappone","yamagata":"Giappone",
 };
+// ── PAESE → REGIONI (invertito da _REGIONE_TO_PAESE, DRY) ─────────────────────
+// Datalist a cascata negli ordini: scelta nazione → regioni relative. Sempre
+// free-text (aggiunta di nuove nazioni/regioni consentita). Le regioni proprie
+// dell'utente (da wines/orders) vengono unite a quelle predefinite.
+function _titleCaseReg(s){ return (s||"").split(/(\s|-)/).map(t=>t?t.charAt(0).toUpperCase()+t.slice(1):t).join(""); }
+const _PAESE_TO_REGIONI=(()=>{ const m={}; for(const [reg,p] of Object.entries(_REGIONE_TO_PAESE)){ (m[p]=m[p]||new Set()).add(_titleCaseReg(reg)); } const o={}; for(const p in m){ o[p]=[...m[p]].sort((a,b)=>a.localeCompare(b,"it")); } return o; })();
+function _ordNazioni(){ const s=new Set(Object.keys(_PAESE_TO_REGIONI)); (wines||[]).forEach(w=>{ if(w.nazione) s.add(w.nazione); }); (orders||[]).forEach(o=>(o.referenze||[]).forEach(r=>{ if(r.nazione) s.add(r.nazione); })); const arr=[...s].filter(Boolean).sort((a,b)=>a.localeCompare(b,"it")); return ["Italia",...arr.filter(x=>x!=="Italia")]; }
+function _ordRegioniPer(naz){ const key=(naz||"").trim(), kl=key.toLowerCase(), s=new Set(); if(_PAESE_TO_REGIONI[key]) _PAESE_TO_REGIONI[key].forEach(r=>s.add(r)); (wines||[]).forEach(w=>{ if(w.regione&&(w.nazione||"").toLowerCase()===kl) s.add(w.regione); }); (orders||[]).forEach(o=>(o.referenze||[]).forEach(r=>{ if(r.regione&&(r.nazione||"").toLowerCase()===kl) s.add(r.regione); })); const seen=new Map(); s.forEach(r=>{ const lk=r.toLowerCase(); if(!seen.has(lk)) seen.set(lk,r); }); return [...seen.values()].sort((a,b)=>a.localeCompare(b,"it")); }
 function inferPaese(nazione, regione, zona){
   if(nazione) return nazione;
   // Prova prima regione, poi zona
@@ -4284,6 +4292,7 @@ function _renderOrdineModalBody(allFornitori, allProduttori, allNomi){
     <datalist id="omd-prod-dl">${allProduttori.map(v=>`<option value="${h(v)}">`).join("")}</datalist>
     <datalist id="omd-wine-dl">${allNomi.map(v=>`<option value="${h(v)}">`).join("")}</datalist>
     <datalist id="omd-reg-dl">${allRegioni.map(v=>`<option value="${h(v)}">`).join("")}</datalist>
+    <datalist id="omd-naz-dl">${_ordNazioni().map(v=>`<option value="${h(v)}">`).join("")}</datalist>
     <!-- Header ordine -->
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr 2fr;gap:12px;margin-bottom:20px">
       <div>
@@ -4318,8 +4327,8 @@ function _renderOrdineModalBody(allFornitori, allProduttori, allNomi){
             <td style="padding:6px 8px;min-width:56px">Annata</td>
             <td style="padding:6px 8px;min-width:90px">Tipologia</td>
             <td style="padding:6px 8px;min-width:80px">Formato</td>
-            <td style="padding:6px 8px;min-width:100px">Regione</td>
             <td style="padding:6px 8px;min-width:90px">Nazione</td>
+            <td style="padding:6px 8px;min-width:100px">Regione</td>
             <td style="padding:6px 8px;width:0;padding:0;overflow:hidden;max-width:0"></td>
             <td style="padding:6px 8px;min-width:90px">P.Acq ex IVA</td>
             <td style="padding:6px 8px;min-width:56px">IVA</td>
@@ -4371,8 +4380,8 @@ function _refRowHtml(r,i,tipoOpts,ivaOpts,allProduttori,allNomi){
     <td style="padding:5px 6px"><select class="form-input" style="font-size:11px;min-width:72px;width:100%" onchange="_refChange('${r.id}','formato',parseFloat(this.value)||0.75);_updateRefCartaSuggerita('${r.id}')">
       ${[{v:"0.375",l:"0.375L Mezza"},{v:"0.5",l:"0.50L (50cl)"},{v:"0.75",l:"0.75L"},{v:"1.0",l:"1L Litro"},{v:"1.5",l:"1.5L Magnum"},{v:"2.0",l:"2.0L Jero."},{v:"3.0",l:"3.0L D.Mag."},{v:"4.5",l:"4.5L Réhob."},{v:"6.0",l:"6.0L Math."}].map(x=>`<option value="${x.v}" ${parseFloat(r.formato||"0.75")===parseFloat(x.v)?"selected":""}>${x.l}</option>`).join("")}
     </select></td>
-    <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;min-width:90px;width:100%" list="omd-reg-dl" autocomplete="off" value="${h(r.regione||'')}" placeholder="es. Piemonte" onchange="_refChange('${r.id}','regione',this.value.trim())"></td>
-    <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;min-width:80px;width:100%" value="${h(r.nazione||'Italia')}" placeholder="es. Italia" onchange="_refChange('${r.id}','nazione',this.value.trim())"></td>
+    <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;min-width:80px;width:100%" list="omd-naz-dl" autocomplete="off" value="${h(r.nazione||'Italia')}" placeholder="es. Italia" onchange="_refChangeNazione('${r.id}',this.value.trim())"></td>
+    <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;min-width:90px;width:100%" list="omd-reg-dl-${r.id}" autocomplete="off" value="${h(r.regione||'')}" placeholder="es. Piemonte" onchange="_refChange('${r.id}','regione',this.value.trim())"><datalist id="omd-reg-dl-${r.id}">${_ordRegioniPer(r.nazione||'Italia').map(v=>`<option value="${h(v)}">`).join("")}</datalist></td>
     <td style="padding:0;width:0;overflow:hidden;max-width:0"><input class="form-input" style="font-size:11px;width:0;border:none;padding:0;background:none" value="${h(r.zona||'')}" onchange="_refChange('${r.id}','zona',this.value.trim())"></td>
     <td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:11px;min-width:80px;width:100%" value="${r.prezzoAcq||''}" step="0.01" min="0" placeholder="0.00" onchange="_refChange('${r.id}','prezzoAcq',parseFloat(this.value)||0);_updateRefIvaIncl('${r.id}');_updateRefCartaSuggerita('${r.id}')" oninput="_refChange('${r.id}','prezzoAcq',parseFloat(this.value)||0);_updateRefIvaIncl('${r.id}');_updateRefCartaSuggerita('${r.id}');_updateOrdineModalTotale()"></td>
     <td style="padding:5px 6px"><select class="form-input" style="font-size:11px;min-width:52px;width:100%" onchange="_refChange('${r.id}','iva',parseInt(this.value));_updateRefIvaIncl('${r.id}');_updateRefCartaSuggerita('${r.id}');_updateOrdineModalTotale()">${selIva}</select></td>
@@ -4403,6 +4412,12 @@ function _refChange(refId,field,value){
     if(field==='formato'){ r.wineId=""; _showRefGiacenza(refId, r.nomeVino); }
   }
   _updateOrdineModalTotale();
+}
+
+function _refChangeNazione(refId,val){
+  _refChange(refId,'nazione',val);
+  const dl=document.getElementById('omd-reg-dl-'+refId);
+  if(dl) dl.innerHTML=_ordRegioniPer(val).map(x=>`<option value="${h(x)}">`).join("");
 }
 
 // _refAutofill rimosso — l'autofill creava comportamenti inattesi (match parziali
@@ -5454,7 +5469,7 @@ function renderExport(){
   const totIvaStock=wines.reduce((s,w)=>s+calcValore(w)*((parseInt(w.iva)||22)/100),0);
   const s=getStats();
 
-  let html=`<div class="card card-amber" style="margin-bottom:20px">
+  let html=_transferCardHtml()+`<div class="card card-amber" style="margin-bottom:20px">
     <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px">
       <div><div style="font-size:10px;letter-spacing:.25em;text-transform:uppercase;color:var(--txt2);margin-bottom:4px">💾 Bilancio di Magazzino</div><div style="font-family:'Montserrat',sans-serif;font-weight:300;font-size:1.3rem;color:var(--txt)">Situazione al ${dateStr}</div></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
@@ -7179,43 +7194,15 @@ async function registraMovimentoMobile(wineId, delta){
     tipo, qty, data:dateStr, fattura, fornitore:"", note:"[mobile]", ts:Date.now()};
   movements = [newMov, ...movements];
 
-  // Read-before-write: rileggi i VINI freschi prima di scrivere (protezione multi-utente).
-  // I movimenti vanno invece sul ledger append-only: niente merge di blob, niente rischio
-  // di azzerare la storia. newMov è già in `movements`, _flushMovementsV2 lo sincronizza.
-  if(_sb){
-    _setDbStatus("sync","Sincronizzazione…");
-    try{
-      const freshWines = await _sbRead("cm_wines");
-      const freshW = freshWines ?? wines;
-      const freshWineExists = freshW.some(w => w.id === wineId);
-      const baseWines = freshWineExists ? freshW : wines;
-      const mergedWines = baseWines.map(w => {
-        if(w.id !== wineId) return w;
-        if(delta > 0){
-          const pAcq = parseFloat(w.prezzoAcq)||0;
-          const newLot = {id:uid(), data:dateStr, fattura, fornitore:"", prezzoAcq:pAcq, iva:w.iva, qtyCaricata:qty, qtyRimanente:qty};
-          return {...w, giacenza:(parseInt(w.giacenza)||0)+qty, lots:[...(w.lots||[]),newLot]};
-        } else {
-          let rem = qty;
-          const updLots = (w.lots||[]).map(l => {
-            if(rem<=0||l.qtyRimanente<=0) return l;
-            const consumed = Math.min(rem,l.qtyRimanente); rem-=consumed;
-            return {...l, qtyRimanente:l.qtyRimanente-consumed};
-          });
-          return {...w, giacenza:Math.max(0,(parseInt(w.giacenza)||0)-qty), lots:updLots};
-        }
-      });
-      wines = mergedWines;
-      // Prima la giacenza (blob), poi il movimento sul ledger: se il blob fallisce
-      // non resta un movimento orfano che farebbe "resuscitare" lo scarico.
-      await _sbUpsert("cm_wines", {user_id:DB_USER, data:wines});
-      await _flushMovementsV2(); // movimento (delta-only) solo dopo giacenza committata
-      _setDbStatus("ok","Sincronizzato");
-    }catch(e){
-      _setDbStatus("err","Errore sync");
-    }
-  }
+  // Persistenza tramite il path sicuro condiviso `_flushSave`:
+  //  • GATE DI VERSIONE (non sovrascrive modifiche fatte da un'altra sessione)
+  //  • MUTEX anti-concorrenza (scarichi rapidi ripetuti vengono serializzati)
+  //  • scrive il BLOB giacenza = stato locale ACCUMULATO, poi i movimenti.
+  // Il vecchio "read-before-write" rileggeva il blob remoto e riapplicava UN SOLO
+  // delta su di esso: con scarichi rapidi/ripetuti sullo stesso vino i decrementi
+  // locali già accumulati andavano persi → giacenza che "resuscitava". Risolto.
   _saveLocalBackup();
+  if(_sb){ clearTimeout(saveTimer); await _flushSave(); }
 
   // Log entry
   const ts = new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"});
@@ -7279,16 +7266,7 @@ async function mobUndo(){
 
   // Write to Supabase immediately
   _saveLocalBackup();
-  if(_sb){
-    _setDbStatus("sync","Sincronizzazione…");
-    try{
-      // Prima ripristina la giacenza (blob), poi tombstona il movimento sul ledger:
-      // così lo stock è corretto anche se il tombstone fallisce (niente resurrezione).
-      await _sbUpsert("cm_wines", {user_id:DB_USER, data:wines});
-      await _flushMovementsV2(); // il movimento rimosso viene tombstonato (delta-only)
-      _setDbStatus("ok","Sincronizzato");
-    }catch(e){ _setDbStatus("err","Errore sync"); }
-  }
+  if(_sb){ clearTimeout(saveTimer); await _flushSave(); }
 
   // Log undo
   const ts = new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"});
@@ -7541,14 +7519,7 @@ async function mobAnnullaStorico(movId){
   _mobLog = _mobLog.map(e => e.movId === movId ? {...e, annullato:true} : e);
 
   _saveLocalBackup();
-  if(_sb){
-    _setDbStatus("sync","Sincronizzazione…");
-    try{
-      await _sbUpsert("cm_wines", {user_id:DB_USER, data:wines});
-      await _flushMovementsV2();
-      _setDbStatus("ok","Sincronizzato");
-    }catch(e){ _setDbStatus("err","Errore sync"); }
-  }
+  if(_sb){ clearTimeout(saveTimer); await _flushSave(); }
 
   const wine = wines.find(w => w.id === wineId);
   const wineName = wine ? wine.nome : "";
@@ -8481,6 +8452,7 @@ async function creaBasiOrdineDatiSelezionati() {
           id: uid(), wineId: w.id,
           produttore: w.produttore || '', nomeVino: w.nome || '',
           annata: w.annata || '', tipologia: w.tipologia || '',
+          vitigni: w.vitigni || '',
           prezzoAcq: w.prezzoAcq || '', iva: w.iva || 22,
           qty: _qtyDaOrdinare(w),
           regione: w.regione || '', zona: w.zona || '',
@@ -8647,3 +8619,236 @@ document.addEventListener('keydown', function(e){
     return;
   }
 });
+
+// ─── TRASFERIMENTI TRA LOCALI (export/import manifesto) ──────────────────────
+// Isolamento totale: nessuna credenziale cross-project. Comunicazione SOLO via
+// manifesto base64/.json. Costo-neutro (lotti FIFO col costo originale, esclusi
+// dal P&L: tipi "trasferimento-uscita"/"trasferimento-entrata" ≠ scarico/carico).
+// Idempotente per transferId (verificato sul ledger movimenti).
+const TRANSFER_MANIFEST_V = 1;
+let _spedForm = {wineId:"", qty:1, dest:"", note:""};
+
+function _transferMatchKey(o){
+  return [(o.produttore||"").trim().toLowerCase(),(o.nome||"").trim().toLowerCase(),(o.annata||"").toString().trim().toLowerCase()].join("|");
+}
+function _b64EncodeUtf8(str){ return btoa(unescape(encodeURIComponent(str))); }
+function _b64DecodeUtf8(b64){ return decodeURIComponent(escape(atob(b64))); }
+
+// ── SPEDISCI (export) ────────────────────────────────────────────────────────
+function openSpedisciModal(){
+  _spedForm = {wineId:"", qty:1, dest:"", note:""};
+  const bd=document.createElement("div");
+  bd.className="modal-backdrop"; bd.id="sped-backdrop";
+  bd.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);z-index:40;display:flex;align-items:center;justify-content:center;padding:16px";
+  const opts=wines.filter(w=>(parseInt(w.giacenza)||0)>0).sort((a,b)=>(a.nome||"").localeCompare(b.nome||""))
+    .map(w=>`<option value="${w.id}">${h(w.nome)} — ${h(w.produttore||"")}${w.annata?" · "+h(w.annata):""} · ${w.giacenza}bt</option>`).join("");
+  bd.innerHTML=`
+    <div class="modal" style="max-width:460px" onclick="event.stopPropagation()">
+      <div class="modal-header"><h2>📤 Spedisci a un altro locale</h2>
+        <button style="font-size:18px;color:var(--txt3)" onclick="document.getElementById('sped-backdrop').remove()">✕</button></div>
+      <div class="modal-body">
+        <div class="form-row"><label class="form-label">Vino</label>
+          <select id="sped-wine" class="form-select" onchange="_spedForm.wineId=this.value;_spedSync()">
+            <option value="">— Seleziona vino —</option>${opts}</select></div>
+        <div class="form-grid g2" style="margin-top:10px">
+          <div><label class="form-label">Quantità (bt)</label>
+            <input id="sped-qty" class="form-input" type="number" min="1" step="1" value="1" onfocus="this.select()" oninput="_spedForm.qty=this.value;_spedSync()"></div>
+          <div><label class="form-label">Locale destinazione</label>
+            <input id="sped-dest" class="form-input" placeholder="es. Portland" oninput="_spedForm.dest=this.value"></div>
+        </div>
+        <div class="form-row" style="margin-top:10px"><label class="form-label">Nota (opzionale)</label>
+          <input id="sped-note" class="form-input" placeholder="es. rifornimento sala" oninput="_spedForm.note=this.value"></div>
+        <div id="sped-info" style="margin-top:14px;font-size:11px;color:var(--txt3)"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-outline" onclick="document.getElementById('sped-backdrop').remove()">Annulla</button>
+        <button class="btn-primary" onclick="_generaManifesto()">📦 Genera manifesto</button>
+      </div>
+    </div>`;
+  bd.addEventListener("click",e=>{ if(e.target===bd) bd.remove(); });
+  document.body.appendChild(bd);
+}
+function _spedSync(){
+  const w=wines.find(x=>x.id===_spedForm.wineId);
+  const el=document.getElementById("sped-info"); if(!el) return;
+  if(!w){ el.textContent=""; return; }
+  const q=parseInt(_spedForm.qty)||0, g=parseInt(w.giacenza)||0;
+  el.innerHTML=q>g
+    ? `<span style="color:#FF453A">Giacenza insufficiente: ${g} disponibili</span>`
+    : `Giacenza attuale <b style="color:var(--amber)">${g}</b> → dopo invio <b style="color:#30D158">${g-q}</b> · costo lotti trasferito invariato (costo-neutro)`;
+}
+function _generaManifesto(){
+  const w=wines.find(x=>x.id===_spedForm.wineId);
+  if(!w){ notify("⚠️ Seleziona un vino","err"); return; }
+  const qty=parseInt(_spedForm.qty)||0;
+  const g=parseInt(w.giacenza)||0;
+  if(qty<=0){ notify("⚠️ Quantità non valida","err"); return; }
+  if(qty>g){ notify(`⚠️ Giacenza insufficiente (${g} disponibili)`,"err"); return; }
+  // FIFO consume con snapshot lotti (costo originale)
+  let rem=qty; const snapLots=[];
+  const updLots=(w.lots||[]).map(l=>{
+    if(rem<=0||(parseInt(l.qtyRimanente)||0)<=0) return l;
+    const c=Math.min(rem,parseInt(l.qtyRimanente)||0); rem-=c;
+    snapLots.push({prezzoAcq:parseFloat(l.prezzoAcq)||0,iva:parseInt(l.iva)||parseInt(w.iva)||22,qty:c,data:l.data||"",fattura:l.fattura||"",fornitore:l.fornitore||""});
+    return {...l,qtyRimanente:(parseInt(l.qtyRimanente)||0)-c};
+  });
+  if(rem>0){ // vino legacy senza lotti sufficienti: snapshot al costo scheda
+    snapLots.push({prezzoAcq:parseFloat(w.prezzoAcq)||0,iva:parseInt(w.iva)||22,qty:rem,data:today(),fattura:"",fornitore:""}); rem=0;
+  }
+  const transferId=uid();
+  const dest=(_spedForm.dest||"").trim();
+  const note=(_spedForm.note||"").trim();
+  wines=wines.map(x=> x.id!==w.id ? x : {...x,giacenza:Math.max(0,g-qty),lots:updLots});
+  movements=[{id:uid(),wineId:w.id,wineName:w.nome,produttore:w.produttore,nazione:w.nazione||"",tipo:"trasferimento-uscita",qty,data:today(),fattura:"",fornitore:"",note:(dest?"→ "+dest:"")+(note?" · "+note:""),ts:Date.now(),transferId,dest}, ...movements];
+  scheduleSave(); clearTimeout(saveTimer); _flushSave();
+  const manifest={
+    v:TRANSFER_MANIFEST_V, type:"cantina-transfer", transferId,
+    from:NOME_LOCALE, fromDbUser:DB_USER, dest, data:today(), note,
+    lines:[{nome:w.nome,produttore:w.produttore||"",annata:w.annata||"",vitigni:w.vitigni||"",tipologia:w.tipologia||"Rosso",regione:w.regione||"",nazione:w.nazione||"Italia",zona:w.zona||"",iva:parseInt(w.iva)||22,prezzoCarta:parseFloat(w.prezzoCarta)||0,qty,lots:snapLots}]
+  };
+  const json=JSON.stringify(manifest,null,2);
+  const b64=_b64EncodeUtf8(json);
+  document.getElementById("sped-backdrop")?.remove();
+  _showManifestoModal(b64,json,transferId,w,qty,dest);
+  notify(`📤 Trasferimento in uscita registrato (${qty}bt)`);
+}
+function _showManifestoModal(b64,json,transferId,w,qty,dest){
+  const bd=document.createElement("div");
+  bd.className="modal-backdrop"; bd.id="man-backdrop";
+  bd.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);z-index:41;display:flex;align-items:center;justify-content:center;padding:16px";
+  const fname=`trasferimento_${(NOME_LOCALE||"cantina").replace(/[^a-z0-9]+/gi,"-").toLowerCase()}_${transferId.slice(0,8)}.json`;
+  bd.innerHTML=`
+    <div class="modal" style="max-width:520px" onclick="event.stopPropagation()">
+      <div class="modal-header"><h2>✅ Manifesto pronto</h2>
+        <button style="font-size:18px;color:var(--txt3)" onclick="document.getElementById('man-backdrop').remove()">✕</button></div>
+      <div class="modal-body">
+        <div style="font-size:12px;color:var(--txt2);margin-bottom:10px">${qty}bt · ${h(w.nome)}${w.annata?" "+h(w.annata):""} → <b>${h(dest||"destinazione")}</b>. Consegna questo codice al locale ricevente (incolla in <b>Ricevi</b>) o scarica il file.</div>
+        <textarea id="man-b64" readonly class="form-input" style="width:100%;height:120px;font-family:monospace;font-size:10px;resize:vertical" onclick="this.select()">${b64}</textarea>
+        <div style="font-size:10px;color:var(--txt4);margin-top:6px">transferId: ${transferId}</div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-outline" onclick="navigator.clipboard.writeText(document.getElementById('man-b64').value).then(()=>notify('📋 Codice copiato'))">📋 Copia codice</button>
+        <button class="btn-primary" onclick="_downloadManifesto(${JSON.stringify(fname)})">💾 Scarica .json</button>
+      </div>
+    </div>`;
+  bd._json=json;
+  bd.addEventListener("click",e=>{ if(e.target===bd) bd.remove(); });
+  document.body.appendChild(bd);
+}
+function _downloadManifesto(fname){
+  const bd=document.getElementById("man-backdrop"); if(!bd) return;
+  const blob=new Blob([bd._json],{type:"application/json"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a"); a.href=url; a.download=fname; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),2000);
+}
+
+// ── RICEVI (import) ──────────────────────────────────────────────────────────
+function openRiceviModal(){
+  const bd=document.createElement("div");
+  bd.className="modal-backdrop"; bd.id="ricev-backdrop";
+  bd.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);z-index:40;display:flex;align-items:center;justify-content:center;padding:16px";
+  bd.innerHTML=`
+    <div class="modal" style="max-width:520px" onclick="event.stopPropagation()">
+      <div class="modal-header"><h2>📥 Ricevi trasferimento</h2>
+        <button style="font-size:18px;color:var(--txt3)" onclick="document.getElementById('ricev-backdrop').remove()">✕</button></div>
+      <div class="modal-body">
+        <div class="form-row"><label class="form-label">Incolla il codice manifesto</label>
+          <textarea id="ricev-b64" class="form-input" style="width:100%;height:110px;font-family:monospace;font-size:10px;resize:vertical" placeholder="Incolla qui il codice base64…" oninput="_ricevPreview()"></textarea></div>
+        <div style="text-align:center;font-size:10px;color:var(--txt4);margin:8px 0">— oppure —</div>
+        <label class="btn-outline btn-sm" style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;padding:6px 12px">
+          📁 Carica file .json <input type="file" accept=".json" onchange="_ricevFile(event)" style="display:none"></label>
+        <div id="ricev-preview" style="margin-top:14px;font-size:12px;color:var(--txt2)"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-outline" onclick="document.getElementById('ricev-backdrop').remove()">Annulla</button>
+        <button class="btn-primary" id="ricev-confirm" onclick="_confermaRicevi()" disabled style="opacity:.4;pointer-events:none">📥 Importa</button>
+      </div>
+    </div>`;
+  bd.addEventListener("click",e=>{ if(e.target===bd) bd.remove(); });
+  document.body.appendChild(bd);
+}
+function _parseManifesto(raw){
+  raw=(raw||"").trim(); if(!raw) return null;
+  let obj=null;
+  try{ obj=JSON.parse(raw); }catch{
+    try{ obj=JSON.parse(_b64DecodeUtf8(raw.replace(/\s+/g,""))); }catch{ return null; }
+  }
+  if(!obj||obj.type!=="cantina-transfer"||!Array.isArray(obj.lines)) return null;
+  return obj;
+}
+function _ricevFile(ev){
+  const f=ev.target.files&&ev.target.files[0]; if(!f) return;
+  const r=new FileReader();
+  r.onload=()=>{ const ta=document.getElementById("ricev-b64"); if(ta){ ta.value=(r.result||"").toString(); _ricevPreview(); } };
+  r.readAsText(f);
+}
+function _ricevPreview(){
+  const raw=document.getElementById("ricev-b64")?.value||"";
+  const el=document.getElementById("ricev-preview");
+  const btn=document.getElementById("ricev-confirm");
+  const man=_parseManifesto(raw);
+  const enable=b=>{ if(!btn)return; btn.disabled=!b; btn.style.opacity=b?"1":".4"; btn.style.pointerEvents=b?"auto":"none"; };
+  if(!man){ if(el) el.innerHTML=raw?`<span style="color:#FF453A">Manifesto non valido o illeggibile</span>`:""; enable(false); return; }
+  const dup=movements.some(m=>m.tipo==="trasferimento-entrata"&&m.transferId===man.transferId);
+  const tot=man.lines.reduce((s,l)=>s+(parseInt(l.qty)||0),0);
+  const rows=man.lines.map(l=>`<div style="padding:4px 0;border-bottom:1px solid var(--border)">${parseInt(l.qty)||0}bt · <b>${h(l.nome)}</b>${l.annata?" "+h(l.annata):""} — ${h(l.produttore||"")}</div>`).join("");
+  if(el) el.innerHTML=`
+    <div style="margin-bottom:8px">Da <b>${h(man.from||"?")}</b> · ${h(man.data||"")} · ${tot}bt${man.note?" · "+h(man.note):""}</div>
+    ${rows}
+    ${dup?`<div style="margin-top:10px;color:#fb923c">⚠️ Trasferimento già ricevuto (transferId ${man.transferId.slice(0,8)}) — reimportazione bloccata</div>`:""}`;
+  enable(!dup);
+}
+function _confermaRicevi(){
+  const raw=document.getElementById("ricev-b64")?.value||"";
+  const man=_parseManifesto(raw);
+  if(!man){ notify("⚠️ Manifesto non valido","err"); return; }
+  if(movements.some(m=>m.tipo==="trasferimento-entrata"&&m.transferId===man.transferId)){
+    notify("⚠️ Trasferimento già ricevuto","err"); return;
+  }
+  let created=0, updated=0, totBt=0;
+  const newMovs=[];
+  man.lines.forEach(line=>{
+    const qtyLine=parseInt(line.qty)||0; if(qtyLine<=0) return;
+    const recLots=(Array.isArray(line.lots)&&line.lots.length?line.lots:[{prezzoAcq:0,iva:line.iva||22,qty:qtyLine}])
+      .map(s=>({id:uid(),data:s.data||today(),fattura:s.fattura||"",fornitore:s.fornitore||"",prezzoAcq:parseFloat(s.prezzoAcq)||0,iva:parseInt(s.iva)||parseInt(line.iva)||22,qtyCaricata:parseInt(s.qty)||0,qtyRimanente:parseInt(s.qty)||0}));
+    const key=_transferMatchKey(line);
+    const idx=wines.findIndex(w=>_transferMatchKey(w)===key);
+    if(idx>=0){
+      const w=wines[idx];
+      wines=wines.map((x,i)=> i!==idx ? x : {...x,giacenza:(parseInt(x.giacenza)||0)+qtyLine,lots:[...(x.lots||[]),...recLots]});
+      updated++;
+      newMovs.push({id:uid(),wineId:w.id,wineName:w.nome,produttore:w.produttore,nazione:w.nazione||"",tipo:"trasferimento-entrata",qty:qtyLine,data:today(),fattura:"",fornitore:"",note:"da "+(man.from||"?"),ts:Date.now(),transferId:man.transferId});
+    } else {
+      const nz=inferPaese(line.nazione,line.regione,line.zona)||line.nazione||"Italia";
+      const nw={id:uid(),nome:line.nome,produttore:line.produttore||"",distributore:"",annata:line.annata||"",vitigni:_normVitigni(line.vitigni||""),tipologia:line.tipologia||"Rosso",regione:line.regione||"",nazione:nz,zona:line.zona||"",prezzoAcq:parseFloat(recLots[0]?.prezzoAcq)||0,iva:parseInt(line.iva)||22,prezzoCarta:parseFloat(line.prezzoCarta)||0,sku:_nextSku(),giacenza:qtyLine,lots:recLots};
+      wines=[...wines,nw];
+      created++;
+      newMovs.push({id:uid(),wineId:nw.id,wineName:nw.nome,produttore:nw.produttore,nazione:nw.nazione||"",tipo:"trasferimento-entrata",qty:qtyLine,data:today(),fattura:"",fornitore:"",note:"da "+(man.from||"?"),ts:Date.now(),transferId:man.transferId});
+    }
+    totBt+=qtyLine;
+  });
+  if(totBt===0){ notify("⚠️ Nessuna riga valida nel manifesto","err"); return; }
+  movements=[...newMovs,...movements];
+  scheduleSave(); clearTimeout(saveTimer); _flushSave();
+  document.getElementById("ricev-backdrop")?.remove();
+  notify(`📥 Ricevuti ${totBt}bt · ${updated} referenze aggiornate, ${created} nuove`);
+  if(section==="inventario") renderInventarioOnly(); else render();
+}
+
+function _transferCardHtml(){
+  const inCnt=movements.filter(m=>m.tipo==="trasferimento-entrata").length;
+  const outCnt=movements.filter(m=>m.tipo==="trasferimento-uscita").length;
+  return `<div class="card" style="margin-bottom:20px;border-color:rgba(90,200,250,.35)">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">
+      <div>
+        <div style="font-size:10px;letter-spacing:.25em;text-transform:uppercase;color:#5AC8FA;margin-bottom:4px">🔄 Trasferimenti tra locali</div>
+        <div style="font-size:12px;color:var(--txt3)">Costo-neutro · isolamento totale · manifesto copia-incolla o .json${(inCnt||outCnt)?` · <span style="color:var(--txt2)">${outCnt} inviati / ${inCnt} ricevuti</span>`:""}</div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn-outline btn-sm" style="border-color:rgba(90,200,250,.5);color:#5AC8FA" onclick="openSpedisciModal()">📤 Spedisci</button>
+        <button class="btn-primary btn-sm" onclick="openRiceviModal()">📥 Ricevi</button>
+      </div>
+    </div>
+  </div>`;
+}
