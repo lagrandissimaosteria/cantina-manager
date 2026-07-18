@@ -3723,16 +3723,7 @@ function renderOrdini(){
 
   // Active orders (not fully loaded) — include bozze remote da ordini_testata
   const _bozzeLocali=_bozzeSb.filter(b=>!orders.some(o=>o._sbTestataId===b.id));
-  const ordiniAttivi=[..._bozzeLocali.map(b=>({
-    id:b.id, _sbTestataId:b.id, fornitore:b.distributore,
-    dataOrdine:b.data_ordine||today(), note:b.note||'',
-    stato:'attesa', referenze:(b.righe||[]).map(r=>({
-      id:r.id, wineId:r.wine_id, nomeVino:r.nome_vino||'', produttore:r.produttore||'',
-      annata:r.annata||'', tipologia:'', prezzoAcq:r.prezzo_acq||0,
-      iva:r.iva||22, qty:r.qty_ordinata||1, formato:r.formato||0.75,
-      regione:'', zona:'', nazione:'', prezzoCarta:''
-    })), _isBozzaSb:true
-  })),...orders.filter(o=>o.stato!=="caricato")];
+  const ordiniAttivi=[..._bozzeLocali.map(_ordineFromBozzaSb).filter(Boolean),...orders.filter(o=>o.stato!=="caricato")];
   const ordiniAttesa=ordiniAttivi.filter(o=>o.stato==="attesa");
 
   const ordiniRows=ordiniAttivi.length ? ordiniAttivi.map(o=>{
@@ -3761,7 +3752,7 @@ function renderOrdini(){
       <td style="color:var(--txt3);font-size:10px">${ref.length} ref.</td>
       <td style="color:var(--amber)">${totQty} bt</td>
       <td style="color:var(--txt2)">${valCell}</td>
-      <td><input type="date" class="form-input" style="font-size:10px;padding:3px 6px;width:130px;background:${o.dataArrivo?'rgba(48,209,88,.06)':'rgba(255,159,10,.06)'};border-color:${o.dataArrivo?'rgba(48,209,88,.25)':'rgba(255,159,10,.2)'}" value="${o.dataArrivo||''}" placeholder="—" title="Data arrivo prevista" onchange="orders.find(x=>x.id==='${o.id}').dataArrivo=this.value;scheduleSave();notify('📅 Data arrivo aggiornata')"></td>
+      <td><input type="date" class="form-input" style="font-size:10px;padding:3px 6px;width:130px;background:${o.dataArrivo?'rgba(48,209,88,.06)':'rgba(255,159,10,.06)'};border-color:${o.dataArrivo?'rgba(48,209,88,.25)':'rgba(255,159,10,.2)'}" value="${o.dataArrivo||''}" placeholder="—" title="Data arrivo prevista" onchange="_setDataArrivo('${o.id}',this.value)"></td>
       <td><div style="display:flex;flex-direction:column;gap:4px">${statoCell}${invBadge}</div></td>
       <td style="display:flex;gap:6px;align-items:center;padding:6px 14px">
         <button class="btn-outline btn-sm" onclick="apriModalRicezione('${o.id}')" title="Conferma arrivo" style="border-color:rgba(22,163,74,.4);color:#30D158">📦 Ricevi</button>
@@ -4004,12 +3995,7 @@ function duplicaOrdine(id){
   const allFornitori=[...new Set([...wines.map(w=>w.distributore),...orders.map(o=>o.fornitore)].filter(Boolean))].sort();
   const allProduttori=[...new Set([...wines.map(w=>w.produttore),...orders.flatMap(o=>(o.referenze||[]).map(r=>r.produttore))].filter(Boolean))].sort();
   const allNomi=[...new Set(wines.map(w=>w.nome).filter(Boolean))].sort();
-  const srcRefs = src.referenze || (src.righe||[]).map(r=>({
-    wineId:r.wine_id, nomeVino:r.nome_vino||"", produttore:r.produttore||"", annata:r.annata||"",
-    tipologia:r.tipologia||"Rosso", prezzoAcq:r.prezzo_acq||0, iva:r.iva||22, qty:r.qty_ordinata||1,
-    formato:r.formato||0.75, regione:r.regione||"", zona:r.zona||"", nazione:r.nazione||"Italia",
-    prezzoCarta:r.prezzo_carta||"", vitigni:r.vitigni||""
-  }));
+  const srcRefs = src.referenze || (src.righe||[]).map(_refFromRigaSb);
   ordineModalData={
     id:null,
     dataOrdine:today(),
@@ -4344,29 +4330,60 @@ function _refFromRigaSb(r){
   };
 }
 
+// UNICA fonte di verità per convertire una bozza Supabase in oggetto ordine.
+// Tutti i consumer (render, modale, ricezione, stampa, email, duplica) devono
+// passare da qui: mapping parziali duplicati erano la causa dei dati mancanti.
+function _ordineFromBozzaSb(b){
+  if(!b) return null;
+  const o = {
+    id: b.id,
+    _sbTestataId: b.id,
+    _isBozzaSb: true,
+    fornitore: b.distributore || '',
+    dataOrdine: b.data_ordine || today(),
+    note: b.note || '',
+    sconto: parseFloat(b.sconto) || 0,
+    dataArrivo: b.data_arrivo || '',
+    stato: 'attesa',
+    referenze: (b.righe || []).map(_refFromRigaSb)
+  };
+  _riparaReferenzeOrdini([o]);
+  return o;
+}
+
+// Risolve un id in un ordine completo: prima gli ordini locali, poi le bozze SB.
+function _resolveOrdine(id){
+  if(!id) return null;
+  const local = (typeof orders!=="undefined" ? orders : []).find(o=>o.id===id);
+  if(local){ _riparaReferenzeOrdini([local]); return local; }
+  return _ordineFromBozzaSb((typeof _bozzeSb!=="undefined" ? _bozzeSb : []).find(b=>b.id===id));
+}
+
+// Promuove una bozza SB in ordine locale (idempotente): necessario per i flussi
+// che mutano l'ordine (ricezione, data arrivo, stato invio).
+function _promuoviBozzaSb(id){
+  const esistente = orders.find(o=>o.id===id);
+  if(esistente) return esistente;
+  const b = _bozzeSb.find(x=>x.id===id);
+  if(!b) return null;
+  const o = _ordineFromBozzaSb(b);
+  orders.push(o);
+  _bozzeSb = _bozzeSb.filter(x=>x.id!==id);
+  scheduleSave();
+  // Allineamento con salvaOrdine: la testata remota va rimossa, altrimenti
+  // resta orfana in stato 'bozza' e riappare su altri dispositivi.
+  if(_sb) _sb.from('ordini_testata').delete().eq('id',id)
+            .then(()=>{}, e=>console.warn('delete bozza promossa fallita:',e));
+  return o;
+}
+
 function apriOrdineModal(idOrNull){
   const allFornitori=[...new Set([...wines.map(w=>w.distributore),...orders.map(o=>o.fornitore)].filter(Boolean))].sort();
   const allProduttori=[...new Set([...wines.map(w=>w.produttore),...orders.flatMap(o=>(o.referenze||[]).map(r=>r.produttore))].filter(Boolean))].sort();
   const allNomi=[...new Set(wines.map(w=>w.nome).filter(Boolean))].sort();
 
   // Cerca prima in orders locali, poi nelle bozze Supabase (_bozzeSb)
-  let ordine = idOrNull ? orders.find(o=>o.id===idOrNull) : null;
-  if (!ordine && idOrNull) {
-    const bozza = _bozzeSb.find(b=>b.id===idOrNull);
-    if (bozza) {
-      ordine = {
-        id: bozza.id,
-        _sbTestataId: bozza.id,
-        _isBozzaSb: true,
-        fornitore: bozza.distributore || '',
-        dataOrdine: bozza.data_ordine || today(),
-        note: bozza.note || '',
-        stato: 'attesa',
-        referenze: (bozza.righe || []).map(_refFromRigaSb)
-      };
-    }
-  }
-  if(ordine) _riparaReferenzeOrdini([ordine]);
+  const ordine = idOrNull ? _resolveOrdine(idOrNull) : null;
   ordineModalData={
     id: ordine?.id||null,
     dataOrdine: ordine?.dataOrdine||today(),
@@ -4741,8 +4758,11 @@ function chiudiOrdineModal(e){
 
 // ── MODAL RICEZIONE SINGOLO ORDINE ───────────────────────────────────────────
 function apriModalRicezione(ordineId){
-  const ordine=orders.find(o=>o.id===ordineId);
+  // Le bozze create da inventario vivono in _bozzeSb: vanno promosse a ordine
+  // locale prima della ricezione, altrimenti il carico non è tracciabile.
+  const ordine=orders.find(o=>o.id===ordineId)||_promuoviBozzaSb(ordineId);
   if(!ordine){notify("Ordine non trovato","err");return;}
+  _riparaReferenzeOrdini([ordine]);
   const allFornitori=[...new Set([...wines.map(w=>w.distributore),...orders.map(o=>o.fornitore)].filter(Boolean))].sort();
   const allProduttori=[...new Set([...wines.map(w=>w.produttore),...orders.flatMap(o=>(o.referenze||[]).map(r=>r.produttore))].filter(Boolean))].sort();
   const allNomi=[...new Set(wines.map(w=>w.nome).filter(Boolean))].sort();
@@ -5082,6 +5102,12 @@ function confermaRicezioneGlobale(){
   render();
 }
 
+function _setDataArrivo(id,val){
+  const o=orders.find(x=>x.id===id)||_promuoviBozzaSb(id);
+  if(!o){ notify("Ordine non trovato","err"); return; }
+  o.dataArrivo=val; scheduleSave(); notify('📅 Data arrivo aggiornata');
+}
+
 function toggleOrdineArrivato(id,checked){
   const row=document.getElementById("ord-row-"+id);
   if(row) row.classList.toggle("lot-active",checked);
@@ -5119,19 +5145,7 @@ function _getOrdineById(id){
     };
     return null;
   }
-  const found = orders.find(o => o.id === id);
-  if(found){ _riparaReferenzeOrdini([found]); return found; }
-  // Fallback: bozza remota non ancora promossa (usata da stampa/email senza aprire prima la modale)
-  const bozza = _bozzeSb.find(b => b.id === id);
-  if(bozza) return {
-    id: bozza.id,
-    fornitore: bozza.distributore || '—',
-    dataOrdine: bozza.data_ordine || today(),
-    note: bozza.note || '',
-    stato: 'attesa',
-    referenze: (bozza.righe||[]).map(_refFromRigaSb)
-  };
-  return null;
+  return _resolveOrdine(id);
 }
 
 // ─── DATI LOCALE + EMAIL FORNITORI ───────────────────────────────────────────
@@ -5302,12 +5316,37 @@ function stampaOrdine(id) {
     <span>${NOME_LOCALE} — Ordine del ${h(o.dataOrdine)}</span>
     <span>Fornitore: ${h(o.fornitore||'—')}</span>
   </div>
-  <script>window.onload=function(){window.print();}<\/script>
   </body></html>`;
 
-  const win = window.open('','_blank','width=1000,height=750');
-  if(win){ win.document.write(html); win.document.close(); }
-  else notify("⚠️ Pop-up bloccato — abilita i pop-up per questo sito","err");
+  _printHtml(html);
+}
+
+// Stampa via iframe nascosto: immune al blocco pop-up (Safari/iOS bloccano
+// window.open+document.write) e non richiede permessi aggiuntivi.
+function _printHtml(html){
+  try{ document.getElementById('cm-print-frame')?.remove(); }catch(e){}
+  const f=document.createElement('iframe');
+  f.id='cm-print-frame';
+  f.setAttribute('aria-hidden','true');
+  f.style.cssText='position:fixed;right:0;bottom:0;width:1px;height:1px;opacity:0;border:0;pointer-events:none';
+  f.onload=()=>{
+    let done=false;
+    const cleanup=()=>{ if(done) return; done=true; setTimeout(()=>{ try{f.remove();}catch(e){} },500); };
+    try{
+      const cw=f.contentWindow;
+      cw.onafterprint=cleanup;
+      cw.focus();
+      cw.print();
+      setTimeout(cleanup,60000);
+    }catch(err){
+      console.error('print error',err);
+      notify("⚠️ Stampa non disponibile: usa Condividi → Stampa","err");
+      cleanup();
+    }
+  };
+  document.body.appendChild(f);
+  if('srcdoc' in f) f.srcdoc=html;
+  else { const d=f.contentWindow.document; d.open(); d.write(html); d.close(); }
 }
 
 async function emailOrdine(id) {
@@ -5372,17 +5411,45 @@ async function emailOrdine(id) {
     loc.telefono?"Tel: "+loc.telefono:""
   ].filter(Boolean).join("\n");
   const consegnaBlock=loc.noteConsegna?"\n\n──────────────────────────────────\nINDICAZIONI CONSEGNA:\n"+loc.noteConsegna:"";
-  const fullBody=encodeURIComponent(decodeURIComponent(body)+consegnaBlock+"\n\n──────────────────────────────────\n"+mittente);
-  // mailto DEVE partire nello stesso gesto utente del click: dopo un await
-  // il browser considera perso il gesto e blocca l'apertura del client mail.
-  const _mailto=`mailto:${encodeURIComponent(fornEmail)}?subject=${subject}&body=${fullBody}`;
+  const testoCompleto = decodeURIComponent(body)+consegnaBlock+"\n\n──────────────────────────────────\n"+mittente;
+
+  // Versione compatta usata se il mailto completo supera il limite del browser
+  // (oltre ~2000 caratteri Chrome/Safari ignorano la navigazione senza errori:
+  //  era questa la causa del bottone "che non fa niente").
+  const righeCompatte = ref.map(r=>`• ${r.qty||0}× ${r.produttore||''} ${r.nomeVino||''}${r.annata?' '+r.annata:''}`.replace(/\s+/g,' ').trim()).join('\n');
+  const testoCompatto =
+    `Gentili ${o.fornitore||'Fornitori'},\n\nordine del ${o.dataOrdine} — ${NOME_LOCALE}\n\n`+
+    righeCompatte+
+    `\n\n${ref.length} referenze · ${totQty} bottiglie · totale € ${(hasDiscount?totNetto:totLordo).toFixed(2)}`+
+    (o.note?`\nNote: ${o.note}`:'')+
+    `\n\nCordiali saluti,\n${loc.nome||NOME_LOCALE}`;
+
+  const MAX_URL = 1900;
+  const build = t => `mailto:${encodeURIComponent(fornEmail)}?subject=${subject}&body=${encodeURIComponent(t)}`;
+  let _mailto = build(testoCompleto);
+  let troncato = false;
+  if(_mailto.length > MAX_URL){
+    _mailto = build(testoCompatto);
+    troncato = true;
+    if(_mailto.length > MAX_URL){
+      _mailto = build(`Gentili ${o.fornitore||'Fornitori'},\n\nin allegato l'ordine del ${o.dataOrdine} (${ref.length} referenze, ${totQty} bottiglie).\nIl dettaglio è negli appunti: incollatelo qui sotto.\n\n${loc.nome||NOME_LOCALE}`);
+    }
+  }
+
+  // La copia negli appunti DEVE avvenire nello stesso gesto utente del click
+  // (prima di qualsiasi await), altrimenti il browser nega il permesso.
+  if(troncato){
+    try{ navigator.clipboard?.writeText(testoCompleto); }catch(e){}
+  }
+
+  // Apertura client mail nel gesto utente.
   const _a=document.createElement('a'); _a.href=_mailto; _a.rel='noopener'; _a.style.display='none';
   document.body.appendChild(_a); _a.click(); setTimeout(()=>{ try{_a.remove();}catch(e){} },0);
-  const _oe = orders.find(x => x.id === id);
+
+  if(troncato) notify("Ordine lungo: inviata versione sintetica · dettaglio completo negli appunti","err");
+
+  const _oe = orders.find(x => x.id === id) || _promuoviBozzaSb(id);
   if(_oe){ _oe.inviatoVia = _oe.inviatoVia === 'whatsapp' ? 'entrambi' : 'email'; _oe.dataInvio = _oe.dataInvio || today(); scheduleSave(); render(); }
-  // URL mailto troppo lungo (limite dei client/browser): il testo completo
-  // finisce negli appunti così l'ordine non viene mai troncato in silenzio.
-  if(_mailto.length>1800){ try{ await navigator.clipboard.writeText(decodeURIComponent(fullBody)); notify("Ordine lungo: testo completo copiato negli appunti","err"); }catch(e){} }
   if(_sb && saveTimer){ clearTimeout(saveTimer); await _flushSave(); }
 }
 
@@ -5426,12 +5493,12 @@ function whatsappOrdine(id) {
   if(!tel){
     notify("⚠️ Nessun telefono per questo fornitore — aggiungi il numero in Impostazioni → Rubrica Fornitori","err");
     window.open(`https://web.whatsapp.com/send?text=${encodeURIComponent(testo)}`,'_blank');
-    const _owb = orders.find(x => x.id === id);
+    const _owb = orders.find(x => x.id === id) || _promuoviBozzaSb(id);
     if(_owb){ _owb.inviatoVia = _owb.inviatoVia === 'email' ? 'entrambi' : 'whatsapp'; _owb.dataInvio = _owb.dataInvio || today(); scheduleSave(); render(); }
     return;
   }
   window.open(url, '_blank');
-  const _ow = orders.find(x => x.id === id);
+  const _ow = orders.find(x => x.id === id) || _promuoviBozzaSb(id);
   if(_ow){ _ow.inviatoVia = _ow.inviatoVia === 'email' ? 'entrambi' : 'whatsapp'; _ow.dataInvio = _ow.dataInvio || today(); scheduleSave(); render(); }
 }
 
@@ -8411,7 +8478,7 @@ async function _loadBozzeSb() {
   try {
     const { data: testate, error } = await _sb
       .from('ordini_testata')
-      .select('id, distributore, stato, data_ordine, note')
+      .select('*')
       .eq('user_id', DB_USER)
       .eq('stato', 'bozza');
     if (error || !testate || !testate.length) { _bozzeSb = []; return; }
@@ -8512,8 +8579,9 @@ async function creaBasiOrdineDatiSelezionati() {
         const presentiSet = new Set((giaPres || []).map(r => r.wine_id));
 
         const wNuovi = wList.filter(w => !presentiSet.has(w.id));
-        // Campi base (colonne sicuramente presenti in ordini_righe)
-        const _rigaBase = w => ({
+        // Schema ordini_righe allineato (migrazione ordini_colonne_estese):
+        // tutti i campi sono persistiti, non più ricostruiti dall'anagrafica.
+        const _riga = w => ({
           testata_id:  testataId,
           wine_id:     w.id,
           nome_vino:   w.nome || '',
@@ -8524,28 +8592,29 @@ async function creaBasiOrdineDatiSelezionati() {
           prezzo_acq:  parseFloat(w.prezzoAcq) || null,
           iva:         parseInt(w.iva) || 22,
           qty_ordinata: _qtyDaOrdinare(w),
-          note_riga:   ''
-        });
-        // Campi estesi: salvati solo se le colonne esistono (fallback automatico)
-        const _rigaExtra = w => ({
-          tipologia: w.tipologia || '',
-          vitigni:   w.vitigni || '',
-          regione:   w.regione || '',
-          zona:      w.zona || '',
-          nazione:   w.nazione || (()=>{ try{ return inferPaese("", w.regione, w.zona)||''; }catch(e){ return ''; } })(),
-          prezzo_carta: parseFloat(w.prezzoCarta) || null
+          note_riga:   '',
+          tipologia:   w.tipologia || '',
+          vitigni:     w.vitigni || '',
+          regione:     w.regione || '',
+          zona:        w.zona || '',
+          nazione:     w.nazione || (()=>{ try{ return inferPaese("", w.regione, w.zona)||''; }catch(e){ return ''; } })(),
+          prezzo_carta: parseFloat(w.prezzoCarta) || null,
+          sconto_ref:  0
         });
 
         if (wNuovi.length) {
-          let errR = (await _sb.from('ordini_righe')
-                        .insert(wNuovi.map(w => ({ ..._rigaBase(w), ..._rigaExtra(w) })))).error;
-          if (errR) {
-            // Qualsiasi errore sul primo tentativo (tipicamente: colonne estese non
-            // ancora create) → ripiego sui soli campi base, che esistono di certo.
-            // I dati mancanti vengono comunque risolti da _refFromRigaSb via wine_id,
-            // quindi la creazione ordine non può fallire per questo motivo.
-            console.warn('ordini_righe: insert esteso fallito, ripiego su campi base →', errR.message || errR);
-            errR = (await _sb.from('ordini_righe').insert(wNuovi.map(_rigaBase))).error;
+          // Rete di sicurezza per schemi non allineati (es. secondo locale):
+          // si rimuove SOLO la colonna assente e si ritenta, senza perdere il resto.
+          let payload = wNuovi.map(_riga);
+          let errR = null;
+          for (let tentativo = 0; tentativo < 10; tentativo++) {
+            errR = (await _sb.from('ordini_righe').insert(payload)).error;
+            if (!errR) break;
+            const msg = String(errR.message || errR);
+            const col = (msg.match(/'([a-z_]+)' column/i) || msg.match(/column "([a-z_]+)"/i) || [])[1];
+            if (!col || !(col in payload[0])) break;
+            console.warn(`ordini_righe: colonna "${col}" assente, la escludo e ritento`);
+            payload = payload.map(p => { const q = { ...p }; delete q[col]; return q; });
           }
           if (errR) throw errR;
           totRighe += wNuovi.length;
