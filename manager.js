@@ -14,7 +14,12 @@ const TIPOLOGIE_DEFAULT = ["Rosso","Bianco","Rosato","Champagne","Metodo Classic
 let TIPOLOGIE = (()=>{ try{ const s=localStorage.getItem("cm_tipologie"); return s?JSON.parse(s):[...TIPOLOGIE_DEFAULT]; }catch{ return [...TIPOLOGIE_DEFAULT]; } })();
 function _saveTipologie(){try{localStorage.setItem("cm_tipologie",JSON.stringify(TIPOLOGIE));}catch{}}
 function _tipoOptsHtml(selected){
-  return TIPOLOGIE.map(t=>`<option value="${h(t)}"${t===selected?" selected":""}>${h(t)}</option>`).join("")
+  // Se la tipologia è vuota o non in elenco NON si ripiega sulla prima voce
+  // ("Rosso"): si mostra il valore reale, o un segnaposto vuoto.
+  const sel = (selected==null ? "" : String(selected));
+  const fuoriElenco = !TIPOLOGIE.some(t=>t===sel);
+  return (fuoriElenco ? `<option value="${h(sel)}" selected>${sel?h(sel):"—"}</option>` : "")
+    + TIPOLOGIE.map(t=>`<option value="${h(t)}"${t===sel?" selected":""}>${h(t)}</option>`).join("")
     + `<option value="__new__">+ Nuova tipologia…</option>`;
 }
 function _addTipologiaInline(sel, onNewTipo){
@@ -595,6 +600,7 @@ function _loadLocalBackup(){
   try{orders=JSON.parse(localStorage.getItem("cm_orders")||"[]")}catch{orders=[]}
   _migrateOrders();
   _migrateWines();
+  _riparaReferenzeOrdini();
 }
 function _migrateOrders(){
   orders=orders.map(o=>{
@@ -925,6 +931,7 @@ async function loadData(){
     fallate     = f ?? [];
     alertSoglie = s ?? {};
     orders      = o ?? [];
+    _riparaReferenzeOrdini();
     _localVersion = ver ?? 0;
 
     // MOVIMENTI dal ledger append-only cm_movements_ledger.
@@ -4267,6 +4274,76 @@ function salvaOrdineEvaso(){
 
 
 // ── MODAL NUOVO/MODIFICA ORDINE ──────────────────────────────────────────────
+// ─── BOZZE SUPABASE: riga DB → referenza ordine (mapper unico) ───────────────
+// ordini_righe salva solo i campi base. Tipologia/vitigni/regione/zona/nazione/
+// prezzo carta si recuperano dall'anagrafica vino via wine_id (fonte di verità).
+// Se le colonne estese esistono a DB, hanno precedenza. Nessun default inventato
+// (niente "Rosso"/"Italia" a caso): campo vuoto resta vuoto.
+// ─── RIPARAZIONE REFERENZE ORDINI ────────────────────────────────────────────
+// Gli ordini creati prima della correzione hanno referenze incomplete o con
+// default errati ("Rosso"/"Italia" scritti a prescindere dal vino reale).
+// Qui i campi vengono riallineati all'anagrafica tramite wineId: si riempiono i
+// campi vuoti e si corregge il default sbagliato SOLO quando contraddice
+// l'anagrafica. Un valore inserito a mano dall'utente non viene mai toccato.
+function _riparaReferenzeOrdini(list){
+  const src = list || (typeof orders!=="undefined" ? orders : []) || [];
+  const anag = (typeof wines!=="undefined" ? wines : []) || [];
+  let fix = 0;
+  src.forEach(o=>{
+    (o && o.referenze || []).forEach(r=>{
+      const w = anag.find(x=>x && x.id===r.wineId);
+      if(!w) return;
+      const set=(campo, valW, bogus)=>{
+        if(valW===undefined || valW===null || valW==="") return;
+        const cur=r[campo];
+        const vuoto = (cur===undefined || cur===null || cur==="");
+        const daDefaultErrato = (bogus!==undefined && cur===bogus && valW!==bogus);
+        if(vuoto || daDefaultErrato){ r[campo]=valW; fix++; }
+      };
+      set("nomeVino",   w.nome);
+      set("produttore", w.produttore);
+      set("annata",     w.annata);
+      set("vitigni",    w.vitigni);
+      set("tipologia",  w.tipologia, "Rosso");
+      set("regione",    w.regione);
+      set("zona",       w.zona);
+      set("nazione",    w.nazione, "Italia");
+      set("prezzoCarta",w.prezzoCarta);
+      set("formato",    w.formato);
+    });
+  });
+  if(fix) console.info("[ordini] "+fix+" campi referenza riallineati all'anagrafica");
+  return fix;
+}
+
+function _refFromRigaSb(r){
+  r = r || {};
+  const w = (typeof wines!=="undefined" ? (wines||[]) : []).find(x=>x && x.id===r.wine_id) || {};
+  const pick=(a,b)=>{ let v=(a===undefined||a===null||a==="")?b:a; return (v===undefined||v===null)?"":v; };
+  const reg=pick(r.regione, w.regione), zon=pick(r.zona, w.zona);
+  let naz=pick(r.nazione, w.nazione);
+  if(!naz && (reg||zon)){ try{ naz=inferPaese("", reg, zon)||""; }catch(e){ naz=""; } }
+  return {
+    id: r.id, wineId: r.wine_id,
+    nomeVino:    pick(r.nome_vino, w.nome),
+    produttore:  pick(r.produttore, w.produttore),
+    annata:      pick(r.annata, w.annata),
+    tipologia:   pick(r.tipologia, w.tipologia),
+    vitigni:     pick(r.vitigni, w.vitigni),
+    prezzoAcq:   pick(r.prezzo_acq, w.prezzoAcq),
+    iva:         parseInt(pick(r.iva, w.iva))||22,
+    qty:         parseInt(r.qty_ordinata)||1,
+    formato:     pick(r.formato, w.formato),
+    regione:     reg,
+    zona:        zon,
+    nazione:     naz,
+    prezzoCarta: pick(r.prezzo_carta, w.prezzoCarta),
+    scontoRef:   pick(r.sconto_ref, ""),
+    note_riga:   r.note_riga||"",
+    note:        r.note_riga||""
+  };
+}
+
 function apriOrdineModal(idOrNull){
   const allFornitori=[...new Set([...wines.map(w=>w.distributore),...orders.map(o=>o.fornitore)].filter(Boolean))].sort();
   const allProduttori=[...new Set([...wines.map(w=>w.produttore),...orders.flatMap(o=>(o.referenze||[]).map(r=>r.produttore))].filter(Boolean))].sort();
@@ -4285,26 +4362,11 @@ function apriOrdineModal(idOrNull){
         dataOrdine: bozza.data_ordine || today(),
         note: bozza.note || '',
         stato: 'attesa',
-        referenze: (bozza.righe || []).map(r => ({
-          id: r.id,
-          wineId: r.wine_id,
-          nomeVino: r.nome_vino || '',
-          produttore: r.produttore || '',
-          annata: r.annata || '',
-          tipologia: r.tipologia || 'Rosso',
-          prezzoAcq: r.prezzo_acq || 0,
-          iva: r.iva || 22,
-          qty: r.qty_ordinata || 1,
-          formato: r.formato || 0.75,
-          regione: r.regione || '',
-          zona: r.zona || '',
-          nazione: r.nazione || 'Italia',
-          prezzoCarta: r.prezzo_carta || '',
-          note_riga: r.note_riga || ''
-        }))
+        referenze: (bozza.righe || []).map(_refFromRigaSb)
       };
     }
   }
+  if(ordine) _riparaReferenzeOrdini([ordine]);
   ordineModalData={
     id: ordine?.id||null,
     dataOrdine: ordine?.dataOrdine||today(),
@@ -4424,7 +4486,7 @@ function _refRowHtml(r,i,tipoOpts,ivaOpts,allProduttori,allNomi){
     <td style="padding:5px 6px"><select class="form-input" style="font-size:11px;min-width:72px;width:100%" onchange="_refChange('${r.id}','formato',parseFloat(this.value)||0.75);_updateRefCartaSuggerita('${r.id}')">
       ${[{v:"0.375",l:"0.375L Mezza"},{v:"0.5",l:"0.50L (50cl)"},{v:"0.75",l:"0.75L"},{v:"1.0",l:"1L Litro"},{v:"1.5",l:"1.5L Magnum"},{v:"2.0",l:"2.0L Jero."},{v:"3.0",l:"3.0L D.Mag."},{v:"4.5",l:"4.5L Réhob."},{v:"6.0",l:"6.0L Math."}].map(x=>`<option value="${x.v}" ${parseFloat(r.formato||"0.75")===parseFloat(x.v)?"selected":""}>${x.l}</option>`).join("")}
     </select></td>
-    <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;min-width:80px;width:100%" list="omd-naz-dl" autocomplete="off" value="${h(r.nazione||'Italia')}" placeholder="es. Italia" onchange="_refChangeNazione('${r.id}',this.value.trim())"></td>
+    <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;min-width:80px;width:100%" list="omd-naz-dl" autocomplete="off" value="${h(r.nazione||'')}" placeholder="es. Italia" onchange="_refChangeNazione('${r.id}',this.value.trim())"></td>
     <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;min-width:90px;width:100%" list="omd-reg-dl-${r.id}" autocomplete="off" value="${h(r.regione||'')}" placeholder="es. Piemonte" onchange="_refChange('${r.id}','regione',this.value.trim())"><datalist id="omd-reg-dl-${r.id}">${_ordRegioniPer(r.nazione||'Italia').map(v=>`<option value="${h(v)}">`).join("")}</datalist></td>
     <td style="padding:0;width:0;overflow:hidden;max-width:0"><input class="form-input" style="font-size:11px;width:0;border:none;padding:0;background:none" value="${h(r.zona||'')}" onchange="_refChange('${r.id}','zona',this.value.trim())"></td>
     <td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:11px;min-width:80px;width:100%" value="${r.prezzoAcq||''}" step="0.01" min="0" placeholder="0.00" onchange="_refChange('${r.id}','prezzoAcq',parseFloat(this.value)||0);_updateRefIvaIncl('${r.id}');_updateRefCartaSuggerita('${r.id}')" oninput="_refChange('${r.id}','prezzoAcq',parseFloat(this.value)||0);_updateRefIvaIncl('${r.id}');_updateRefCartaSuggerita('${r.id}');_updateOrdineModalTotale()"></td>
@@ -5058,7 +5120,7 @@ function _getOrdineById(id){
     return null;
   }
   const found = orders.find(o => o.id === id);
-  if(found) return found;
+  if(found){ _riparaReferenzeOrdini([found]); return found; }
   // Fallback: bozza remota non ancora promossa (usata da stampa/email senza aprire prima la modale)
   const bozza = _bozzeSb.find(b => b.id === id);
   if(bozza) return {
@@ -5067,15 +5129,7 @@ function _getOrdineById(id){
     dataOrdine: bozza.data_ordine || today(),
     note: bozza.note || '',
     stato: 'attesa',
-    referenze: (bozza.righe||[]).map(r=>({
-      id: r.id, wineId: r.wine_id,
-      nomeVino: r.nome_vino||'', produttore: r.produttore||'',
-      annata: r.annata||'', tipologia: r.tipologia||'Rosso',
-      prezzoAcq: r.prezzo_acq||0, iva: r.iva||22,
-      qty: r.qty_ordinata||1, formato: r.formato||0.75,
-      regione: r.regione||'', zona: r.zona||'', nazione: r.nazione||'Italia',
-      prezzoCarta: r.prezzo_carta||''
-    }))
+    referenze: (bozza.righe||[]).map(_refFromRigaSb)
   };
   return null;
 }
@@ -5212,7 +5266,7 @@ function stampaOrdine(id) {
         <span class="meta-label">Fornitore</span><span class="meta-val">${h(o.fornitore||'—')}</span>
         <span class="meta-label">Data ordine</span><span class="meta-val">${h(o.dataOrdine)}</span>
         <span class="meta-label">N° referenze</span><span class="meta-val">${ref.length}</span>
-        ${sconto>0?`<span class="meta-label">Sconto</span><span class="meta-val" style="color:#c0392b">${sconto}%</span>`:''}
+        ${scontoOrd>0?`<span class="meta-label">Sconto</span><span class="meta-val" style="color:#c0392b">${scontoOrd}%</span>`:''}
         ${o.note?`<span class="meta-label">Note</span><span class="meta-val">${h(o.note)}</span>`:''}
       </div>
     </div>
@@ -5235,9 +5289,9 @@ function stampaOrdine(id) {
     </tfoot>
   </table>
   <div class="total-box">
-    <div class="total-label">${sconto>0?'Totale Netto':'Totale IVA inclusa'}</div>
-    <div class="total-val">€ ${(sconto>0?totNetto:totLordo).toFixed(2)}</div>
-    ${sconto>0?`<div style="font-size:9px;color:#c0392b;margin-top:2px">Sconto ${sconto}% (− € ${importoSconto.toFixed(2)})</div>`:''}
+    <div class="total-label">${scontoOrd>0||hasAnyDiscount?'Totale Netto':'Totale IVA inclusa'}</div>
+    <div class="total-val">€ ${(hasAnyDiscount?totNetto:totLordo).toFixed(2)}</div>
+    ${hasAnyDiscount?`<div style="font-size:9px;color:#c0392b;margin-top:2px">Sconti${scontoOrd>0?` (ordine ${scontoOrd}%)`:''} (− € ${importoScontoTot.toFixed(2)})</div>`:''}
     <div style="font-size:9px;color:#888;margin-top:4px">${totQty} bottiglie · ${ref.length} referenze</div>
   </div>
   <div class="note">
@@ -5319,10 +5373,17 @@ async function emailOrdine(id) {
   ].filter(Boolean).join("\n");
   const consegnaBlock=loc.noteConsegna?"\n\n──────────────────────────────────\nINDICAZIONI CONSEGNA:\n"+loc.noteConsegna:"";
   const fullBody=encodeURIComponent(decodeURIComponent(body)+consegnaBlock+"\n\n──────────────────────────────────\n"+mittente);
-  if(_sb && saveTimer){ clearTimeout(saveTimer); await _flushSave(); }
-  window.location.href=`mailto:${encodeURIComponent(fornEmail)}?subject=${subject}&body=${fullBody}`;
+  // mailto DEVE partire nello stesso gesto utente del click: dopo un await
+  // il browser considera perso il gesto e blocca l'apertura del client mail.
+  const _mailto=`mailto:${encodeURIComponent(fornEmail)}?subject=${subject}&body=${fullBody}`;
+  const _a=document.createElement('a'); _a.href=_mailto; _a.rel='noopener'; _a.style.display='none';
+  document.body.appendChild(_a); _a.click(); setTimeout(()=>{ try{_a.remove();}catch(e){} },0);
   const _oe = orders.find(x => x.id === id);
   if(_oe){ _oe.inviatoVia = _oe.inviatoVia === 'whatsapp' ? 'entrambi' : 'email'; _oe.dataInvio = _oe.dataInvio || today(); scheduleSave(); render(); }
+  // URL mailto troppo lungo (limite dei client/browser): il testo completo
+  // finisce negli appunti così l'ordine non viene mai troncato in silenzio.
+  if(_mailto.length>1800){ try{ await navigator.clipboard.writeText(decodeURIComponent(fullBody)); notify("Ordine lungo: testo completo copiato negli appunti","err"); }catch(e){} }
+  if(_sb && saveTimer){ clearTimeout(saveTimer); await _flushSave(); }
 }
 
 function whatsappOrdine(id) {
@@ -8450,26 +8511,44 @@ async function creaBasiOrdineDatiSelezionati() {
           .eq('testata_id', testataId);
         const presentiSet = new Set((giaPres || []).map(r => r.wine_id));
 
-        const nuoveRighe = wList
-          .filter(w => !presentiSet.has(w.id))
-          .map(w => ({
-            testata_id:  testataId,
-            wine_id:     w.id,
-            nome_vino:   w.nome || '',
-            produttore:  w.produttore || '',
-            distributore: dist,
-            annata:      w.annata || '',
-            formato:     parseFloat(w.formato) || 0.75,
-            prezzo_acq:  parseFloat(w.prezzoAcq) || null,
-            iva:         parseInt(w.iva) || 22,
-            qty_ordinata: _qtyDaOrdinare(w),
-            note_riga:   ''
-          }));
+        const wNuovi = wList.filter(w => !presentiSet.has(w.id));
+        // Campi base (colonne sicuramente presenti in ordini_righe)
+        const _rigaBase = w => ({
+          testata_id:  testataId,
+          wine_id:     w.id,
+          nome_vino:   w.nome || '',
+          produttore:  w.produttore || '',
+          distributore: dist,
+          annata:      w.annata || '',
+          formato:     parseFloat(w.formato) || 0.75,
+          prezzo_acq:  parseFloat(w.prezzoAcq) || null,
+          iva:         parseInt(w.iva) || 22,
+          qty_ordinata: _qtyDaOrdinare(w),
+          note_riga:   ''
+        });
+        // Campi estesi: salvati solo se le colonne esistono (fallback automatico)
+        const _rigaExtra = w => ({
+          tipologia: w.tipologia || '',
+          vitigni:   w.vitigni || '',
+          regione:   w.regione || '',
+          zona:      w.zona || '',
+          nazione:   w.nazione || (()=>{ try{ return inferPaese("", w.regione, w.zona)||''; }catch(e){ return ''; } })(),
+          prezzo_carta: parseFloat(w.prezzoCarta) || null
+        });
 
-        if (nuoveRighe.length) {
-          const { error: errR } = await _sb.from('ordini_righe').insert(nuoveRighe);
+        if (wNuovi.length) {
+          let errR = (await _sb.from('ordini_righe')
+                        .insert(wNuovi.map(w => ({ ..._rigaBase(w), ..._rigaExtra(w) })))).error;
+          if (errR) {
+            // Qualsiasi errore sul primo tentativo (tipicamente: colonne estese non
+            // ancora create) → ripiego sui soli campi base, che esistono di certo.
+            // I dati mancanti vengono comunque risolti da _refFromRigaSb via wine_id,
+            // quindi la creazione ordine non può fallire per questo motivo.
+            console.warn('ordini_righe: insert esteso fallito, ripiego su campi base →', errR.message || errR);
+            errR = (await _sb.from('ordini_righe').insert(wNuovi.map(_rigaBase))).error;
+          }
           if (errR) throw errR;
-          totRighe += nuoveRighe.length;
+          totRighe += wNuovi.length;
         }
       }
       notify(`✅ ${totRighe} righe aggiunte a ${Object.keys(byDist).length} bozze ordine`);
