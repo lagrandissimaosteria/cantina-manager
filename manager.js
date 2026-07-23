@@ -2036,7 +2036,11 @@ function getStats(){
 }
 function updateSidebar(){
   const s=getStats();
-  document.getElementById("ss-ref").textContent=s.referenze;
+  // "Referenze" mostrava il totale, esaurite comprese: numero inutile in servizio,
+  // dove conta cosa puoi effettivamente versare. Ora attive / totali.
+  const _elRef=document.getElementById("ss-ref");
+  _elRef.textContent=s.refAttive+" / "+s.referenze;
+  _elRef.title=s.refAttive+" referenze con giacenza · "+s.refEsaurite+" esaurite · "+s.referenze+" in anagrafica";
   document.getElementById("ss-bot").textContent=s.giacenzaTot;
   document.getElementById("ss-costo").textContent=fmt(s.valoreTot);
   document.getElementById("ss-pot").textContent=fmt(s.valoreCarta);
