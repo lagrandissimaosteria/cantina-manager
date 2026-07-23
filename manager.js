@@ -106,6 +106,12 @@ const PIE_COLORS = ["#FF9F0A","#007AFF","#30D158","#BF5AF2","#FF375F","#32ADE6",
 // ─── STATE ────────────────────────────────────────────────────────────────────
 let wines = [], movements = [], fallate = [], alertSoglie = {}, orders = [];
 let fatture = [], _fattBase = [], _fattTableOk = true; // scadenzario fatture fornitore
+// Stato del blob impostazioni (cm_settings). Dichiarato QUI, in testa, come
+// _fattTableOk: il percorso di avvio tocca queste variabili prima del punto in
+// cui vive il resto del layer, e un `let` più in basso finirebbe in temporal
+// dead zone facendo fallire l'intero loadData().
+let _settingsTableOk = true, _settingsPushTimer = null;
+let _movLedgerVuoto = 0; // >0 = ledger remoto vuoto con storico in cache locale
 let _bozzeSb = []; // bozze da ordini_testata+righe, caricate in background
 let section = "dashboard";
 let search = "", filterTipo = "tutti", filterFormato = "tutti",
@@ -1323,6 +1329,7 @@ async function loadData(){
     return;
   }
   _setDbStatus("sync","Caricamento…");
+  _movLedgerVuoto = 0;
   try{
     // allSettled: una tabella secondaria che fallisce (RLS mancante, timeout,
     // tabella assente) non deve più far collassare l'intero caricamento sul
@@ -1360,11 +1367,24 @@ async function loadData(){
       _movSyncBaseline = new Map(); // baseline vuota → nessun delta scrivibile
       notify("⚠️ Ledger movimenti non disponibile — movimenti in sola lettura (cache locale)","err");
     } else {
-      _movV2Available = true;
       const live = movRows.filter(r => !r.deleted);
-      movements = live.map(r => r.payload)
-        .sort((a,b)=> (b.ts||0)-(a.ts||0) || String(b.data||"").localeCompare(String(a.data||"")));
-      _movSyncBaseline = new Map(live.map(r => [r.payload.id, _movHash(r.payload)]));
+      let cacheLoc = [];
+      try{ cacheLoc = JSON.parse(localStorage.getItem(_lsKey("movements"))||"[]"); }catch{ cacheLoc = []; }
+      if(live.length === 0 && Array.isArray(cacheLoc) && cacheLoc.length){
+        // Ledger raggiungibile ma VUOTO mentre in cache locale c'è storico: quasi
+        // sempre partizione disallineata (user_id diverso) o migrazione dal blob
+        // legacy mai eseguita. Mostrare zeri sarebbe indistinguibile da "nessuna
+        // vendita". Si tiene la cache, in SOLA LETTURA, e si urla.
+        _movV2Available = false;
+        movements = cacheLoc;
+        _movSyncBaseline = new Map(); // baseline vuota → nessuna scrittura possibile
+        _movLedgerVuoto = cacheLoc.length;
+      } else {
+        _movV2Available = true;
+        movements = live.map(r => r.payload)
+          .sort((a,b)=> (b.ts||0)-(a.ts||0) || String(b.data||"").localeCompare(String(a.data||"")));
+        _movSyncBaseline = new Map(live.map(r => [r.payload.id, _movHash(r.payload)]));
+      }
     }
 
     _migrateOrders();
@@ -1374,7 +1394,10 @@ async function loadData(){
     await _syncLocale(); // dati di fatturazione dal cloud
     await _syncSettings(); // tipologie + rubriche fornitori dal cloud
     _saveLocalBackup(); // update local cache with remote data
-    if(degradate.length){
+    if(_movLedgerVuoto){
+      _setDbStatus("err","Ledger vuoto — movimenti in sola lettura");
+      notify("⚠️ Ledger remoto VUOTO ma "+_movLedgerVuoto+" movimenti in cache locale: verifica user_id/migrazione. Scritture movimenti bloccate.","err");
+    } else if(degradate.length){
       _setDbStatus("err","Parziale: "+degradate.join(", "));
       notify("⚠️ Caricamento parziale — non leggibili: "+degradate.join(", "),"err");
     } else {
@@ -5735,7 +5758,11 @@ function _saveLocale(d){
   if(!_sb) return;
   _sbUpsert("cm_locale", { user_id:_effectiveDbUser(), data:d })
     .then(()=>{ _localeBase = JSON.parse(JSON.stringify(d)); })
-    .catch(e=>{ console.warn("[locale] upsert fallito:", e?.message||e); notify("⚠️ Dati di fatturazione salvati solo in locale: sincronizzazione fallita","err"); });
+    .catch(e=>{
+      const m = [e?.code, e?.message, e?.details].filter(Boolean).join(" · ") || String(e);
+      console.warn("[locale] upsert fallito:", m, "| tabella: cm_locale | user_id:", _effectiveDbUser());
+      notify("⚠️ Fatturazione solo in locale — cm_locale: "+m.slice(0,90),"err");
+    });
 }
 // Allineamento all'avvio e dopo un rebase.
 async function _syncLocale(){
@@ -5781,8 +5808,6 @@ function _getAllFornTelefoni(){ return _fornTelefoni; }
 // e su una seconda postazione erano comunque sempre vuote. Ora seguono il locale,
 // non il browser. Tabella assente ⇒ degradazione silenziosa al comportamento
 // precedente, nessuna rottura.
-let _settingsTableOk  = true;
-let _settingsPushTimer = null;
 
 function _settingsSnapshot(){
   return {
