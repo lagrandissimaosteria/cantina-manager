@@ -6,13 +6,78 @@
 // Argon2/bcrypt via backend (Supabase Edge Function) e non esporre il hash nel JS.
 const PASSWORD_HASH = "4308b16b088ef46766393f253ec3d48d96dfc04e80712cc0c55f0491c848fbad";
 
+// ─── CONFIG — progetto Palinurobar (istanza dedicata, nessun legame con altri locali) ──
+// Identità e partizione dati sono di Palinurobar. L'host HTML può ancora fornire
+// `window.CM_CONFIG = {...}` PRIMA di caricare manager.js per override puntuali.
+const CONFIG = (() => {
+  const D = {
+    dbUser:     "palinurobar",             // partizione dati (user_id su tutte le tabelle) — isolata
+    nomeLocale: "Palinurobar",             // header stampe/email/PDF
+    skuPrefix:  "PB-",                     // prefisso codice referenza
+    lsPrefix:   "cm_",                     // namespace localStorage (origine dedicata)
+    theme:      "amber",                   // accent token (le CSS var vivono nell'host HTML)
+    trasferimenti: false,                  // feature Spedisci/Ricevi via manifesto (Osteria ↔ Portland)
+    // ── SERVIZIO AL BANCO ──────────────────────────────────────────────────
+    // Importo fisso applicato a ogni bottiglia stappata e consumata in loco.
+    // È un ricavo da SOMMINISTRAZIONE separato dal prezzo del vino: viene
+    // tracciato a parte per poterlo scorporare in contabilità.
+    servizioBottiglia: 6,                  // € a bottiglia (0 = disattivato, es. Osteria)
+    servizioDal:       "2026-07-01",       // decorrenza: gli scarichi precedenti NON lo applicano
+    servizioIva:       10,                 // aliquota IVA del servizio (%)
+    ivaSomministrazione: 10,               // aliquota IVA sui ricavi vino somministrato (%)
+    // ── CALENDARIO DI APERTURA ─────────────────────────────────────────────
+    // Serve per rapportare i numeri ai SERVIZI reali e non ai giorni di
+    // calendario: un mese con 26 aperture non è confrontabile con uno da 22.
+    // giorniApertura: 0=domenica … 6=sabato. Palinurobar: lunedì–sabato.
+    // serviziGiorno: override per i giorni con doppio servizio (default 1).
+    // (Osteria Lagrandissima: giorniApertura [2,3,4,5,6,0], serviziGiorno {6:2})
+    giorniApertura: [1,2,3,4,5,6],
+    serviziGiorno:  {},
+    // Dati di fatturazione cablati nell'host HTML: fondo indelebile su cui si
+    // appoggiano localStorage e cloud. Un campo vuoto (storage azzerato, riga
+    // cm_locale assente o parziale) NON li sovrascrive più.
+    localeDefault:  {}
+  };
+  const O = (typeof window!=="undefined" && window.CM_CONFIG && typeof window.CM_CONFIG==="object" && !Array.isArray(window.CM_CONFIG)) ? window.CM_CONFIG : {};
+  return Object.freeze({ ...D, ...O });
+})();
+// Helper sanzionato per QUALSIASI nuova chiave localStorage. Le chiavi storiche
+// restano "cm_*" (lsPrefix default) ⇒ nessun orfano sull'install corrente.
+function _lsKey(k){ return CONFIG.lsPrefix + k; }
+// Le chiavi localStorage passano tutte da _lsKey(): con lsPrefix diverso per locale
+// (es. "lg_", "pt_") i tre gestionali non si sovrascrivono più a vicenda quando
+// girano sulla stessa origine — compreso il caso file:// da cartella locale.
+// Migrazione una tantum dai nomi legacy che non seguivano il namespace.
+(function _lsMigrateLegacy(){
+  try{
+    [["pb_sb_url","sb_url"],["pb_sb_key","sb_key"]].forEach(([vecchia,nuova])=>{
+      const k=_lsKey(nuova);
+      if(localStorage.getItem(k)===null){
+        const v=localStorage.getItem(vecchia);
+        if(v!==null) localStorage.setItem(k,v);
+      }
+    });
+    // Locali che passano da lsPrefix "cm_" a uno proprio ("lg_", "pt_"): le chiavi
+    // già scritte restano sotto "cm_*" e diventerebbero orfane. Copia una tantum,
+    // solo per le chiavi non ancora presenti sotto il nuovo namespace.
+    if(CONFIG.lsPrefix!=="cm_"){
+      for(let i=localStorage.length-1;i>=0;i--){
+        const vecchia=localStorage.key(i);
+        if(!vecchia || !vecchia.startsWith("cm_")) continue;
+        const k=CONFIG.lsPrefix+vecchia.slice(3);
+        if(localStorage.getItem(k)===null) localStorage.setItem(k, localStorage.getItem(vecchia));
+      }
+    }
+  }catch{}
+})();
+
 // S9: nome locale centralizzato — usato in stampaOrdine, emailOrdine e stampa PDF
-const NOME_LOCALE = "Osteria Lagrandissima";
+const NOME_LOCALE = CONFIG.nomeLocale;
 
 // Array di default definito una sola volta — riusato in init, reset e catch
 const TIPOLOGIE_DEFAULT = ["Rosso","Bianco","Rosato","Champagne","Metodo Classico","Metodo Classico Rosato","Rifermentato","Rifermentato Rosso","Rifermentato Rosato","Col Fondo","Ancestrale","Macerato","Orange","Passito","Dolce","Liquoroso"];
-let TIPOLOGIE = (()=>{ try{ const s=localStorage.getItem("cm_tipologie"); return s?JSON.parse(s):[...TIPOLOGIE_DEFAULT]; }catch{ return [...TIPOLOGIE_DEFAULT]; } })();
-function _saveTipologie(){try{localStorage.setItem("cm_tipologie",JSON.stringify(TIPOLOGIE));}catch{}}
+let TIPOLOGIE = (()=>{ try{ const s=localStorage.getItem(_lsKey("tipologie")); return s?JSON.parse(s):[...TIPOLOGIE_DEFAULT]; }catch{ return [...TIPOLOGIE_DEFAULT]; } })();
+function _saveTipologie(){try{localStorage.setItem(_lsKey("tipologie"),JSON.stringify(TIPOLOGIE));}catch{} _pushSettings();}
 function _tipoOptsHtml(selected){
   // Se la tipologia è vuota o non in elenco NON si ripiega sulla prima voce
   // ("Rosso"): si mostra il valore reale, o un segnaposto vuoto.
@@ -40,6 +105,7 @@ const PIE_COLORS = ["#FF9F0A","#007AFF","#30D158","#BF5AF2","#FF375F","#32ADE6",
 
 // ─── STATE ────────────────────────────────────────────────────────────────────
 let wines = [], movements = [], fallate = [], alertSoglie = {}, orders = [];
+let fatture = [], _fattBase = [], _fattTableOk = true; // scadenzario fatture fornitore
 let _bozzeSb = []; // bozze da ordini_testata+righe, caricate in background
 let section = "dashboard";
 let search = "", filterTipo = "tutti", filterFormato = "tutti",
@@ -239,7 +305,7 @@ const _REGIONE_TO_PAESE = {
   "bikavér":"Ungheria","badacsony":"Ungheria",
   "moravia":"Repubblica Ceca","bohemia":"Repubblica Ceca",
   "istria":"Croazia","dalmazia":"Croazia","slavonia":"Croazia",
-  "kosovo":"Kosovo","makedonia":"Macedonia del Nord",
+  "kosovo":"Kosovo","makedonija":"Macedonia del Nord","north macedonia":"Macedonia del Nord","vardar":"Macedonia del Nord","tikves":"Macedonia del Nord","tikveš":"Macedonia del Nord",
   // ── SVIZZERA ──
   "aargau":"Svizzera","valais":"Svizzera","ticino":"Svizzera",
   "vaud":"Svizzera","ginevra":"Svizzera","genève":"Svizzera",
@@ -329,8 +395,33 @@ function _ordRegioniPer(naz){
   (orders||[]).forEach(o=>(o.referenze||[]).forEach(r=>{ if(_regKey(r.nazione)===kl) consider(r.regione); }));
   return out.sort((a,b)=>a.localeCompare(b,"it"));
 }
+// ─── ORDINAMENTO SOMMELIER ───────────────────────────────────────────────────
+// Paese → Regione → Produttore → Vino → Annata (crescente). Matching
+// accent/case-insensitive via _regKey. Voci non in tabella → in coda, alfabetiche.
+const _PAESE_ORDER=["Italia","Francia","Spagna","Portogallo","Germania","Austria","Svizzera","Slovenia","Croazia","Ungheria","Serbia","Romania","Bulgaria","Grecia","Georgia","Libano","Stati Uniti","Argentina","Cile","Australia","Nuova Zelanda","Sudafrica"];
+const _REGIONE_ORDER=["Valle d'Aosta","Piemonte","Liguria","Lombardia","Valtellina","Trentino Alto Adige","Veneto","Friuli Venezia Giulia","Emilia-Romagna","Toscana","Umbria","Marche","Lazio","Abruzzo","Molise","Campania","Puglia","Basilicata","Calabria","Sicilia","Sardegna","Champagne","Alsazia","Loira","Borgogna","Chablis","Beaujolais","Jura","Savoia","Rodano","Ardeche","Auvergne","Provenza","Languedoc","Roussillon","Cotes Catalanes","Sud Ouest","Bordeaux"];
+const _PAESE_RANK=Object.fromEntries(_PAESE_ORDER.map((v,i)=>[_regKey(v),i]));
+const _REGIONE_RANK=Object.fromEntries(_REGIONE_ORDER.map((v,i)=>[_regKey(v),i]));
+function _somPaese(w){ return (inferPaese(w.nazione,w.regione,w.zona)||"").trim()||"ZZ Altro"; }
+function _somCmpRank(a,b,rankMap){
+  const ka=_regKey(a), kb=_regKey(b);
+  if(ka===kb) return 0;
+  const ra=rankMap[ka]??9999, rb=rankMap[kb]??9999;
+  if(ra!==rb) return ra-rb;
+  return (a||"").localeCompare(b||"","it",{sensitivity:"base"});
+}
+function sommelierSort(list){
+  return list.slice().sort((a,b)=>
+       _somCmpRank(_somPaese(a),_somPaese(b),_PAESE_RANK)
+    || _somCmpRank(a.regione||"",b.regione||"",_REGIONE_RANK)
+    || (a.produttore||"").localeCompare(b.produttore||"","it",{sensitivity:"base"})
+    || (a.nome||"").localeCompare(b.nome||"","it",{sensitivity:"base"})
+    || ((parseInt(a.annata)||9999)-(parseInt(b.annata)||9999))
+  );
+}
+
 function inferPaese(nazione, regione, zona){
-  if(nazione) return nazione;
+  if(nazione && nazione.trim()) return nazione;
   // Prova prima regione, poi zona
   const candidates = [regione, zona].filter(Boolean);
   for(const candidate of candidates){
@@ -341,11 +432,24 @@ function inferPaese(nazione, regione, zona){
     // Match esatto (con e senza normalizzazione accenti)
     if(_REGIONE_TO_PAESE[r]) return _REGIONE_TO_PAESE[r];
     if(_REGIONE_TO_PAESE[candidate.toLowerCase().trim()]) return _REGIONE_TO_PAESE[candidate.toLowerCase().trim()];
-    // Match parziale: la chiave è contenuta nel testo o viceversa
+    // Match parziale su CONFINI DI PAROLA: evita falsi positivi tipo "bastia"⊃"asti".
+    // Niente RegExp (verrebbe compilata ~400 volte per candidato) → boundary manuale.
+    const _isw = c => (c>="a"&&c<="z")||(c>="0"&&c<="9");
+    const _bounded = (hay,needle) => {
+      if(!needle) return false;
+      let i = hay.indexOf(needle);
+      while(i!==-1){
+        const before = i===0 ? "" : hay[i-1];
+        const after  = i+needle.length>=hay.length ? "" : hay[i+needle.length];
+        if(!_isw(before) && !_isw(after)) return true;
+        i = hay.indexOf(needle, i+1);
+      }
+      return false;
+    };
     const keys = Object.keys(_REGIONE_TO_PAESE);
     for(const key of keys){
       const normKey = key.normalize("NFD").replace(/[\u0300-\u036f]/g,"");
-      if(r.includes(normKey) || normKey.includes(r)) return _REGIONE_TO_PAESE[key];
+      if(_bounded(r, normKey) || _bounded(normKey, r)) return _REGIONE_TO_PAESE[key];
     }
   }
   return "";
@@ -370,7 +474,7 @@ function _meseLabelIT(ym){
   return (mesi[i]||m[2])+" "+m[1];
 }
 // ── SKU referenza (codice breve, immutabile, visibile solo in scheda) ──
-const SKU_PREFIX="LG-"; // Lagrandissima. Per Palinuro cambia questa costante.
+const SKU_PREFIX = CONFIG.skuPrefix; // prefisso SKU referenze Palinurobar. Override via window.CM_CONFIG.skuPrefix.
 function _skuNum(s){ const m=String(s||"").match(/(\d+)\s*$/); return m?parseInt(m[1]):0; }
 function _nextSku(){ let mx=0; wines.forEach(w=>{const n=_skuNum(w.sku); if(n>mx)mx=n;}); return SKU_PREFIX+String(mx+1).padStart(4,"0"); }
 function esc(v){return `"${String(v??'').replace(/"/g,'""')}"`}
@@ -414,6 +518,35 @@ function costoCarico(m,w){ return parseFloat(m?.prezzoAcqLotto)||parseFloat(w?.p
 function calcRicavoMovimento(m,w){
   return m.qty*(parseFloat(w?.prezzoCarta)||0);
 }
+// ── SERVIZIO AL BANCO ────────────────────────────────────────────────────────
+// Ricavo accessorio (somministrazione), separato dal prezzo del vino. Regole:
+//  · il valore viene FOTOGRAFATO sul movimento (m.servizio) al momento dello
+//    scarico → se domani l'importo cambia, i mesi già chiusi non si muovono;
+//  · per i movimenti storici privi del campo vale CONFIG.servizioDal: prima di
+//    quella data il servizio è 0, così i periodi già mandati al commercialista
+//    restano identici;
+//  · non si applica a carichi, rettifiche e fallate (non sono vendite).
+function servizioUnit(m){
+  if(m && m.servizio!=null) return parseFloat(m.servizio)||0;
+  const base=parseFloat(CONFIG.servizioBottiglia)||0;
+  if(!base) return 0;
+  const d=(m&&m.data)||"";
+  if(CONFIG.servizioDal && d && d < CONFIG.servizioDal) return 0;
+  return base;
+}
+function calcServizioMovimento(m){
+  if(!m || m.tipo!=="scarico") return 0;
+  return (parseInt(m.qty)||0) * servizioUnit(m);
+}
+// Ricavo complessivo incassato dal cliente = vino a prezzo carta + servizio.
+function calcRicavoTotaleMovimento(m,w){ return calcRicavoMovimento(m,w) + calcServizioMovimento(m); }
+// Scorporo IVA da un importo lordo (prezzi al pubblico = IVA inclusa).
+function _scorporo(lordo, aliquota){
+  const a=parseFloat(aliquota)||0;
+  const imp=lordo/(1+a/100);
+  return { imp, iva: lordo-imp };
+}
+
 // M7: usa costoUnitarioIva salvato al momento dello scarico se presente,
 // altrimenti fallback alla media ponderata lotti corrente (movimenti storici pre-fix).
 function calcCostoMovimento(m,w){
@@ -489,7 +622,7 @@ function _trackPriceChange(wine, newAcq, newCarta, source){
 
 // ─── SUPABASE + PERSISTENCE ───────────────────────────────────────────────────
 let _sb = null; // Supabase client instance
-const DB_USER = "default"; // single-user key in all tables
+const DB_USER = CONFIG.dbUser; // fallback partizione (usato da _effectiveDbUser). Override via window.CM_CONFIG.dbUser.
 
 function _setDbStatus(state, label){
   const dot = document.getElementById("db-dot");
@@ -511,11 +644,20 @@ function _setDbStatus(state, label){
 }
 
 function _initSupabase(){
+  _ensureAuthButton();
   try{
-    const url = localStorage.getItem("cm_sb_url");
-    const key = localStorage.getItem("cm_sb_key");
+    const url = localStorage.getItem(_lsKey("sb_url"));
+    const key = localStorage.getItem(_lsKey("sb_key"));
     if(!url||!key){ _sb=null; _setDbStatus("off","Solo locale"); return false; }
-    _sb = supabase.createClient(url, key);
+    _sb = supabase.createClient(url, key, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+        storageKey: "pb_auth"          // namespaced: nessuna collisione con altri progetti Supabase sullo stesso dominio
+      }
+    });
+    _authWire();                       // FASE 2b: idrata sessione persistita + listener (no-op safe su client v1)
     return true;
   }catch(e){ _sb=null; _setDbStatus("err","Errore init"); return false; }
 }
@@ -540,8 +682,8 @@ function resetTipologie(){
   render();
 }
 function openDbConfig(){
-  document.getElementById("cfg-url").value = localStorage.getItem("cm_sb_url")||"";
-  document.getElementById("cfg-key").value = localStorage.getItem("cm_sb_key")||"";
+  document.getElementById("cfg-url").value = localStorage.getItem(_lsKey("sb_url"))||"";
+  document.getElementById("cfg-key").value = localStorage.getItem(_lsKey("sb_key"))||"";
   document.getElementById("cfg-tipologie").value = TIPOLOGIE.join("\n");
   document.getElementById("cfg-test-result").textContent = "";
   document.getElementById("db-config-backdrop").classList.remove("hidden");
@@ -574,30 +716,186 @@ function saveDbConfig(){
   const url = _sanitizeSupabaseUrl(document.getElementById("cfg-url").value);
   const key = document.getElementById("cfg-key").value.trim();
   document.getElementById("cfg-url").value = url;
-  localStorage.setItem("cm_sb_url", url);
-  localStorage.setItem("cm_sb_key", key);
+  localStorage.setItem(_lsKey("sb_url"), url);
+  localStorage.setItem(_lsKey("sb_key"), key);
   document.getElementById("db-config-backdrop").classList.add("hidden");
   _initSupabase();
   if(_sb){ notify("✅ Supabase configurato — ricarico dati…"); loadData(); }
   else notify("⚠️ Config rimossa — modalità locale","err");
 }
 
+// ── FASE 2b: SUPABASE AUTH-READY (scaffolding) ───────────────────────────────
+// Login OPZIONALE. La RLS resta `anon ALL using(true)` finché l'app non impone il
+// login: questo layer prepara sessione + gate SOFT senza toccare le policy né la
+// partizione dati. DB_USER = CONFIG.dbUser (default "palinurobar", overridabile).
+const _authState = { user:null, session:null };
+
+// true se l'utente ha scelto di richiedere il login prima di operare.
+// Default OFF ⇒ happy-path anonimo invariato. Nessun effetto su RLS.
+function _authRequired(){ return localStorage.getItem(_lsKey("auth_required"))==="1"; }
+
+// Partizione dati (Fase 3 chiusa): tutti i 20 call-site DB passano da qui.
+// Ritorna DB_USER (CONFIG.dbUser) salvo login richiesto + partizione attiva
+// (cm_auth_partition=1), nel qual caso mappa _authState.user.id.
+function _effectiveDbUser(){
+  if(_authRequired() && _authState.user && localStorage.getItem(_lsKey("auth_partition"))==="1"){
+    return _authState.user.id;
+  }
+  return DB_USER;
+}
+
+// Idrata la sessione persistita e registra il listener. No-op safe su client v1.
+async function _authWire(){
+  if(!_sb || !_sb.auth || typeof _sb.auth.getSession!=="function") return;
+  try{
+    const { data } = await _sb.auth.getSession();
+    _authState.session = data?.session || null;
+    _authState.user = data?.session?.user || null;
+  }catch(_){ /* sessione assente: resta anonimo */ }
+  if(typeof _sb.auth.onAuthStateChange==="function" && !_sb._authListenerAttached){
+    _sb._authListenerAttached = true;
+    _sb.auth.onAuthStateChange((_ev, session)=>{
+      _authState.session = session || null;
+      _authState.user = session?.user || null;
+      _authRenderStatus();
+    });
+  }
+  _authRenderStatus();
+}
+
+async function authSignIn(email, password){
+  if(!_sb || !_sb.auth) return notify("Supabase non configurato","err");
+  email=(email||"").trim();
+  if(!email||!password) return notify("Email e password richieste","err");
+  try{
+    const { data, error } = await _sb.auth.signInWithPassword({ email, password });
+    if(error) throw error;
+    _authState.session = data.session; _authState.user = data.user;
+    _authRenderStatus();
+    notify("✅ Login effettuato — "+h(email));
+    _closeAuthModal();
+  }catch(e){ notify("❌ "+h(e.message||"Login fallito"),"err"); }
+}
+
+async function authSignOut(){
+  if(!_sb || !_sb.auth) return;
+  try{ await _sb.auth.signOut(); }catch(_){}
+  _authState.session=null; _authState.user=null;
+  _authRenderStatus();
+  notify("Logout effettuato");
+}
+
+function authWhoAmI(){ return _authState.user ? (_authState.user.email||_authState.user.id) : null; }
+
+// Gate SOFT: se il login è richiesto e manca la sessione, apre il modal e blocca
+// l'azione. Ritorna true se si può procedere. Da chiamare all'inizio delle
+// operazioni sensibili quando (in futuro) si vorrà imporre l'auth.
+function _authGuard(){
+  if(!_authRequired()) return true;          // OFF di default: happy-path
+  if(_authState.user) return true;
+  openAuthModal();
+  notify("Login richiesto per questa operazione","err");
+  return false;
+}
+
+// ── Login modal (iniettato via JS: nessuna modifica all'HTML host richiesta) ──
+function _ensureAuthModal(){
+  if(document.getElementById("auth-backdrop")) return;
+  const bd = document.createElement("div");
+  bd.id = "auth-backdrop";
+  bd.className = "modal-backdrop hidden";
+  bd.innerHTML =
+    '<div class="modal" style="max-width:360px">'
+    + '<h3 style="margin:0 0 12px">🔐 Account</h3>'
+    + '<div id="auth-who" style="font-size:13px;opacity:.8;margin-bottom:10px"></div>'
+    + '<input id="auth-email" type="email" placeholder="email" autocomplete="username" '
+    +   'style="width:100%;box-sizing:border-box;margin-bottom:8px;padding:8px">'
+    + '<input id="auth-pw" type="password" placeholder="password" autocomplete="current-password" '
+    +   'style="width:100%;box-sizing:border-box;margin-bottom:8px;padding:8px">'
+    + '<div id="auth-msg" style="min-height:16px;font-size:12px;margin-bottom:8px"></div>'
+    + '<div style="display:flex;gap:8px;justify-content:flex-end">'
+    +   '<button type="button" onclick="_closeAuthModal()">Chiudi</button>'
+    +   '<button type="button" id="auth-signout-btn" onclick="authSignOut()">Esci</button>'
+    +   '<button type="button" onclick="authSignIn(document.getElementById(\'auth-email\').value,document.getElementById(\'auth-pw\').value)">Accedi</button>'
+    + '</div>'
+    + '<label style="display:block;margin-top:12px;font-size:12px;opacity:.75">'
+    +   '<input type="checkbox" id="auth-require-chk" onchange="_authToggleRequired(this.checked)"> Richiedi login all\'avvio'
+    + '</label>'
+    + '</div>';
+  bd.addEventListener("click", e=>{ if(e.target===bd) _closeAuthModal(); });
+  document.body.appendChild(bd);
+  const pw = bd.querySelector("#auth-pw");
+  pw.addEventListener("keydown", e=>{ if(e.key==="Enter") authSignIn(
+    document.getElementById("auth-email").value, pw.value); });
+}
+function openAuthModal(){
+  _ensureAuthModal();
+  document.getElementById("auth-require-chk").checked = _authRequired();
+  _authRenderStatus();
+  document.getElementById("auth-backdrop").classList.remove("hidden");
+}
+function _closeAuthModal(){
+  const bd=document.getElementById("auth-backdrop");
+  if(bd) bd.classList.add("hidden");
+}
+function _authToggleRequired(on){
+  localStorage.setItem(_lsKey("auth_required"), on?"1":"0");
+  notify(on?"Login richiesto all'avvio":"Login opzionale");
+}
+function _authRenderStatus(){
+  const who = authWhoAmI();
+  const el = document.getElementById("auth-who");
+  if(el) el.textContent = who ? ("Connesso come "+who) : "Non connesso (accesso anonimo)";
+  const so = document.getElementById("auth-signout-btn");
+  if(so) so.style.display = who ? "" : "none";
+  const btn = document.getElementById("auth-btn");
+  if(btn){
+    btn.textContent = who ? "🔐" : "🔓";
+    btn.title = who ? ("Account: "+who) : (_authRequired()?"Login richiesto":"Accesso anonimo");
+  }
+}
+
+// Inietta il pulsante account nella topbar accanto a #db-status. Idempotente,
+// no-op se l'host non espone #db-status. Nessuna modifica all'HTML richiesta.
+function _ensureAuthButton(){
+  if(document.getElementById("auth-btn")) return;
+  const anchor = document.getElementById("db-status");
+  if(!anchor) return;
+  const btn = document.createElement("button");
+  btn.id = "auth-btn";
+  btn.type = "button";
+  btn.textContent = "🔓";
+  btn.title = "Account";
+  btn.setAttribute("aria-label","Account");
+  btn.style.cssText =
+    "margin-left:8px;padding:2px 8px;line-height:1.6;font-size:13px;cursor:pointer;"
+    + "background:transparent;border:1px solid var(--border,#333);border-radius:6px;"
+    + "color:inherit;opacity:.85";
+  btn.onmouseenter = ()=>{ btn.style.opacity="1"; };
+  btn.onmouseleave = ()=>{ btn.style.opacity=".85"; };
+  btn.onclick = openAuthModal;
+  anchor.insertAdjacentElement("afterend", btn);
+  _authRenderStatus();
+}
+
 // ── LOCAL BACKUP ──────────────────────────────────────────────────────────────
 function _saveLocalBackup(snap){
   try{
-    localStorage.setItem("cm_wines",JSON.stringify(snap?snap.wines:wines));
-    localStorage.setItem("cm_movements",JSON.stringify(snap?snap.movements:movements));
-    localStorage.setItem("cm_fallate",JSON.stringify(snap?snap.fallate:fallate));
-    localStorage.setItem("cm_alert_soglie",JSON.stringify(snap?snap.soglie:alertSoglie));
-    localStorage.setItem("cm_orders",JSON.stringify(snap?snap.orders:orders));
+    localStorage.setItem(_lsKey("wines"),JSON.stringify(snap?snap.wines:wines));
+    localStorage.setItem(_lsKey("movements"),JSON.stringify(snap?snap.movements:movements));
+    localStorage.setItem(_lsKey("fallate"),JSON.stringify(snap?snap.fallate:fallate));
+    localStorage.setItem(_lsKey("alert_soglie"),JSON.stringify(snap?snap.soglie:alertSoglie));
+    localStorage.setItem(_lsKey("orders"),JSON.stringify(snap?snap.orders:orders));
+    localStorage.setItem(_lsKey("fatture"),JSON.stringify(fatture));
   }catch{}
 }
 function _loadLocalBackup(){
-  try{const s=JSON.parse(localStorage.getItem("cm_wines")||"null");wines=(s||[]).map(v=>({...v,nazione:inferPaese(v.nazione,v.regione,v.zona)}))}catch{wines=[]}
-  try{movements=JSON.parse(localStorage.getItem("cm_movements")||"[]")}catch{movements=[]}
-  try{fallate=JSON.parse(localStorage.getItem("cm_fallate")||"[]")}catch{fallate=[]}
-  try{alertSoglie=JSON.parse(localStorage.getItem("cm_alert_soglie")||"{}")}catch{alertSoglie={}}
-  try{orders=JSON.parse(localStorage.getItem("cm_orders")||"[]")}catch{orders=[]}
+  try{const s=JSON.parse(localStorage.getItem(_lsKey("wines"))||"null");wines=(s||[]).map(v=>({...v,nazione:inferPaese(v.nazione,v.regione,v.zona)}))}catch{wines=[]}
+  try{movements=JSON.parse(localStorage.getItem(_lsKey("movements"))||"[]")}catch{movements=[]}
+  try{fallate=JSON.parse(localStorage.getItem(_lsKey("fallate"))||"[]")}catch{fallate=[]}
+  try{alertSoglie=JSON.parse(localStorage.getItem(_lsKey("alert_soglie"))||"{}")}catch{alertSoglie={}}
+  try{orders=JSON.parse(localStorage.getItem(_lsKey("orders"))||"[]")}catch{orders=[]}
+  try{fatture=JSON.parse(localStorage.getItem(_lsKey("fatture"))||"[]")}catch{fatture=[]}
   _migrateOrders();
   _migrateWines();
   _riparaReferenzeOrdini();
@@ -646,7 +944,7 @@ async function _sbUpsert(table, payload){
 }
 async function _sbRead(table){
   if(!_sb) return null;
-  const { data, error } = await _sb.from(table).select("data").eq("user_id", DB_USER);
+  const { data, error } = await _sb.from(table).select("data").eq("user_id", _effectiveDbUser());
   // FIX PERDITA DATI: in caso di ERRORE di lettura NON ritornare null (che a monte
   // diventerebbe [] e poi sovrascriverebbe la tabella vuota). Lancia, così
   // loadData/registraMovimentoMobile vanno in catch e mantengono il backup locale.
@@ -667,7 +965,7 @@ async function _sbRead(table){
 async function _sbReadVersion(){
   if(!_sb) return null;
   try{
-    const { data, error } = await _sb.from("cm_meta").select("version").eq("user_id", DB_USER).maybeSingle();
+    const { data, error } = await _sb.from("cm_meta").select("version").eq("user_id", _effectiveDbUser()).maybeSingle();
     if(error) return null;
     return data?.version ?? 0;
   }catch{ return null; }
@@ -675,7 +973,7 @@ async function _sbReadVersion(){
 async function _sbWriteVersion(v){
   if(!_sb) return;
   try{
-    await _sb.from("cm_meta").upsert({user_id:DB_USER, version:v}, {onConflict:"user_id"});
+    await _sb.from("cm_meta").upsert({user_id:_effectiveDbUser(), version:v}, {onConflict:"user_id"});
   }catch{}
 }
 
@@ -710,49 +1008,51 @@ function _isMissingTableErr(error){
 // Carica le righe (vive + tombstone) da cm_movements_ledger.
 // Se la tabella non esiste ancora, ritorna {_missing:true} → l'app usa il blob legacy.
 async function _loadMovementsV2(){
-  const { data, error } = await _sb.from("cm_movements_ledger")
-    .select("id,payload,deleted").eq("user_id", DB_USER);
-  if(error){
-    if(_isMissingTableErr(error)) return { _missing:true };
-    throw error; // errore transitorio reale → gestito a monte (backup locale)
+  // PostgREST tronca a max-rows (default 1000) senza segnalare errore: su una
+  // partizione storica ampia il ledger arrivava mutilato e i movimenti oltre la
+  // soglia sparivano dalla UI. Lettura paginata esplicita finché la pagina è piena.
+  const PAGE = 1000, out = [];
+  for(let from = 0; ; from += PAGE){
+    const { data, error } = await _sb.from("cm_movements_ledger")
+      .select("id,payload,deleted")
+      .eq("user_id", _effectiveDbUser())
+      .order("id", { ascending:true })
+      .range(from, from + PAGE - 1);
+    if(error){
+      if(_isMissingTableErr(error)) return { _missing:true };
+      console.error("[ledger] pagina", from, error.message, error.code, error.details);
+      throw error; // pagina parziale = ledger inaffidabile → cache locale
+    }
+    if(!data || !data.length) break;
+    out.push(...data);
+    if(data.length < PAGE) break;
   }
-  return data || [];
-}
-
-// Seed una-tantum: copia il vecchio blob cm_movements nella tabella v2.
-// Garantisce che ogni payload abbia un id (i movimenti legacy potrebbero non averlo).
-async function _seedMovementsV2(legacyArr){
-  const rows = legacyArr.map(m => {
-    const withId = (m && m.id) ? m : {...m, id: uid()};
-    return { id: withId.id, user_id: DB_USER, payload: withId, deleted: false };
-  });
-  for(const c of _chunk(rows, 500)){
-    const { error } = await _sb.from("cm_movements_ledger").upsert(c, {onConflict:"id"});
-    if(error) throw error;
-  }
-  return rows;
+  return out;
 }
 
 // Sincronizza i movimenti a DELTA verso cm_movements_ledger (append-only-safe).
-// Se la tabella v2 non esiste ancora, ripiega sul blob legacy (comportamento
-// pre-refactor) così i movimenti continuano comunque a persistere senza rotture.
+// FASE 2: il ledger è la fonte unica. Se la tabella non è disponibile NON si
+// ripiega più sul blob cm_movements: _flushMovementsV2 lancia (fail visibile).
 async function _flushMovementsV2(){
   if(!_sb) return;
   if(!_movV2Available){
-    await _sbUpsert("cm_movements", { user_id:DB_USER, data:movements });
-    return;
+    // FASE 2: cm_movements_ledger è la FONTE UNICA. Se il ledger non è disponibile
+    // NON ripieghiamo più sul blob cm_movements (storicamente disallineato: 463 vs
+    // 869 → re-inietterebbe dati stantii). Falliamo in modo visibile: il chiamante
+    // (try/catch di save) mostra "Errore sync" e il backup locale resta intatto.
+    throw new Error("Ledger movimenti (cm_movements_ledger) non disponibile: salvataggio movimenti annullato");
   }
   const cur = new Map(movements.map(m => [m.id, _movHash(m)]));
   const upserts = movements.filter(m => _movSyncBaseline.get(m.id) !== cur.get(m.id));
   const deletes = [..._movSyncBaseline.keys()].filter(id => !cur.has(id));
   for(const c of _chunk(upserts, 500)){
-    const rows = c.map(m => ({ id:m.id, user_id:DB_USER, payload:m, deleted:false }));
+    const rows = c.map(m => ({ id:m.id, user_id:_effectiveDbUser(), payload:m, deleted:false }));
     const { error } = await _sb.from("cm_movements_ledger").upsert(rows, {onConflict:"id"});
     if(error) throw error;
   }
   for(const c of _chunk(deletes, 500)){
     const { error } = await _sb.from("cm_movements_ledger")
-      .update({ deleted:true }).in("id", c).eq("user_id", DB_USER);
+      .update({ deleted:true }).in("id", c).eq("user_id", _effectiveDbUser());
     if(error) throw error;
   }
   _movSyncBaseline = cur; // baseline = ciò che abbiamo appena sincronizzato
@@ -798,6 +1098,89 @@ function _integrityCheck(prev, nextWines){
   return {block:false};
 }
 
+// ── MERGE 3-VIE (lavoro simultaneo da più computer) ──────────────────────────
+// I blob wines/orders/fallate sono una riga sola per user_id: due postazioni che
+// salvano insieme si sovrascrivono. Il gate di versione impediva la perdita di
+// dati altrui, ma SCARTAVA la modifica locale ("uno dei due viene buttato fuori").
+// Qui la modifica locale non si perde più: al conflitto si fa rebase sul remoto
+// (diff locale rispetto alla baseline dell'ultimo sync, riapplicato sopra lo
+// stato remoto) e si ritenta il salvataggio. Granularità: per record, ultimo
+// scrittore vince solo sul SINGOLO record toccato da entrambi.
+let _mergeBase = { wines:[], orders:[], fallate:[], soglie:{} };
+let _rebaseTries = 0;
+const _REBASE_MAX = 3;
+function _setMergeBase(w,o,f,s_){
+  try{ _mergeBase = JSON.parse(JSON.stringify({wines:w||[], orders:o||[], fallate:f||[], soglie:s_||{}})); }
+  catch{ _mergeBase = { wines:[], orders:[], fallate:[], soglie:{} }; }
+}
+// base/local/remote = array di record con .id
+function _merge3(base, local, remote){
+  const bm=new Map((base||[]).map(x=>[x.id,JSON.stringify(x)]));
+  const lm=new Map((local||[]).map(x=>[x.id,x]));
+  const out=new Map((remote||[]).map(x=>[x.id,x]));
+  for(const [id,rec] of lm){
+    const b=bm.get(id);
+    if(b===undefined){ out.set(id, rec); continue; }        // creato localmente
+    if(JSON.stringify(rec)!==b) out.set(id, rec);           // modificato localmente
+  }
+  for(const id of bm.keys()) if(!lm.has(id)) out.delete(id); // eliminato localmente
+  return [...out.values()];
+}
+function _merge3Obj(base, local, remote){
+  const out={...(remote||{})};
+  const b=base||{}, l=local||{};
+  for(const k of Object.keys(l)) if(JSON.stringify(l[k])!==JSON.stringify(b[k])) out[k]=l[k];
+  for(const k of Object.keys(b)) if(!(k in l)) delete out[k];
+  return out;
+}
+// Ricarica lo stato remoto e ci riapplica sopra le modifiche locali non ancora
+// salvate. Ritorna true se il rebase è riuscito.
+async function _rebaseOnRemote(){
+  const [rw, rf, rs, ro, rver, movRows] = await Promise.all([
+    _sbRead("cm_wines"), _sbRead("cm_fallate"), _sbRead("cm_soglie"),
+    _sbRead("cm_orders"), _sbReadVersion(), _loadMovementsV2()
+  ]);
+  const remoteWines = (rw ?? []).map(v=>({...v, nazione: inferPaese(v.nazione, v.regione, v.zona)}));
+  wines       = _merge3(_mergeBase.wines,   wines,   remoteWines);
+  fallate     = _merge3(_mergeBase.fallate, fallate, rf ?? []);
+  orders      = _merge3(_mergeBase.orders,  orders,  ro ?? []);
+  await _rebaseFatture();
+  alertSoglie = _merge3Obj(_mergeBase.soglie, alertSoglie, rs ?? {});
+  // Movimenti: il ledger è già delta-safe. Assorbiamo le righe altrui che non
+  // conosciamo, così giacenza e storico restano coerenti a schermo.
+  if(movRows && !movRows._missing){
+    _movV2Available = true;
+    const live = movRows.filter(r=>!r.deleted);
+    const known = new Set(movements.map(m=>m.id));
+    const incoming = live.filter(r=>!known.has(r.payload.id)).map(r=>r.payload);
+    if(incoming.length){
+      movements = [...incoming, ...movements]
+        .sort((a,b)=> (b.ts||0)-(a.ts||0) || String(b.data||"").localeCompare(String(a.data||"")));
+    }
+    _movSyncBaseline = new Map(live.map(r => [r.payload.id, _movHash(r.payload)]));
+  }
+  try{
+    const remLoc = await _sbRead("cm_locale");
+    if(remLoc && typeof remLoc==="object" && !Array.isArray(remLoc)){
+      localeData = _merge3Obj(_localeBase, localeData, remLoc);
+      _saveLocaleLocal(localeData);
+      _localeBase = JSON.parse(JSON.stringify(localeData));
+    }
+  }catch{}
+  _localVersion  = rver ?? _localVersion;
+  _lastGoodWines = _snapWines(remoteWines); // tripwire valutato contro il remoto vero
+  _setMergeBase(remoteWines, ro ?? [], rf ?? [], rs ?? {});
+  _saveLocalBackup();
+  return true;
+}
+// Re-render sicuro: mai mentre una scheda è aperta o si sta digitando.
+function _renderIfIdle(){
+  if(typeof modalWine!=="undefined" && modalWine) return;
+  const a=document.activeElement;
+  if(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return;
+  if(_mobActive){ _renderMobList(); _renderMobLog(); updateSidebar(); } else render();
+}
+
 async function _flushSave(){
   if(_saveInFlight){ _savePending = true; return; } // accoda — non droppa
 
@@ -825,13 +1208,30 @@ async function _flushSave(){
     //    persa). Ricarica lo stato coerente e chiedi di riapplicare.
     const remoteVersion = await _sbReadVersion();
     if(remoteVersion !== null && remoteVersion > _localVersion){
-      _setDbStatus("sync","Aggiornamento da altra sessione…");
-      notify("⚠️ I dati erano stati aggiornati da un'altra sessione: li ho ricaricati. Ricontrolla e riapplica l'ultima modifica.","err");
-      _saveInFlight = false; // libera il mutex prima del reload
-      _savePending  = false; // scarta la coda: lo stato locale stantio non va scritto
-      await loadData();      // riallinea _localVersion, stato e baseline movimenti
-      return;
+      // Un'altra postazione ha salvato: NON scartiamo la modifica locale, la
+      // rebasiamo sopra lo stato remoto e ritentiamo (max _REBASE_MAX giri).
+      _setDbStatus("sync","Unione modifiche da altra postazione…");
+      if(_rebaseTries >= _REBASE_MAX){
+        _rebaseTries = 0;
+        _setDbStatus("err","Conflitto persistente");
+        notify("⚠️ Conflitto ripetuto con un'altra postazione: modifica NON salvata. Usa \"Sync forzato\".","err");
+        _saveInFlight = false; _savePending = false;
+        return;
+      }
+      _rebaseTries++;
+      try{ await _rebaseOnRemote(); }
+      catch(e){
+        _rebaseTries = 0;
+        _setDbStatus("err","Errore sync");
+        notify("⚠️ Impossibile leggere lo stato remoto — modifica tenuta in locale","err");
+        _saveInFlight = false; _savePending = false;
+        return;
+      }
+      _saveInFlight = false; _savePending = false;
+      _renderIfIdle();
+      return _flushSave(); // ritenta con la versione remota aggiornata
     }
+    _rebaseTries = 0;
 
     // 1.5) TRIPWIRE — blocca il salvataggio AUTOMATICO se il blob sta per subire
     //      un azzeramento/sparizione di massa. Non scrive NIENTE (né blob né
@@ -850,14 +1250,15 @@ async function _flushSave(){
     // 2) BLOB (wines/fallate/soglie/orders) + versione. Il blob contiene la giacenza.
     const newVersion = (_localVersion||0) + 1;
     await Promise.all([
-      _sbUpsert("cm_wines",    { user_id:DB_USER, data:snapshot.wines }),
-      _sbUpsert("cm_fallate",  { user_id:DB_USER, data:snapshot.fallate }),
-      _sbUpsert("cm_soglie",   { user_id:DB_USER, data:snapshot.soglie }),
-      _sbUpsert("cm_orders",   { user_id:DB_USER, data:snapshot.orders }),
+      _sbUpsert("cm_wines",    { user_id:_effectiveDbUser(), data:snapshot.wines }),
+      _sbUpsert("cm_fallate",  { user_id:_effectiveDbUser(), data:snapshot.fallate }),
+      _sbUpsert("cm_soglie",   { user_id:_effectiveDbUser(), data:snapshot.soglie }),
+      _sbUpsert("cm_orders",   { user_id:_effectiveDbUser(), data:snapshot.orders }),
       _sbWriteVersion(newVersion),
     ]);
     _localVersion = newVersion;
     _lastGoodWines = _snapWines(snapshot.wines); // stato buono committato
+    _setMergeBase(snapshot.wines, snapshot.orders, snapshot.fallate, snapshot.soglie);
 
     // 3) MOVIMENTI sul ledger append-only — SOLO dopo che la giacenza è committata,
     //    così movimento e riduzione di giacenza non possono divergere. Se il gate
@@ -895,16 +1296,17 @@ async function forceSave(){
   try{
     _saveLocalBackup(snapshot);
     await Promise.all([
-      _sbUpsert("cm_wines",    { user_id:DB_USER, data:snapshot.wines }),
-      _sbUpsert("cm_fallate",  { user_id:DB_USER, data:snapshot.fallate }),
-      _sbUpsert("cm_soglie",   { user_id:DB_USER, data:snapshot.soglie }),
-      _sbUpsert("cm_orders",   { user_id:DB_USER, data:snapshot.orders }),
+      _sbUpsert("cm_wines",    { user_id:_effectiveDbUser(), data:snapshot.wines }),
+      _sbUpsert("cm_fallate",  { user_id:_effectiveDbUser(), data:snapshot.fallate }),
+      _sbUpsert("cm_soglie",   { user_id:_effectiveDbUser(), data:snapshot.soglie }),
+      _sbUpsert("cm_orders",   { user_id:_effectiveDbUser(), data:snapshot.orders }),
     ]);
     const newVer = (_localVersion||0) + 1;
     await _sbWriteVersion(newVer);
     _localVersion = newVer;
     await _flushMovementsV2(); // movimenti sul ledger, dopo il blob giacenza
     _lastGoodWines = _snapWines(snapshot.wines); // override umano → nuova baseline buona
+    _setMergeBase(snapshot.wines, snapshot.orders, snapshot.fallate, snapshot.soglie);
     _setDbStatus("ok","Sincronizzato");
     notify("✅ Sync forzato — dati inviati a Supabase");
   }catch(e){
@@ -922,35 +1324,44 @@ async function loadData(){
   }
   _setDbStatus("sync","Caricamento…");
   try{
-    const [w,f,s,o,ver,movRows] = await Promise.all([
+    // allSettled: una tabella secondaria che fallisce (RLS mancante, timeout,
+    // tabella assente) non deve più far collassare l'intero caricamento sul
+    // backup locale. Solo cm_wines è critica: senza giacenze non si opera.
+    const R = await Promise.allSettled([
       _sbRead("cm_wines"), _sbRead("cm_fallate"),
       _sbRead("cm_soglie"), _sbRead("cm_orders"), _sbReadVersion(),
       _loadMovementsV2()
     ]);
-    wines       = (w ?? []).map(v=>({...v, nazione: inferPaese(v.nazione, v.regione, v.zona)}));
-    fallate     = f ?? [];
-    alertSoglie = s ?? {};
-    orders      = o ?? [];
-    _riparaReferenzeOrdini();
-    _localVersion = ver ?? 0;
+    const NAMI = ["cm_wines","cm_fallate","cm_soglie","cm_orders","cm_meta","cm_movements_ledger"];
+    const degradate = [];
+    R.forEach((r,i)=>{ if(r.status==="rejected"){
+      degradate.push(NAMI[i]);
+      console.error(`[loadData] ${NAMI[i]}:`, r.reason?.message||r.reason, r.reason?.code||"", r.reason?.details||"");
+    }});
+    if(R[0].status==="rejected") throw R[0].reason; // wines KO → backup locale
+    const val = (i,def)=> R[i].status==="fulfilled" ? R[i].value : def;
 
-    // MOVIMENTI dal ledger append-only cm_movements_ledger.
+    wines       = (val(0,[]) ?? []).map(v=>({...v, nazione: inferPaese(v.nazione, v.regione, v.zona)}));
+    fallate     = val(1,null) ?? fallate ?? [];
+    alertSoglie = val(2,null) ?? alertSoglie ?? {};
+    orders      = val(3,null) ?? orders ?? [];
+    await _loadFatture(); // tollerante: se cm_fatture manca resta il locale
+    _riparaReferenzeOrdini();
+    _localVersion = val(4,null) ?? 0;
+
+    // MOVIMENTI dal ledger append-only cm_movements_ledger = FONTE UNICA (Fase 2).
+    const movRows = val(5, { _missing:true });
     if(movRows && movRows._missing){
-      // Tabella v2 non ancora creata su Supabase: l'app NON si rompe, resta sul
-      // vecchio blob finché non esegui la migration SQL. Nessuna perdita di dati.
+      // Ledger non raggiungibile/assente: NON ripieghiamo sul blob cm_movements
+      // (fonte disallineata/stantia). Cache locale in sola lettura: nessuna
+      // scrittura movimenti finché il ledger non torna.
       _movV2Available = false;
-      const legacy = await _sbRead("cm_movements");
-      movements = legacy ?? [];
-      _movSyncBaseline = new Map();
+      try{ movements = JSON.parse(localStorage.getItem(_lsKey("movements"))||"[]"); }catch{ movements = []; }
+      _movSyncBaseline = new Map(); // baseline vuota → nessun delta scrivibile
+      notify("⚠️ Ledger movimenti non disponibile — movimenti in sola lettura (cache locale)","err");
     } else {
       _movV2Available = true;
-      // Seed una-tantum: se la tabella v2 è vuota ma esiste il vecchio blob, migra.
-      let rows = movRows;
-      if(rows.length === 0){
-        const legacy = await _sbRead("cm_movements"); // null se vuoto/assente
-        if(legacy && legacy.length){ rows = await _seedMovementsV2(legacy); }
-      }
-      const live = rows.filter(r => !r.deleted);
+      const live = movRows.filter(r => !r.deleted);
       movements = live.map(r => r.payload)
         .sort((a,b)=> (b.ts||0)-(a.ts||0) || String(b.data||"").localeCompare(String(a.data||"")));
       _movSyncBaseline = new Map(live.map(r => [r.payload.id, _movHash(r.payload)]));
@@ -959,11 +1370,18 @@ async function loadData(){
     _migrateOrders();
     _migrateWines();
     _lastGoodWines = _snapWines(wines); // baseline integrità = stato remoto appena caricato
+    _setMergeBase(wines, orders, fallate, alertSoglie); // baseline per il merge 3-vie
+    await _syncLocale(); // dati di fatturazione dal cloud
+    await _syncSettings(); // tipologie + rubriche fornitori dal cloud
     _saveLocalBackup(); // update local cache with remote data
-    _setDbStatus("ok","Connesso");
+    if(degradate.length){
+      _setDbStatus("err","Parziale: "+degradate.join(", "));
+      notify("⚠️ Caricamento parziale — non leggibili: "+degradate.join(", "),"err");
+    } else {
+      _setDbStatus("ok","Connesso");
+    }
     if(_mobActive){
       _renderMobList();
-      // Se la lista è ancora vuota dopo il caricamento, potrebbe essere un problema di RLS/user_id
       if(wines.length === 0){
         const list = document.getElementById("mob-list");
         if(list && list.innerHTML === "") list.innerHTML = `<div style="text-align:center;padding:32px 24px;color:var(--txt4);font-size:11px;line-height:1.8">⚠️ Supabase connesso ma nessun dato trovato.<br><span style="font-size:10px;opacity:.7">Verifica l'USER_ID nella config e le policy RLS.<br>Apri la console (F12) per i dettagli.</span></div>`;
@@ -971,8 +1389,10 @@ async function loadData(){
       _renderMobLog(); updateSidebar();
     } else render(); // re-render after async load
   }catch(e){
-    _setDbStatus("err","Errore lettura");
-    notify("⚠️ DB non raggiungibile — carico backup locale","err");
+    const msg = e?.message || String(e);
+    console.error("[loadData] fallito:", msg, e?.code||"", e?.details||"", "| user_id:", _effectiveDbUser());
+    _setDbStatus("err","Errore lettura: "+msg.slice(0,60));
+    notify("⚠️ DB non raggiungibile ("+msg.slice(0,80)+") — carico backup locale","err");
     _loadLocalBackup();
     if(_mobActive){ _renderMobList(); _renderMobLog(); updateSidebar(); } else render();
   }
@@ -1108,10 +1528,10 @@ window.addEventListener("beforeunload", (e) => {
 });
 
 // ─── SIDEBAR COLLAPSE ─────────────────────────────────────────────────────────
-let _sidebarCollapsed = localStorage.getItem("cm_sidebar_collapsed") === "1";
+let _sidebarCollapsed = localStorage.getItem(_lsKey("sidebar_collapsed")) === "1";
 function toggleSidebar(){
   _sidebarCollapsed = !_sidebarCollapsed;
-  localStorage.setItem("cm_sidebar_collapsed", _sidebarCollapsed ? "1" : "0");
+  localStorage.setItem(_lsKey("sidebar_collapsed"), _sidebarCollapsed ? "1" : "0");
   _applySidebarState();
 }
 function _applySidebarState(){
@@ -1130,7 +1550,7 @@ function _applySidebarState(){
 }
 
 // ─── NAVIGATION ───────────────────────────────────────────────────────────────
-const SECTION_TITLES={dashboard:"Plancia",inventario:"Inventario Vini","scarico-serata":"🍾 Scarico Serata",movimenti:"Carico / Scarico",fallate:"Gestione Fallate",ordini:"Ordini Fornitore",export:"Export & Bilancio",impostazioni:"⚙️ Impostazioni"};
+const SECTION_TITLES={dashboard:"Plancia",inventario:"Inventario Vini","scarico-serata":"🍾 Scarico Serata",movimenti:"Carico / Scarico",fallate:"Gestione Fallate",ordini:"Ordini Fornitore",export:"Export & Bilancio",amministrazione:"💶 Amministrazione",impostazioni:"⚙️ Impostazioni"};
 function go(s){
   if(s==="analytics") s="dashboard"; // sezioni fuse in "Plancia"
   section=s;
@@ -1570,6 +1990,7 @@ function render(){
     _loadBozzeSb(); // carica bozze remote in background e aggiorna se ci sono
   }
   else if(section==="export") c.innerHTML=renderExport();
+  else if(section==="amministrazione") c.innerHTML=renderAmministrazione();
   else if(section==="impostazioni") c.innerHTML=renderImpostazioni();
   afterRender();
 }
@@ -1616,6 +2037,28 @@ function _applyShortcutTitles(){
 
 // Funzione pura: filtra e ordina wines secondo i filtri/ordinamento correnti.
 // Usata sia da renderInventario che da renderInventarioOnly (unica source of truth).
+// Intestazioni di gruppo nella tabella inventario: tipologia (sort default) o
+// Paese/Regione (sort sommelier). Unica sorgente per entrambe le viste tabella.
+function _invGroupHdr(list,i,cntMap){
+  const w=list[i], prev=i>0?list[i-1]:null;
+  const cell=(inner)=>`<tr style="background:var(--bg)"><td colspan="12" style="padding:8px 16px 5px;border-top:2px solid rgba(255,159,10,.25);border-bottom:1px solid rgba(255,159,10,.12)">${inner}</td></tr>`;
+  if(invSort==="sommelier"){
+    const pz=_somPaese(w), rg=(w.regione||"").trim();
+    const newP=!prev||_regKey(_somPaese(prev))!==_regKey(pz);
+    const newR=newP||_regKey((prev.regione||"").trim())!==_regKey(rg);
+    let out="";
+    if(newP){
+      const n=list.filter(x=>_regKey(_somPaese(x))===_regKey(pz)).length;
+      out+=cell(`<span style="font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--amber);font-weight:700">${h(pz)}</span>&emsp;<span style="font-size:9px;color:var(--txt4)">${n} etich.</span>`);
+    }
+    if(newR&&rg) out+=`<tr style="background:var(--bg)"><td colspan="12" style="padding:4px 16px 4px 28px;border-bottom:1px solid var(--border)"><span style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--txt3);font-weight:600">${h(rg)}</span></td></tr>`;
+    return out;
+  }
+  if(invSort==="tipologia"&&filterTipo==="tutti"&&(!prev||prev.tipologia!==w.tipologia))
+    return cell(`<span style="font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--amber);font-weight:700">${h(w.tipologia)}</span>&emsp;<span style="font-size:9px;color:var(--txt4)">${cntMap[w.tipologia]||0} etich.</span>`);
+  return "";
+}
+
 function _buildInventarioList(){
   const q=search.toLowerCase();
   const fvit=[...filterVitigni];
@@ -1636,6 +2079,7 @@ function _buildInventarioList(){
     return mq&&mt&&mv&&mf&&md&&mp&&mr&&mn&&mg;
   });
   const d=invSortDir;
+  if(invSort==="sommelier"){ const sl=sommelierSort(list); return d===1?sl:sl.reverse(); }
   const tipoIdxMap=Object.fromEntries(TIPOLOGIE.map((t,i)=>[t,i]));
   const tipoIdx=t=>tipoIdxMap[t]??999;
   if(invSort==="nome") list.sort((a,b)=>d*a.nome.localeCompare(b.nome));
@@ -1829,9 +2273,7 @@ function renderInventarioOnly(){
         tbody.innerHTML=`<tr><td colspan="12" style="text-align:center;padding:40px;color:var(--txt4)">Nessun vino trovato</td></tr>`;
       } else {
         tbody.innerHTML=list.map((w,i_)=>{
-          const prevTipo_=i_>0?list[i_-1].tipologia:"";
-          const groupHdr_=(invSort==="tipologia"&&filterTipo==="tutti"&&w.tipologia!==prevTipo_)?
-            `<tr style="background:var(--bg)"><td colspan="12" style="padding:8px 16px 5px;border-top:2px solid rgba(255,159,10,.25);border-bottom:1px solid rgba(255,159,10,.12)"><span style="font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--amber);font-weight:700">${h(w.tipologia)}</span>&emsp;<span style="font-size:9px;color:var(--txt4)">${tipoCountMap2[w.tipologia]||0} etich.</span></td></tr>`:"";
+          const groupHdr_=_invGroupHdr(list,i_,tipoCountMap2);
           return groupHdr_+_renderWineRow(w);
         }).join("");
       }
@@ -1868,6 +2310,78 @@ function renderInventarioOnly(){
   },120);
 }
 
+// ─── PERIODO PLANCIA ──────────────────────────────────────────────────────────
+// Spina dorsale della dashboard: un solo intervallo pilota TUTTI i riquadri, con
+// confronto automatico sul periodo precedente di pari durata. Prima ogni box
+// usava un orizzonte diverso (30gg / 12 mesi / 90gg) e nulla era confrontabile.
+let _plPer  = _lsGet("pl_periodo","mese");   // oggi | 7g | mese | meseScorso | custom
+let _plGran = _lsGet("pl_gran","giorno");    // giorno | settimana | mese
+let _plDa   = _lsGet("pl_da","");
+let _plA    = _lsGet("pl_a","");
+function _lsGet(k,d){ try{ return localStorage.getItem(_lsKey(k)) ?? d; }catch{ return d; } }
+function _lsSet(k,v){ try{ localStorage.setItem(_lsKey(k),v); }catch{} }
+function _plSetPer(v){ _plPer=v; _lsSet("pl_periodo",v); if(v==="oggi")_plGran="giorno"; render(); }
+function _plSetGran(v){ _plGran=v; _lsSet("pl_gran",v); render(); }
+function _plSetData(which,v){ if(which==="da"){_plDa=v;_lsSet("pl_da",v);} else {_plA=v;_lsSet("pl_a",v);} _plPer="custom"; _lsSet("pl_periodo","custom"); render(); }
+
+const _isoD = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+const _parseD = s => { const [y,m,g]=String(s||"").split("-").map(Number); return new Date(y||1970,(m||1)-1,g||1); };
+const _shiftD = (d,n) => { const x=new Date(d.getFullYear(),d.getMonth(),d.getDate()); x.setDate(x.getDate()+n); return x; };
+const _diffD = (a,b) => Math.round((new Date(b.getFullYear(),b.getMonth(),b.getDate())-new Date(a.getFullYear(),a.getMonth(),a.getDate()))/86400000);
+
+// Intervallo corrente + intervallo precedente di pari durata (per i delta).
+function _plRange(){
+  const oggi=new Date();
+  let da,a,label;
+  if(_plPer==="oggi"){ da=a=oggi; label="Oggi"; }
+  else if(_plPer==="7g"){ a=oggi; da=_shiftD(oggi,-6); label="Ultimi 7 giorni"; }
+  else if(_plPer==="meseScorso"){ da=new Date(oggi.getFullYear(),oggi.getMonth()-1,1); a=new Date(oggi.getFullYear(),oggi.getMonth(),0); label="Mese scorso"; }
+  else if(_plPer==="custom"){ da=_plDa?_parseD(_plDa):new Date(oggi.getFullYear(),oggi.getMonth(),1); a=_plA?_parseD(_plA):oggi; if(a<da){const t=da;da=a;a=t;} label="Periodo scelto"; }
+  else { da=new Date(oggi.getFullYear(),oggi.getMonth(),1); a=oggi; label="Mese corrente"; }
+  const giorni=_diffD(da,a)+1;
+  const prevA=_shiftD(da,-1), prevDa=_shiftD(prevA,-(giorni-1));
+  return { da:_isoD(da), a:_isoD(a), prevDa:_isoD(prevDa), prevA:_isoD(prevA), giorni, label,
+           dLabel:`${da.toLocaleDateString("it-IT")} → ${a.toLocaleDateString("it-IT")}` };
+}
+// Numero di SERVIZI di apertura nell'intervallo (rispetta i doppi servizi).
+function _plServizi(daISO,aISO){
+  const apert=new Set(CONFIG.giorniApertura||[0,1,2,3,4,5,6]);
+  const extra=CONFIG.serviziGiorno||{};
+  let n=0, d=_parseD(daISO); const fine=_parseD(aISO);
+  while(d<=fine){ const wd=d.getDay(); if(apert.has(wd)) n+=(parseInt(extra[wd])||1); d=_shiftD(d,1); }
+  return n;
+}
+// Chiave di bucket per la granularità scelta (settimana = ISO 8601).
+function _plBucket(dataISO, gran){
+  if(gran==="mese") return String(dataISO).slice(0,7);
+  if(gran==="settimana"){
+    const d=_parseD(dataISO), jan4=new Date(d.getFullYear(),0,4);
+    const w1=new Date(jan4); w1.setDate(jan4.getDate()-((jan4.getDay()+6)%7));
+    const wn=Math.floor(_diffD(w1,d)/7)+1;
+    return `${d.getFullYear()}-S${String(wn).padStart(2,"0")}`;
+  }
+  return String(dataISO).slice(0,10);
+}
+function _plBucketLabel(key, gran){
+  if(gran==="mese"){ const [y,m]=key.split("-"); return new Date(+y,+m-1,1).toLocaleString("it-IT",{month:"short",year:"2-digit"}); }
+  if(gran==="settimana") return key.replace("-","·");
+  const d=_parseD(key); return d.toLocaleDateString("it-IT",{day:"2-digit",month:"2-digit"});
+}
+// Elenco ordinato dei bucket che coprono l'intervallo (anche quelli a zero).
+function _plBuckets(daISO,aISO,gran){
+  const out=[], seen=new Set(); let d=_parseD(daISO); const fine=_parseD(aISO);
+  while(d<=fine){ const k=_plBucket(_isoD(d),gran); if(!seen.has(k)){ seen.add(k); out.push(k); } d=_shiftD(d,1); }
+  return out;
+}
+// Delta % vs periodo precedente, già formattato.
+function _plDelta(cur,prev){
+  const c=parseFloat(cur)||0, p=parseFloat(prev)||0;
+  if(!p) return c>0?`<span style="color:#30D158">nuovo</span>`:`<span style="color:var(--txt4)">—</span>`;
+  const v=(c-p)/Math.abs(p)*100;
+  const col=v>=0?"#30D158":"#FF453A";
+  return `<span style="color:${col}">${v>=0?"▲":"▼"} ${fmtN(Math.abs(v),1)}%</span> <span style="color:var(--txt4)">vs prec.</span>`;
+}
+
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
 function renderPlancia(){
   // ══════════════════════════ COMPUTE PHASE ══════════════════════════
@@ -1892,21 +2406,36 @@ function renderPlancia(){
     <div style="font-size:11px;color:var(--txt4);margin-top:8px">${sub}</div>
   </div>`;
 
-  // ── VENDITE filtrate (regione/tipologia/nazione) ──
-  const vendFilt=_mov.filter(m=>m.tipo==="scarico").map(m=>({...m,wine:wineMap[m.wineId]||null}))
+  // ── VENDITE filtrate (periodo + regione/tipologia/nazione) ──
+  const R=_plRange();
+  const _inRange=(m,da,a)=>{const d=(m.data||"");return d>=da&&d<=a;};
+  const _vendAll=_mov.filter(m=>m.tipo==="scarico").map(m=>({...m,wine:wineMap[m.wineId]||null}))
     .filter(m=>m.wine&&(!analyticsNazione||_wineNaz[m.wine.id]===analyticsNazione)&&(!analyticsRegione||m.wine.regione===analyticsRegione)&&(!analyticsTipo||m.wine.tipologia===analyticsTipo));
-  const totQty=vendFilt.reduce((a,m)=>a+m.qty,0);
-  const totRicavo=vendFilt.reduce((a,m)=>a+calcRicavoMovimento(m,m.wine),0);
-  const totCosto=vendFilt.reduce((a,m)=>a+calcCostoMovimento(m,m.wine),0);
-  const totMargine=totRicavo-totCosto;
+  const vendFilt=_vendAll.filter(m=>_inRange(m,R.da,R.a));
+  const vendPrev=_vendAll.filter(m=>_inRange(m,R.prevDa,R.prevA));
+  const _agg=arr=>{
+    const q=arr.reduce((a,m)=>a+(parseInt(m.qty)||0),0);
+    const rv=arr.reduce((a,m)=>a+calcRicavoMovimento(m,m.wine),0);
+    const sv=arr.reduce((a,m)=>a+calcServizioMovimento(m),0);
+    const co=arr.reduce((a,m)=>a+calcCostoMovimento(m,m.wine),0);
+    return {qty:q, ricavoVino:rv, servizio:sv, ricavo:rv+sv, costo:co, margine:rv+sv-co};
+  };
+  const A=_agg(vendFilt), P=_agg(vendPrev);
+  const serviziPer=_plServizi(R.da,R.a)||1, serviziPrev=_plServizi(R.prevDa,R.prevA)||1;
+  const totQty=A.qty, totRicavoVino=A.ricavoVino, totServizio=A.servizio;
+  const totRicavo=A.ricavo, totCosto=A.costo, totMargine=A.margine;
+  const foodCostPct = totRicavo ? totCosto/totRicavo*100 : 0;
+  const ricavoPerServizio = totRicavo/serviziPer;
+  const ricavoPerBt = totQty ? totRicavo/totQty : 0;
+  const btPerServizio = totQty/serviziPer;
 
-  // Trend 12 mesi rolling
-  const now=new Date(), monthMap={};
-  for(let i=11;i>=0;i--){const d=new Date(now.getFullYear(),now.getMonth()-i,1);const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;if(key<"2026-01")continue;monthMap[key]={key,label:d.toLocaleString("it-IT",{month:"short",year:"2-digit"}),ricavo:0,costo:0,vendute:0};}
+  // Trend alla granularità scelta, sull'intervallo selezionato
+  const monthMap={};
+  _plBuckets(R.da,R.a,_plGran).forEach(k=>{ monthMap[k]={key:k,label:_plBucketLabel(k,_plGran),ricavo:0,costo:0,vendute:0}; });
   const wineMarginMap={};
   vendFilt.forEach(m=>{
-    const key=(m.data||"").slice(0,7);
-    if(monthMap[key]){monthMap[key].ricavo+=calcRicavoMovimento(m,m.wine);monthMap[key].costo+=calcCostoMovimento(m,m.wine);monthMap[key].vendute+=m.qty;}
+    const key=_plBucket(m.data||"",_plGran);
+    if(monthMap[key]){monthMap[key].ricavo+=calcRicavoTotaleMovimento(m,m.wine);monthMap[key].costo+=calcCostoMovimento(m,m.wine);monthMap[key].vendute+=m.qty;}
     const mb=calcRicavoMovimento(m,m.wine)-calcCostoMovimento(m,m.wine);
     if(!wineMarginMap[m.wineId]) wineMarginMap[m.wineId]={name:m.wine.nome,margine:0,qty:0};
     wineMarginMap[m.wineId].margine+=mb; wineMarginMap[m.wineId].qty+=m.qty;
@@ -1959,7 +2488,6 @@ function renderPlancia(){
   ];
   const kpiStato2=[
     {label:"Valore al Costo",value:fmt(s.valoreTot),sub:"costo acquisto × giacenza (escl. IVA)",cls:"c-orange"},
-    {label:"Valore Potenziale",value:fmt(s.valoreCarta),sub:"prezzo carta × giacenza",cls:"c-green"},
     {label:"Margine Lordo",value:fmt(s.margineLordoTot),sub:"potenziale vendita",cls:"c-blue"},
   ];
 
@@ -1975,7 +2503,7 @@ function renderPlancia(){
   movements.filter(m=>!m.deleted&&(m.data||"")>=_cut30).forEach(m=>{
     const w=wineMap[m.wineId]; const q=parseInt(m.qty)||0;
     if(m.tipo==="carico"){ const p=costoCarico(m,w); const iva=(parseInt(w?.iva)||22)/100; costo30+=p*(1+iva)*q; cQ30+=q; }
-    else if(m.tipo==="scarico"){ ricavo30+=_pf(calcRicavoMovimento(m,w)); sQ30+=q; }
+    else if(m.tipo==="scarico"){ ricavo30+=_pf(calcRicavoTotaleMovimento(m,w)); sQ30+=q; }
   });
   const netto30=ricavo30-costo30;
 
@@ -2097,7 +2625,7 @@ function renderPlancia(){
   _mov.forEach(m=>{
     const k=(m.data||"").slice(0,7); if(!cashMap[k]) return;
     const w=wineMap[m.wineId];
-    if(m.tipo==="scarico"&&w) cashMap[k].ricavo+=calcRicavoMovimento(m,w);
+    if(m.tipo==="scarico"&&w) cashMap[k].ricavo+=calcRicavoTotaleMovimento(m,w);
     else if(m.tipo==="carico"){ const p=costoCarico(m,w); const iva=(parseInt(w?.iva)||22)/100; cashMap[k].spesa+=p*(1+iva)*m.qty; }
   });
   const cashData=Object.values(cashMap);
@@ -2167,14 +2695,48 @@ function renderPlancia(){
     ${(analyticsNazione||analyticsRegione||analyticsTipo)?`<button class="btn-outline btn-sm" onclick="analyticsNazione='';analyticsRegione='';analyticsTipo='';render()">✕ Reset</button>`:""}
     <span style="margin-left:auto;font-size:10px;color:var(--txt4)">${totQty} bottiglie vendute</span>
   </div>`;
+  // ── SELETTORE PERIODO + GRANULARITÀ (pilota tutta la pagina) ──
+  const _segBtn=(attivo,val,label,fn)=>`<button onclick="${fn}('${val}')" style="padding:6px 12px;font-size:11px;font-family:inherit;letter-spacing:.04em;cursor:pointer;border:1px solid ${attivo?"rgba(180,83,9,.55)":"var(--border)"};background:${attivo?"rgba(255,159,10,.14)":"transparent"};color:${attivo?"var(--amber)":"var(--txt3)"}">${label}</button>`;
+  html+=`<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
+    <div style="display:flex;gap:1px">
+      ${[["oggi","Oggi"],["7g","7 giorni"],["mese","Mese corrente"],["meseScorso","Mese scorso"]].map(([v,l])=>_segBtn(_plPer===v,v,l,"_plSetPer")).join("")}
+    </div>
+    <div style="display:flex;gap:6px;align-items:center">
+      <input type="date" class="form-input" style="width:auto;font-size:11px;padding:4px 8px" value="${h(_plDa||R.da)}" onchange="_plSetData('da',this.value)">
+      <span style="color:var(--txt4);font-size:11px">→</span>
+      <input type="date" class="form-input" style="width:auto;font-size:11px;padding:4px 8px" value="${h(_plA||R.a)}" onchange="_plSetData('a',this.value)">
+    </div>
+    <div style="display:flex;gap:1px;margin-left:auto">
+      <span style="align-self:center;font-size:10px;color:var(--txt4);margin-right:8px;letter-spacing:.1em;text-transform:uppercase">Vista</span>
+      ${[["giorno","Giorno"],["settimana","Settimana"],["mese","Mese"]].map(([v,l])=>_segBtn(_plGran===v,v,l,"_plSetGran")).join("")}
+    </div>
+  </div>
+  <div style="font-size:10px;color:var(--txt4);margin-bottom:14px;letter-spacing:.04em">
+    ${h(R.label)} · ${h(R.dLabel)} · ${R.giorni} giorni di calendario · <span style="color:var(--amber3)">${serviziPer} servizi di apertura</span>
+    &nbsp;·&nbsp; confronto con ${h(_parseD(R.prevDa).toLocaleDateString("it-IT"))} → ${h(_parseD(R.prevA).toLocaleDateString("it-IT"))}
+  </div>`;
   // KPI performance
   html+=`<div class="kpi-grid g4" style="margin-bottom:20px">
-    ${[{label:"Bottiglie Vendute",v:totQty,cls:"c-amber",sub:"scarichi totali"},{label:"Costo Venduto",v:fmt(totCosto),cls:"c-red",sub:"costo+IVA"},{label:"Ricavo Totale",v:fmt(totRicavo),cls:"c-green",sub:"a prezzo carta"},{label:"Margine Realizzato",v:fmt(totMargine),cls:totMargine>=0?"c-blue":"c-red",sub:totRicavo?`${fmtN(totMargine/totRicavo*100,1)}% del ricavo`:"—"}].map(k=>`<div class="kpi-card"><div class="kpi-label">${k.label}</div><div class="kpi-val ${k.cls}">${k.v}</div><div class="kpi-sub">${k.sub}</div></div>`).join("")}
+    ${[
+      {label:"Ricavo Totale",v:fmt(totRicavo),cls:"c-green",sub:_plDelta(totRicavo,P.ricavo)+(totServizio>0?`<br><span style="color:var(--txt4)">vino ${fmt(totRicavoVino)} + servizio ${fmt(totServizio)}</span>`:"")},
+      {label:"Bottiglie Vendute",v:totQty,cls:"c-amber",sub:_plDelta(totQty,P.qty)+`<br><span style="color:var(--txt4)">${fmtN(btPerServizio,1)} per servizio</span>`},
+      {label:"Costo Merce",v:`${fmtN(foodCostPct,1)}%`,cls:foodCostPct<=35?"c-blue":"c-red",sub:`${fmt(totCosto)} sul venduto<br><span style="color:var(--txt4)">obiettivo ≤ 35%</span>`},
+      {label:"Margine Realizzato",v:fmt(totMargine),cls:totMargine>=0?"c-blue":"c-red",sub:_plDelta(totMargine,P.margine)+`<br><span style="color:var(--txt4)">${totRicavo?fmtN(totMargine/totRicavo*100,1)+"% del ricavo":"—"}</span>`},
+    ].map(k=>`<div class="kpi-card"><div class="kpi-label">${k.label}</div><div class="kpi-val ${k.cls}">${k.v}</div><div class="kpi-sub">${k.sub}</div></div>`).join("")}
+  </div>`;
+  // KPI operativi: la lettura "per servizio" è quella che conta in un wine bar
+  html+=`<div class="kpi-grid g4" style="margin-bottom:20px">
+    ${[
+      {label:"Ricavo per Servizio",v:fmt(ricavoPerServizio),cls:"c-green",sub:_plDelta(ricavoPerServizio,P.ricavo/serviziPrev)},
+      {label:"Ricavo Medio/Bottiglia",v:fmt(ricavoPerBt),cls:"c-amber",sub:`<span style="color:var(--txt4)">servizio incluso</span>`},
+      {label:"Peso del Servizio",v:`${fmtN(totRicavo?totServizio/totRicavo*100:0,1)}%`,cls:"c-orange",sub:`${fmt(totServizio)} sull'incasso<br><span style="color:var(--txt4)">margine 100%</span>`},
+      {label:"Servizi nel Periodo",v:serviziPer,cls:"c-blue",sub:`<span style="color:var(--txt4)">${R.giorni} giorni di calendario</span>`},
+    ].map(k=>`<div class="kpi-card"><div class="kpi-label">${k.label}</div><div class="kpi-val ${k.cls}">${k.v}</div><div class="kpi-sub">${k.sub}</div></div>`).join("")}
   </div>`;
   // Trend | Top 10 margine
   html+=`<div class="kpi-grid g2" style="margin-bottom:20px">
     <div class="card">
-      <div class="section-label"><span>📈 Trend Mensile · Ricavo & Margine</span></div>
+      <div class="section-label"><span>📈 Andamento per ${_plGran==="giorno"?"Giorno":_plGran==="settimana"?"Settimana":"Mese"} · Ricavo & Margine</span></div>
       <div class="chart-container" style="height:240px"><canvas id="ch-trend"></canvas></div>
     </div>
     <div class="card">
@@ -2513,7 +3075,7 @@ function renderInventario(){
 
   // Opzioni sort
   const sortOpts=[
-    {v:"tipologia",label:"Tipologia"},{v:"nome",label:"Nome vino"},
+    {v:"tipologia",label:"Tipologia"},{v:"sommelier",label:"Sommelier (Paese→Regione)"},{v:"nome",label:"Nome vino"},
     {v:"produttore",label:"Produttore"},{v:"annata",label:"Annata"},
     {v:"regione",label:"Regione"},{v:"nazione",label:"Nazione"},
     {v:"giacenza",label:"Giacenza"},{v:"prezzoAcq",label:"P. Acquisto"},
@@ -2658,10 +3220,7 @@ function renderInventario(){
         <tbody>
         ${list.length===0?`<tr><td colspan="12" style="text-align:center;padding:40px;color:var(--txt4)">Nessun vino trovato</td></tr>`:
         list.map((w,i_)=>{
-          const prevTipo_=i_>0?list[i_-1].tipologia:"";
-          const groupHdr_=(invSort==="tipologia"&&filterTipo==="tutti"&&w.tipologia!==prevTipo_)?
-            `<tr style="background:var(--bg)"><td colspan="12" style="padding:8px 16px 5px;border-top:2px solid rgba(255,159,10,.25);border-bottom:1px solid rgba(255,159,10,.12)"><span style="font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--amber);font-weight:700">${h(w.tipologia)}</span>&emsp;<span style="font-size:9px;color:var(--txt4)">${tipoCountMap[w.tipologia]||0} etich.</span></td></tr>`
-            : "";
+          const groupHdr_=_invGroupHdr(list,i_,tipoCountMap);
           return groupHdr_+_renderWineRow(w);
         }).join("")}
         </tbody>
@@ -2896,6 +3455,7 @@ function registraScaricaSerata(){
     id: uid(), wineId: r.wine.id, wineName: r.wine.nome, produttore: r.wine.produttore, nazione: r.wine.nazione||"",
     tipo: "scarico", qty: r.qty, data, fattura: "", fornitore: "",
     costoUnitarioIva: calcCostoIvaBottiglia(r.wine),
+    servizio: parseFloat(CONFIG.servizioBottiglia)||0, // snapshot servizio al banco
     note: note || "Scarico serata", ts: Date.now()
   }));
   movements = [...newMovs, ...movements];
@@ -2935,6 +3495,7 @@ function registraScaricaSingoloVino(wineId){
     id:uid(), wineId, wineName:wine.nome, produttore:wine.produttore, nazione:wine.nazione||"",
     tipo:"scarico", qty, data, fattura:"", fornitore:"",
     costoUnitarioIva: calcCostoIvaBottiglia(wine),
+    servizio: parseFloat(CONFIG.servizioBottiglia)||0, // snapshot servizio al banco
     note:note||"Scarico serata", ts:Date.now()
   }, ...movements];
 
@@ -3359,7 +3920,9 @@ function _renderReportBody(dataSelezionata){
   const dateConScarichi = [...new Set(movements.filter(m=>m.tipo==="scarico").map(m=>m.data))].sort((a,b)=>b.localeCompare(a));
   const scarichi = movements.filter(m=>m.tipo==="scarico"&&m.data===dataSelezionata).sort((a,b)=>(b.ts||0)-(a.ts||0));
   const totBt = scarichi.reduce((s,m)=>s+m.qty,0);
-  const totRicavo = scarichi.reduce((s,m)=>s+calcRicavoMovimento(m,wineMap[m.wineId]),0);
+  const totRicavoVino = scarichi.reduce((s,m)=>s+calcRicavoMovimento(m,wineMap[m.wineId]),0);
+  const totServizio = scarichi.reduce((s,m)=>s+calcServizioMovimento(m),0);
+  const totRicavo = totRicavoVino + totServizio;
   const totCosto = scarichi.reduce((s,m)=>s+calcCostoMovimento(m,wineMap[m.wineId]),0);
   const totMargine = totRicavo - totCosto;
   const byTipo = {};
@@ -3385,7 +3948,7 @@ function _renderReportBody(dataSelezionata){
   // ── KPI strip ──
   const kpiHtml = `<div class="kpi-grid g4" style="margin-bottom:14px">
     <div class="kpi-card"><div class="kpi-label">Bottiglie</div><div class="kpi-val c-amber">${totBt}</div></div>
-    <div class="kpi-card"><div class="kpi-label">Ricavo Stimato</div><div class="kpi-val c-green">${fmt(totRicavo)}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Ricavo Stimato</div><div class="kpi-val c-green">${fmt(totRicavo)}</div>${totServizio>0?`<div class="kpi-sub">vino ${fmt(totRicavoVino)} + servizio ${fmt(totServizio)}</div>`:""}</div>
     <div class="kpi-card"><div class="kpi-label">Costo Merce</div><div class="kpi-val c-amber">${fmt(totCosto)}</div></div>
     <div class="kpi-card"><div class="kpi-label">Margine Lordo</div><div class="kpi-val" style="color:${totMargine>=0?"#30D158":"#FF453A"}">${fmt(totMargine)}</div><div class="kpi-sub">${totRicavo?fmtN(totMargine/totRicavo*100,1)+"% sul ricavo":"—"}</div></div>
   </div>`;
@@ -3449,12 +4012,13 @@ function _renderReportBody(dataSelezionata){
 function exportReportSerataCSV(data){
   const wineMap=Object.fromEntries(wines.map(w=>[w.id,w]));
   const scarichi=movements.filter(m=>m.tipo==="scarico"&&m.data===data);
-  const headers=["Vino","Produttore","Tipologia","Annata","Nazione","Bt","Ricavo","Costo+IVA","Margine","Note"];
-  const rows=scarichi.map(m=>{const w=wineMap[m.wineId];const ric=calcRicavoMovimento(m,w);const cos=calcCostoMovimento(m,w);return [m.wineName,m.produttore||"",w?.tipologia||"",w?.annata||"",m.nazione||w?.nazione||"",m.qty,fmtN(ric),fmtN(cos),fmtN(ric-cos),m.note||""];});
+  const headers=["Vino","Produttore","Tipologia","Annata","Nazione","Bt","Ricavo Vino","Servizio","Ricavo Totale","Costo+IVA","Margine","Note"];
+  const rows=scarichi.map(m=>{const w=wineMap[m.wineId];const ric=calcRicavoMovimento(m,w);const srv=calcServizioMovimento(m);const cos=calcCostoMovimento(m,w);return [m.wineName,m.produttore||"",w?.tipologia||"",w?.annata||"",m.nazione||w?.nazione||"",m.qty,fmtN(ric),fmtN(srv),fmtN(ric+srv),fmtN(cos),fmtN(ric+srv-cos),m.note||""];});
   const totRic=scarichi.reduce((s,m)=>s+calcRicavoMovimento(m,wineMap[m.wineId]),0);
+  const totSrv=scarichi.reduce((s,m)=>s+calcServizioMovimento(m),0);
   const totCos=scarichi.reduce((s,m)=>s+calcCostoMovimento(m,wineMap[m.wineId]),0);
   rows.push([]);
-  rows.push(["","","","","TOTALE",scarichi.reduce((s,m)=>s+m.qty,0),"",fmtN(totRic),fmtN(totCos),fmtN(totRic-totCos),""]);
+  rows.push(["","","","","TOTALE",scarichi.reduce((s,m)=>s+m.qty,0),fmtN(totRic),fmtN(totSrv),fmtN(totRic+totSrv),fmtN(totCos),fmtN(totRic+totSrv-totCos),""]);
   dlCSV(toCSV([headers,...rows]),`report_serata_${data}.csv`);
   notify("Serata esportata");
 }
@@ -3635,6 +4199,7 @@ function registraMovimento(){
   const _movEntry = {id:uid(),wineId,wineName:wine.nome,produttore:wine.produttore,nazione:wine.nazione||"",tipo,qty:q,data,fattura,fornitore,note,ts:Date.now()};
   if(_isRettifica(tipo)) _movEntry.segno = segno;
   if(_costoSnap) _movEntry.costoUnitarioIva = _costoSnap;
+  if(tipo==="scarico") _movEntry.servizio = parseFloat(CONFIG.servizioBottiglia)||0; // snapshot servizio
   movements=[_movEntry,...movements];
   movForm={...movForm,wineId:"",_wineText:"",_newProduttore:"",_newTipologia:"Rosso",_newPrezzoCarta:"",_newVitigni:"",_newZona:"",_newAnnata:"",_newRegione:"",_newNazione:"Italia",_newIva:22,_newDistributore:"",_tipologia:"",_newMode:false,qty:1,fattura:"",fornitore:"",note:"",prezzoAcqLotto:"",segno:"+"};
   scheduleSave();
@@ -5149,27 +5714,130 @@ function _getOrdineById(id){
 }
 
 // ─── DATI LOCALE + EMAIL FORNITORI ───────────────────────────────────────────
-// localeData: dati del ristorante/osteria — usati in stampaOrdine, emailOrdine
+// localeData: dati del locale — usati in stampaOrdine, emailOrdine
 // e nella sezione Impostazioni. Persistiti in localStorage.
-function _loadLocale(){ const _def={nome:"",indirizzo:"",cap:"",citta:"",provincia:"",piva:"",cf:"",sdi:"",pec:"",email:"",telefono:"",noteConsegna:""}; try{ const s=localStorage.getItem("cm_locale"); return s?{..._def,...JSON.parse(s)}:_def; }catch{ return _def; } }
-function _saveLocale(d){ try{ localStorage.setItem("cm_locale",JSON.stringify(d)); }catch{} }
+// Sovrascrive solo con valori realmente compilati: una stringa vuota in arrivo
+// da storage o cloud non deve cancellare un dato cablato in configurazione.
+function _mergeNonEmpty(base, over){
+  const out = { ...(base||{}) };
+  for(const [k,v] of Object.entries(over||{})){
+    if(v !== null && v !== undefined && String(v).trim() !== "") out[k] = v;
+  }
+  return out;
+}
+function _loadLocale(){ const _def={nome:"",indirizzo:"",cap:"",citta:"",provincia:"",piva:"",cf:"",sdi:"",pec:"",email:"",telefono:"",noteConsegna:""}; const _base=_mergeNonEmpty(_def, CONFIG.localeDefault); try{ const s=localStorage.getItem(_lsKey("locale")); return s?_mergeNonEmpty(_base, JSON.parse(s)):_base; }catch{ return _base; } }
+function _saveLocaleLocal(d){ try{ localStorage.setItem(_lsKey("locale"),JSON.stringify(d)); }catch{} }
+let _localeBase = {}; // baseline per il merge campo-per-campo tra postazioni
+// I dati di fatturazione seguono il locale, non il browser: localStorage resta per
+// l'offline, la verità sta su Supabase (tabella cm_locale, stesso pattern dei blob).
+function _saveLocale(d){
+  _saveLocaleLocal(d);
+  if(!_sb) return;
+  _sbUpsert("cm_locale", { user_id:_effectiveDbUser(), data:d })
+    .then(()=>{ _localeBase = JSON.parse(JSON.stringify(d)); })
+    .catch(e=>{ console.warn("[locale] upsert fallito:", e?.message||e); notify("⚠️ Dati di fatturazione salvati solo in locale: sincronizzazione fallita","err"); });
+}
+// Allineamento all'avvio e dopo un rebase.
+async function _syncLocale(){
+  if(!_sb) return;
+  try{
+    const remoto = await _sbRead("cm_locale");
+    if(remoto && typeof remoto==="object" && !Array.isArray(remoto)){
+      localeData = _mergeNonEmpty(localeData, remoto);
+      _saveLocaleLocal(localeData);
+      _localeBase = JSON.parse(JSON.stringify(localeData));
+    }else{
+      // Tabella ancora vuota: se in locale c'è già qualcosa, la si porta sul cloud
+      // una volta sola, così i dati già inseriti non restano prigionieri del browser.
+      const compilato = Object.values(localeData||{}).some(v=>String(v||"").trim());
+      if(compilato){
+        await _sbUpsert("cm_locale", { user_id:_effectiveDbUser(), data:localeData });
+        _localeBase = JSON.parse(JSON.stringify(localeData));
+      }
+    }
+  }catch(e){ console.warn("[locale] sync fallita:", e?.message||e); }
+}
 let localeData = _loadLocale();
 
 // Rubrica email fornitori — oggetto {nome_fornitore_lowercase: "email@..."}
-function _loadFornEmails(){ try{ const s=localStorage.getItem("cm_forn_emails"); return s?JSON.parse(s):{}; }catch{ return {}; } }
-function _saveFornEmails(obj){ try{ localStorage.setItem("cm_forn_emails",JSON.stringify(obj)); }catch{} }
+function _loadFornEmails(){ try{ const s=localStorage.getItem(_lsKey("forn_emails")); return s?JSON.parse(s):{}; }catch{ return {}; } }
+function _saveFornEmails(obj){ try{ localStorage.setItem(_lsKey("forn_emails"),JSON.stringify(obj)); }catch{} _pushSettings(); }
 let _fornEmails = _loadFornEmails();
 function _getFornEmail(forn){ return _fornEmails[(forn||"").toLowerCase().trim()]||""; }
 function _setFornEmail(forn, email){ _fornEmails[(forn||"").toLowerCase().trim()]=email.trim(); _saveFornEmails(_fornEmails); }
 function _getAllFornEmails(){ return _fornEmails; }
 
 // Rubrica telefoni fornitori
-function _loadFornTelefoni(){ try{ const s=localStorage.getItem("cm_forn_tel"); return s?JSON.parse(s):{}; }catch{ return {}; } }
-function _saveFornTelefoni(obj){ try{ localStorage.setItem("cm_forn_tel",JSON.stringify(obj)); }catch{} }
+function _loadFornTelefoni(){ try{ const s=localStorage.getItem(_lsKey("forn_tel")); return s?JSON.parse(s):{}; }catch{ return {}; } }
+function _saveFornTelefoni(obj){ try{ localStorage.setItem(_lsKey("forn_tel"),JSON.stringify(obj)); }catch{} _pushSettings(); }
 let _fornTelefoni = _loadFornTelefoni();
 function _getFornTelefono(forn){ return _fornTelefoni[(forn||"").toLowerCase().trim()]||""; }
 function _setFornTelefono(forn, tel){ _fornTelefoni[(forn||"").toLowerCase().trim()]=tel.trim(); _saveFornTelefoni(_fornTelefoni); }
 function _getAllFornTelefoni(){ return _fornTelefoni; }
+
+// ─── IMPOSTAZIONI PERSISTENTI SUL CLOUD (cm_settings) ────────────────────────
+// Tipologie e rubriche fornitori vivevano SOLO in localStorage: su origine
+// file:// Chrome lo azzera con facilità (pulizia dati, cambio profilo/cartella)
+// e su una seconda postazione erano comunque sempre vuote. Ora seguono il locale,
+// non il browser. Tabella assente ⇒ degradazione silenziosa al comportamento
+// precedente, nessuna rottura.
+let _settingsTableOk  = true;
+let _settingsPushTimer = null;
+
+function _settingsSnapshot(){
+  return {
+    tipologie:    [...TIPOLOGIE],
+    fornEmails:   { ..._fornEmails },
+    fornTelefoni: { ..._fornTelefoni }
+  };
+}
+async function _sbReadSettings(){
+  if(!_sb) return null;
+  try{
+    const { data, error } = await _sb.from("cm_settings").select("data").eq("user_id", _effectiveDbUser());
+    if(error){ _settingsTableOk = false; return { _missing:true }; }
+    _settingsTableOk = true;
+    if(!data || !data.length) return {};
+    return data[0].data ?? {};
+  }catch{ _settingsTableOk = false; return { _missing:true }; }
+}
+async function _sbUpsertSettings(){
+  if(!_sb || !_settingsTableOk) return;
+  try{
+    const { error } = await _sb.from("cm_settings")
+      .upsert({ user_id:_effectiveDbUser(), data:_settingsSnapshot() }, { onConflict:"user_id" });
+    if(error){ _settingsTableOk = false; console.warn("[settings] upsert:", error.message); }
+  }catch(e){ _settingsTableOk = false; console.warn("[settings] upsert:", e?.message||e); }
+}
+// Debounce: una raffica di onchange sui campi rubrica = una sola scrittura.
+function _pushSettings(){
+  clearTimeout(_settingsPushTimer);
+  _settingsPushTimer = setTimeout(_sbUpsertSettings, 600);
+}
+// Allineamento all'avvio. Rubriche: UNIONE per chiave (il remoto vince sui
+// conflitti) — una postazione non cancella più le voci inserite sull'altra.
+async function _syncSettings(){
+  const r = await _sbReadSettings();
+  if(!r || r._missing) return; // tabella non creata: resta il comportamento locale
+  let dirty = false;
+
+  if(Array.isArray(r.tipologie) && r.tipologie.length){
+    TIPOLOGIE.length = 0;
+    r.tipologie.forEach(t=>TIPOLOGIE.push(t));
+    try{ localStorage.setItem(_lsKey("tipologie"), JSON.stringify(TIPOLOGIE)); }catch{}
+  } else if(TIPOLOGIE.length){ dirty = true; }
+
+  const remE = r.fornEmails   || {};
+  const remT = r.fornTelefoni || {};
+  const mE = { ..._fornEmails,   ...remE };
+  const mT = { ..._fornTelefoni, ...remT };
+  if(Object.keys(mE).length !== Object.keys(remE).length) dirty = true;
+  if(Object.keys(mT).length !== Object.keys(remT).length) dirty = true;
+  _fornEmails   = mE; try{ localStorage.setItem(_lsKey("forn_emails"), JSON.stringify(_fornEmails)); }catch{}
+  _fornTelefoni = mT; try{ localStorage.setItem(_lsKey("forn_tel"),    JSON.stringify(_fornTelefoni)); }catch{}
+
+  if(dirty) await _sbUpsertSettings(); // porta sul cloud ciò che esisteva solo qui
+}
 
 // Converte numero telefono in formato wa.me (solo cifre + eventuale +)
 function _waNum(tel){ return (tel||"").replace(/[\s\-().]/g,""); }
@@ -5583,12 +6251,12 @@ function renderImpostazioni(){
     <div class="card">
       <div class="section-label"><span>🏠 Dati del Locale</span></div>
       <div class="form-grid g2">
-        <div class="col-span-2"><label class="form-label">Nome Locale</label><input class="form-input" id="loc-nome" value="${h(d.nome)}" placeholder="Osteria Lagrandissima"></div>
+        <div class="col-span-2"><label class="form-label">Nome Locale</label><input class="form-input" id="loc-nome" value="${h(d.nome)}" placeholder="Palinurobar"></div>
         <div class="col-span-2"><label class="form-label">Indirizzo</label><input class="form-input" id="loc-indirizzo" value="${h(d.indirizzo)}" placeholder="es. Via Roma 1"></div>
         <div><label class="form-label">CAP</label><input class="form-input" id="loc-cap" value="${h(d.cap)}" placeholder="20100"></div>
         <div><label class="form-label">Città</label><input class="form-input" id="loc-citta" value="${h(d.citta)}" placeholder="Milano"></div>
         <div><label class="form-label">Provincia</label><input class="form-input" id="loc-provincia" value="${h(d.provincia)}" placeholder="MI"></div>
-        <div><label class="form-label">Email locale</label><input class="form-input" id="loc-email" value="${h(d.email)}" placeholder="info@osteria.it"></div>
+        <div><label class="form-label">Email locale</label><input class="form-input" id="loc-email" value="${h(d.email)}" placeholder="info@palinurobar.it"></div>
         <div><label class="form-label">Telefono</label><input class="form-input" id="loc-telefono" value="${h(d.telefono)}" placeholder="+39 02 1234567"></div>
       </div>
       <div class="section-label" style="margin-top:20px"><span>🧾 Dati Fatturazione</span></div>
@@ -5641,7 +6309,7 @@ function renderExport(){
   const totIvaStock=wines.reduce((s,w)=>s+calcValore(w)*((parseInt(w.iva)||22)/100),0);
   const s=getStats();
 
-  let html=_transferCardHtml()+`<div class="card card-amber" style="margin-bottom:20px">
+  let html=(CONFIG.trasferimenti?_transferCardHtml():"")+`<div class="card card-amber" style="margin-bottom:20px">
     <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px">
       <div><div style="font-size:10px;letter-spacing:.25em;text-transform:uppercase;color:var(--txt2);margin-bottom:4px">💾 Bilancio di Magazzino</div><div style="font-family:'Montserrat',sans-serif;font-weight:300;font-size:1.3rem;color:var(--txt)">Situazione al ${dateStr}</div></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
@@ -5883,6 +6551,20 @@ function closeWineModal(e){
   document.getElementById("wine-modal-backdrop").classList.add("hidden");
   const delBtn=document.getElementById("modal-delete-btn"); if(delBtn) delBtn.remove();
 }
+// Autocomplete geo/produttori nella scheda vino: datalist rigenerati a ogni
+// apertura del modal (sorgente = valori distinti dai dati + seed regioni).
+function _mfSyncRegioni(naz){
+  const dl=document.getElementById("mf-reg-dl");
+  if(dl) dl.innerHTML=_ordRegioniPer((naz||"").trim()).map(v=>`<option value="${h(v)}">`).join("");
+}
+function _mfInferNazione(reg){
+  const el=document.getElementById("mf-nazione");
+  if(!el) return;
+  const cur=(el.value||"").trim();
+  const p=inferPaese("",(reg||"").trim(),"");
+  if(p&&p!==cur&&(!cur||_regKey(cur)==="italia")){ el.value=p; }
+  _mfSyncRegioni(el.value);
+}
 function renderModalBody(wine){
   const f=wine||{nome:"",produttore:"",distributore:"",annata:"",vitigni:"",tipologia:"Rosso",regione:"",nazione:"Italia",zona:"",prezzoAcq:"",iva:22,prezzoCarta:"",prezzoCalice:"",giacenza:0};
   const lotsHtml=wine?.lots?.length?`
@@ -5901,6 +6583,10 @@ function renderModalBody(wine){
       </div>
     </div>`:"";
 
+  const _dlProd=[...new Set(wines.map(x=>x.produttore).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"it"));
+  const _dlDistr=[...new Set([...wines.map(x=>x.distributore),...orders.map(o=>o.fornitore)].filter(Boolean))].sort((a,b)=>a.localeCompare(b,"it"));
+  const _dlOpts=arr=>arr.map(v=>`<option value="${h(v)}">`).join("");
+
   const FORMATI_OPTS = [
     {v:"0.375",l:"0.375 L (Mezza)"},{v:"0.5",l:"0.50 L (50 cl)"},{v:"0.75",l:"0.75 L (Standard)"},
     {v:"1.0",l:"1.0 L (Litro)"},{v:"1.5",l:"1.5 L (Magnum)"},
@@ -5912,8 +6598,8 @@ function renderModalBody(wine){
       <div class="modal-section-label">🍷 Identità del Vino</div>
       <div class="form-grid g2">
         <div><label class="form-label">Nome Vino *</label><input class="form-input" id="mf-nome" value="${h(f.nome)}" placeholder="es. Barolo Cannubi" oninput="updateModalCalc()"></div>
-        <div><label class="form-label">Produttore *</label><input class="form-input" id="mf-produttore" value="${h(f.produttore)}" placeholder="es. Giacomo Conterno"></div>
-        <div><label class="form-label">Distributore</label><input class="form-input" id="mf-distributore" value="${h(f.distributore)}" placeholder="es. Vini Italiani Srl"></div>
+        <div><label class="form-label">Produttore *</label><input class="form-input" id="mf-produttore" list="mf-prod-dl" autocomplete="off" value="${h(f.produttore)}" placeholder="es. Giacomo Conterno"><datalist id="mf-prod-dl">${_dlOpts(_dlProd)}</datalist></div>
+        <div><label class="form-label">Distributore</label><input class="form-input" id="mf-distributore" list="mf-distr-dl" autocomplete="off" value="${h(f.distributore)}" placeholder="es. Vini Italiani Srl"><datalist id="mf-distr-dl">${_dlOpts(_dlDistr)}</datalist></div>
         <div><label class="form-label">Annata</label><input class="form-input" id="mf-annata" value="${h(f.annata)}" placeholder="es. 2019 o N.V."></div>
         <div><label class="form-label">Vitigni</label><input class="form-input" id="mf-vitigni" value="${h(f.vitigni)}" placeholder="es. Nebbiolo 100%"></div>
         <div><label class="form-label">Tipologia</label><select class="form-select" id="mf-tipologia" data-prev="${f.tipologia}" onchange="_addTipologiaInline(this);if(this.value!=='__new__'){this.dataset.prev=this.value}">${TIPOLOGIE.map(t=>`<option value="${t}" ${f.tipologia===t?"selected":""}>${t}</option>`).join("")+'<option value="__new__">+ Nuova tipologia…</option>'}</select></div>
@@ -5923,8 +6609,8 @@ function renderModalBody(wine){
     <div class="modal-section">
       <div class="modal-section-label">🌍 Provenienza</div>
       <div class="form-grid g2">
-        <div><label class="form-label">Regione</label><input class="form-input" id="mf-regione" value="${h(f.regione)}" placeholder="es. Piemonte"></div>
-        <div><label class="form-label">Nazione</label><input class="form-input" id="mf-nazione" value="${h(f.nazione||"Italia")}" placeholder="es. Italia"></div>
+        <div><label class="form-label">Regione</label><input class="form-input" id="mf-regione" list="mf-reg-dl" autocomplete="off" value="${h(f.regione)}" placeholder="es. Piemonte" onchange="_mfInferNazione(this.value)"><datalist id="mf-reg-dl">${_dlOpts(_ordRegioniPer(f.nazione||"Italia"))}</datalist></div>
+        <div><label class="form-label">Nazione</label><input class="form-input" id="mf-nazione" list="mf-naz-dl" autocomplete="off" value="${h(f.nazione||"Italia")}" placeholder="es. Italia" onchange="_mfSyncRegioni(this.value)"><datalist id="mf-naz-dl">${_dlOpts(_ordNazioni())}</datalist></div>
         <div class="col-span-2"><label class="form-label">Zona / Cru</label><input class="form-input" id="mf-zona" value="${h(f.zona)}" placeholder="es. Cannubi, Vigna Rionda…"></div>
       </div>
     </div>
@@ -5957,6 +6643,9 @@ function renderModalBody(wine){
         <div><div class="calc-label">Margine Lordo/bottiglia</div><div class="calc-val" id="mc-margine">—</div></div>
         <div><div class="calc-label">Valore al Costo (stock)</div><div class="calc-val" style="color:rgba(245,158,11,.7)" id="mc-valore">—</div></div>
         <div><div class="calc-label">Margine % (su prezzo carta)</div><div class="calc-val" id="mc-margperc">—</div></div>
+        ${(parseFloat(CONFIG.servizioBottiglia)||0)>0?`
+        <div><div class="calc-label">Servizio al banco</div><div class="calc-val" style="color:var(--txt2)" id="mc-servizio">${fmt(parseFloat(CONFIG.servizioBottiglia)||0)}</div></div>
+        <div><div class="calc-label">Totale al cliente (bt stappata)</div><div class="calc-val c-green" id="mc-totcliente">—</div></div>`:""}
       </div>
     </div>
     ${lotsHtml}
@@ -6004,6 +6693,7 @@ function updateModalCalc(){
   if(el("mc-costoiva")) el("mc-costoiva").textContent=fmtRound(costoIva);
   if(el("mc-valore")) el("mc-valore").textContent=fmt(val);
   if(el("mc-margine")){el("mc-margine").textContent=marg===null?"—":fmt(marg);el("mc-margine").style.color=marg===null?"var(--txt4)":marg>=0?"#007AFF":"#FF453A";}
+  if(el("mc-totcliente")){const srv=parseFloat(CONFIG.servizioBottiglia)||0;el("mc-totcliente").textContent=carta?fmt(carta+srv):"—";}
   if(el("mc-margperc")){el("mc-margperc").textContent=margP===null?"—":`${fmtN(margP,1)}%`;el("mc-margperc").style.color=margP===null?"var(--txt4)":margP>=0?"#30D158":"#FF453A";}
   // mostra/aggiorna hint prezzo carta suggerito + auto-applica se vuoto
   const hint=el("mc-carta-hint");
@@ -6817,14 +7507,16 @@ function exportMovimentiCSV(){
   const dateStr=new Date().toLocaleDateString("it-IT");
   const wineMap=Object.fromEntries(wines.map(w=>[w.id,w]));
   const sorted=[...movements].sort((a,b)=>(a.data||"").localeCompare(b.data||""));
-  const headers=["Data","Tipo","N° Fattura","Fornitore","Nome Vino","Produttore","Nazione","Annata","Qtà","P.Acq/bt","IVA%","Valore Mov.","Note"];
+  const headers=["Data","Tipo","N° Fattura","Fornitore","Nome Vino","Produttore","Nazione","Annata","Qtà","P.Acq/bt","IVA%","Valore Mov.","Ricavo Vino","Servizio","Ricavo Totale","Note"];
   const rows=sorted.map(m=>{const w=wineMap[m.wineId];
     // M7: per scarichi usa costoUnitarioIva snapshot; per carichi usa prezzoAcqLotto del lotto
     const p=m.tipo==="scarico"
       ? (m.costoUnitarioIva || parseFloat(w?.prezzoAcq)||0)
       : _isRettifica(m.tipo) ? 0
       : (costoCarico(m,w));
-    return [m.data,(m.tipo||"").toUpperCase(),m.fattura||"",m.fornitore||"",m.wineName,m.produttore||"",m.nazione||w?.nazione||"",w?.annata||"",_movVis(m).s+m.qty,fmtN(p),(parseInt(w?.iva)||22)+"%",fmtN(p*m.qty),m.note||""];});
+    const ric=m.tipo==="scarico"?calcRicavoMovimento(m,w):0;
+    const srv=calcServizioMovimento(m);
+    return [m.data,(m.tipo||"").toUpperCase(),m.fattura||"",m.fornitore||"",m.wineName,m.produttore||"",m.nazione||w?.nazione||"",w?.annata||"",_movVis(m).s+m.qty,fmtN(p),(parseInt(w?.iva)||22)+"%",fmtN(p*m.qty),m.tipo==="scarico"?fmtN(ric):"",srv?fmtN(srv):"",m.tipo==="scarico"?fmtN(ric+srv):"",m.note||""];});
   dlCSV(toCSV([headers,...rows]),`movimenti_${dateStr.replace(/\//g,"-")}.csv`);
   notify("📥 Movimenti esportati");
 }
@@ -7900,6 +8592,12 @@ function exportBilancioCSV(){
   let totImpAcq=0,totIvaAcq=0;carichi.forEach(m=>{const w=wineMap[m.wineId];const p=costoCarico(m,w);const imp=p*m.qty;totImpAcq+=imp;totIvaAcq+=imp*((parseInt(w?.iva)||22)/100);});
   let totValStock=0,totIvaStock=0;wines.forEach(w=>{const vc=calcValore(w);totValStock+=vc;totIvaStock+=vc*((parseInt(w.iva)||22)/100);});
   let totPerdite=0,totIvaPerd=0;fallSorted.forEach(f=>{const w=wineMap[f.wineId];const p=parseFloat(w?.prezzoAcq)||0;const vc=p*f.qty;totPerdite+=vc;totIvaPerd+=vc*((parseInt(w?.iva)||22)/100);});
+  // RICAVI: scarichi = vendite. Prezzi al pubblico → IVA inclusa, qui scorporata.
+  const scarichiB=[...movements].filter(m=>m.tipo==="scarico").sort((a,b)=>(a.data||"").localeCompare(b.data||""));
+  const _ivaVino=parseFloat(CONFIG.ivaSomministrazione)||10, _ivaSrv=parseFloat(CONFIG.servizioIva)||10;
+  let totRicVinoL=0,totSrvL=0;
+  scarichiB.forEach(m=>{ totRicVinoL+=calcRicavoMovimento(m,wineMap[m.wineId]); totSrvL+=calcServizioMovimento(m); });
+  const _scVino=_scorporo(totRicVinoL,_ivaVino), _scSrv=_scorporo(totSrvL,_ivaSrv);
   const s=getStats();const lines=[];
   const row=(...cols)=>cols.map(v=>esc(v)).join(";");
   lines.push(row("BILANCIO DI MAGAZZINO — "+dateStr)); lines.push("");
@@ -7907,6 +8605,9 @@ function exportBilancioCSV(){
   lines.push(row("Totale acquisti (carichi)","",fmtN(totImpAcq),fmtN(totIvaAcq),fmtN(totImpAcq+totIvaAcq)));
   lines.push(row("Perdite / Fallate","",fmtN(totPerdite),fmtN(totIvaPerd),fmtN(totPerdite+totIvaPerd)));
   lines.push(row("Valore giacenza attuale","",fmtN(totValStock),fmtN(totIvaStock),fmtN(totValStock+totIvaStock)));
+  lines.push(row("Ricavi vino (scarichi, IVA "+_ivaVino+"%)","",fmtN(_scVino.imp),fmtN(_scVino.iva),fmtN(totRicVinoL)));
+  lines.push(row("Ricavi servizio al banco (IVA "+_ivaSrv+"%)","",fmtN(_scSrv.imp),fmtN(_scSrv.iva),fmtN(totSrvL)));
+  lines.push(row("Totale ricavi","",fmtN(_scVino.imp+_scSrv.imp),fmtN(_scVino.iva+_scSrv.iva),fmtN(totRicVinoL+totSrvL)));
   lines.push(row("Valore potenziale di vendita (carta)","",fmtN(s.valoreCarta),"",fmtN(s.valoreCarta)));
   lines.push(""); lines.push("");
   lines.push(row("B — GIACENZE AL "+dateStr));
@@ -7921,6 +8622,17 @@ function exportBilancioCSV(){
   lines.push(row("D — REGISTRO PERDITE / FALLATE"));
   lines.push(row("Data","Nome Vino","Produttore","Tipologia","Qtà","P.Acq/bt","Val.Costo Perdita","IVA su Perdita","Totale Perdita","Motivazione","Note"));
   fallSorted.forEach(f=>{const w=wineMap[f.wineId];const p=parseFloat(w?.prezzoAcq)||0;const vc=p*f.qty;const iv=vc*((parseInt(w?.iva)||22)/100);lines.push(row(f.data,f.wineName,f.produttore||"",w?.tipologia||"",f.qty,fmtN(p),fmtN(vc),fmtN(iv),fmtN(vc+iv),f.motivo,f.note||""));});
+  lines.push(""); lines.push("");
+  lines.push(row("E — REGISTRO RICAVI (SCARICHI / VENDITE)"));
+  lines.push(row("Aliquote applicate: vino "+_ivaVino+"% · servizio al banco "+_ivaSrv+"% · servizio "+fmtN(parseFloat(CONFIG.servizioBottiglia)||0)+" € a bottiglia dal "+(CONFIG.servizioDal||"—")));
+  lines.push(row("Data","Nome Vino","Produttore","Annata","Qtà","P.Carta/bt","Ricavo Vino (lordo)","Servizio (lordo)","Totale Lordo","Imponibile","IVA","Costo Merce+IVA","Margine Lordo"));
+  scarichiB.forEach(m=>{
+    const w=wineMap[m.wineId];
+    const rv=calcRicavoMovimento(m,w), sv=calcServizioMovimento(m), cs=calcCostoMovimento(m,w);
+    const a=_scorporo(rv,_ivaVino), b=_scorporo(sv,_ivaSrv);
+    lines.push(row(m.data,m.wineName,m.produttore||"",w?.annata||"",m.qty,fmtN(parseFloat(w?.prezzoCarta)||0),fmtN(rv),fmtN(sv),fmtN(rv+sv),fmtN(a.imp+b.imp),fmtN(a.iva+b.iva),fmtN(cs),fmtN(rv+sv-cs)));
+  });
+  lines.push(row("","TOTALE","","",scarichiB.reduce((x,m)=>x+(parseInt(m.qty)||0),0),"",fmtN(totRicVinoL),fmtN(totSrvL),fmtN(totRicVinoL+totSrvL),fmtN(_scVino.imp+_scSrv.imp),fmtN(_scVino.iva+_scSrv.iva),"",""));
   const blob=new Blob(["\uFEFF"+lines.join("\n")],{type:"text/csv;charset=utf-8"});
   const url=URL.createObjectURL(blob);
   Object.assign(document.createElement("a"),{href:url,download:`bilancio_cantina_${dateStr.replace(/\//g,"-")}.csv`}).click();
@@ -8479,7 +9191,7 @@ async function _loadBozzeSb() {
     const { data: testate, error } = await _sb
       .from('ordini_testata')
       .select('*')
-      .eq('user_id', DB_USER)
+      .eq('user_id', _effectiveDbUser())
       .eq('stato', 'bozza');
     if (error || !testate || !testate.length) { _bozzeSb = []; return; }
 
@@ -8552,7 +9264,7 @@ async function creaBasiOrdineDatiSelezionati() {
         const { data: existing, error: errSel } = await _sb
           .from('ordini_testata')
           .select('id')
-          .eq('user_id', DB_USER)
+          .eq('user_id', _effectiveDbUser())
           .eq('distributore', dist)
           .eq('stato', 'bozza')
           .maybeSingle();
@@ -8563,7 +9275,7 @@ async function creaBasiOrdineDatiSelezionati() {
         } else {
           const { data: newT, error: errIns } = await _sb
             .from('ordini_testata')
-            .insert({ user_id: DB_USER, distributore: dist, stato: 'bozza',
+            .insert({ user_id: _effectiveDbUser(), distributore: dist, stato: 'bozza',
                       data_ordine: today(), note: '' })
             .select('id')
             .single();
@@ -8812,6 +9524,134 @@ document.addEventListener('keydown', function(e){
   }
 });
 
+// ══════════════════════════════════════════════════════════════════════════════
+// MODULO OFFLINE — sopravvivenza a sessioni lunghe senza rete (PC in cantina)
+// Non tocca la logica di salvataggio: la avvolge.
+//  • _saveLocalBackup() già scrive su localStorage a ogni modifica (sincrono):
+//    i dati NON si perdono. Qui aggiungiamo ciò che mancava:
+//  • flag di "modifiche pendenti" che sopravvive a reload e chiusura browser
+//  • ri-tentativo automatico al ritorno della rete + retry periodico
+//  • banner sempre visibile con quante modifiche e da quanto
+//  • avviso se si chiude la pagina con la coda piena
+// ══════════════════════════════════════════════════════════════════════════════
+(function(){
+  const K_SINCE = _lsKey("pending_since");
+  let _bannerEl = null, _tick = null;
+
+  function _pendingSince(){
+    const v = parseInt(localStorage.getItem(K_SINCE)||"0",10);
+    return v > 0 ? v : 0;
+  }
+  function _markPending(){
+    if(!_pendingSince()){ try{ localStorage.setItem(K_SINCE, String(Date.now())); }catch{} }
+    _renderBanner();
+  }
+  function _clearPending(){
+    try{ localStorage.removeItem(K_SINCE); }catch{}
+    _renderBanner();
+  }
+
+  // Quante modifiche ai movimenti non sono ancora sul ledger
+  function _pendingCount(){
+    try{
+      let n = 0;
+      const base = _movSyncBaseline;
+      movements.forEach(m => { if(base.get(m.id) !== _movHash(m)) n++; });
+      return n;
+    }catch{ return 0; }
+  }
+
+  function _minutes(ms){ return Math.max(1, Math.round(ms/60000)); }
+
+  function _renderBanner(){
+    const since = _pendingSince();
+    const offline = !navigator.onLine;
+    if(!since && !offline){ if(_bannerEl){ _bannerEl.remove(); _bannerEl=null; } return; }
+
+    if(!_bannerEl){
+      _bannerEl = document.createElement("div");
+      _bannerEl.id = "cm-offline-banner";
+      _bannerEl.style.cssText =
+        "position:fixed;left:0;right:0;bottom:0;z-index:9999;"+
+        "display:flex;align-items:center;justify-content:center;gap:14px;"+
+        "padding:10px 16px;font-size:13px;font-weight:600;letter-spacing:.02em;"+
+        "font-family:inherit;color:#fff;box-shadow:0 -4px 18px rgba(0,0,0,.35)";
+      document.body.appendChild(_bannerEl);
+    }
+    const n = _pendingCount();
+    const t = since ? " · in attesa da "+_minutes(Date.now()-since)+" min" : "";
+    _bannerEl.style.background = offline ? "#8a1420" : (since ? "#8a5b14" : "#14603a");
+    _bannerEl.innerHTML =
+      (offline ? "🔌 Offline" : "⏳ Da sincronizzare") +
+      (n ? " · "+n+" moviment"+(n===1?"o":"i") : "") + t +
+      (navigator.onLine
+        ? ' <button id="cm-ob-retry" style="margin-left:10px;padding:5px 12px;border:1px solid rgba(255,255,255,.5);background:transparent;color:#fff;border-radius:6px;cursor:pointer;font:inherit">Invia ora</button>'
+        : ' <span style="opacity:.75;font-weight:400">i dati restano salvati sul computer</span>');
+    const b = document.getElementById("cm-ob-retry");
+    if(b) b.onclick = function(){ cmFlushOutbox(true); };
+  }
+
+  // ── Flush: riusa forceSave(), che è il percorso di scrittura completo ────────
+  window.cmFlushOutbox = async function(manuale){
+    if(!navigator.onLine || !_sb) return;
+    if(!_pendingSince() && !manuale) return;
+    if(typeof _saveInFlight !== "undefined" && _saveInFlight) return;
+    try{
+      await forceSave();
+      if(_dbStatusState !== "err") _clearPending();
+    }catch(e){ console.warn("[OFFLINE] flush fallito:", e); }
+  };
+
+  // ── Aggancio allo stato DB esistente: unica fonte di verità ─────────────────
+  let _dbStatusState = "";
+  const _origSetDbStatus = _setDbStatus;
+  _setDbStatus = function(state, label){
+    _dbStatusState = state;
+    try{
+      if(state === "ok") _clearPending();
+      else if(state === "pending" || state === "err") _markPending();
+    }catch{}
+    return _origSetDbStatus.apply(this, arguments);
+  };
+
+  // ── Ritorno della rete + retry periodico ───────────────────────────────────
+  window.addEventListener("online",  function(){ _renderBanner(); setTimeout(cmFlushOutbox, 1200); });
+  window.addEventListener("offline", function(){ _renderBanner(); });
+  setInterval(function(){ if(_pendingSince() && navigator.onLine) cmFlushOutbox(); }, 60000);
+  _tick = setInterval(_renderBanner, 30000);
+
+  // ── Avviso se si chiude con roba non sincronizzata ─────────────────────────
+  window.addEventListener("beforeunload", function(e){
+    if(!_pendingSince()) return;
+    e.preventDefault(); e.returnValue = "";
+    return "";
+  });
+
+  document.addEventListener("DOMContentLoaded", _renderBanner);
+  setTimeout(_renderBanner, 1500);
+
+  // ── POLL MULTI-POSTAZIONE ──────────────────────────────────────────────────
+  // Ogni 25s controlla la versione remota: se un'altra postazione ha salvato,
+  // assorbe le sue modifiche via rebase (le nostre non salvate restano sopra).
+  // Salta se: offline, salvataggio in corso/in coda, scheda in background,
+  // modal aperto o si sta digitando (_rebaseOnRemote + _renderIfIdle).
+  setInterval(async function(){
+    try{
+      if(!navigator.onLine || !_sb) return;
+      if(_saveInFlight || _savePending || saveTimer) return;
+      if(document.hidden) return;
+      if(typeof modalWine !== "undefined" && modalWine) return;
+      const a = document.activeElement;
+      if(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return;
+      const rv = await _sbReadVersion();
+      if(rv === null || rv <= _localVersion) return;
+      await _rebaseOnRemote();
+      _renderIfIdle();
+      notify("🔄 Aggiornato con le modifiche di un'altra postazione");
+    }catch{}
+  }, 25000);
+})();
+
 // ─── TRASFERIMENTI TRA LOCALI (export/import manifesto) ──────────────────────
 // Isolamento totale: nessuna credenziale cross-project. Comunicazione SOLO via
 // manifesto base64/.json. Costo-neutro (lotti FIFO col costo originale, esclusi
@@ -8895,7 +9735,7 @@ function _generaManifesto(){
   scheduleSave(); clearTimeout(saveTimer); _flushSave();
   const manifest={
     v:TRANSFER_MANIFEST_V, type:"cantina-transfer", transferId,
-    from:NOME_LOCALE, fromDbUser:DB_USER, dest, data:today(), note,
+    from:NOME_LOCALE, fromDbUser:_effectiveDbUser(), dest, data:today(), note,
     lines:[{nome:w.nome,produttore:w.produttore||"",annata:w.annata||"",vitigni:w.vitigni||"",tipologia:w.tipologia||"Rosso",regione:w.regione||"",nazione:w.nazione||"Italia",zona:w.zona||"",iva:parseInt(w.iva)||22,prezzoCarta:parseFloat(w.prezzoCarta)||0,qty,lots:snapLots}]
   };
   const json=JSON.stringify(manifest,null,2);
@@ -9043,4 +9883,430 @@ function _transferCardHtml(){
       </div>
     </div>
   </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// AMMINISTRAZIONE — Scadenzario fatture fornitore
+// Scadenzario di CONTROLLO, non una contabilità: la verità sta in banca.
+// Lo stato (soluto / parziale / insoluto / scaduto) è sempre DERIVATO da
+// importoPagato e scadenza — mai memorizzato, così non può divergere.
+// Le fatture vivono nel blob cm_fatture, con lo stesso pattern di cm_orders.
+// Se la tabella non esiste ancora sul progetto, il modulo lavora in locale e
+// segnala: nessun errore bloccante, nessuna perdita.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const COND_PAGAMENTO = [
+  ["anticipato", "Anticipato / Contanti"],
+  ["0",          "Vista fattura"],
+  ["30",         "30 gg data fattura"],
+  ["60",         "60 gg data fattura"],
+  ["90",         "90 gg data fattura"],
+  ["fm",         "Fine mese"],
+  ["30fm",       "30 gg d.f. fine mese"],
+  ["60fm",       "60 gg d.f. fine mese"],
+  ["90fm",       "90 gg d.f. fine mese"],
+];
+
+// ─── Lettura/scrittura tolleranti: la tabella può non esistere ancora ─────────
+async function _sbReadFatture(){
+  if(!_sb) return null;
+  try{
+    const { data, error } = await _sb.from("cm_fatture").select("data").eq("user_id", _effectiveDbUser());
+    if(error){ _fattTableOk = false; return { _missing:true }; }
+    _fattTableOk = true;
+    if(!data || data.length === 0) return [];
+    return data[0].data ?? [];
+  }catch{ _fattTableOk = false; return { _missing:true }; }
+}
+async function _sbUpsertFatture(){
+  if(!_sb || !_fattTableOk) return;
+  try{
+    const { error } = await _sb.from("cm_fatture")
+      .upsert({ user_id:_effectiveDbUser(), data:JSON.parse(JSON.stringify(fatture)) }, { onConflict:"user_id" });
+    if(error){ _fattTableOk = false; return; }
+    _fattBase = JSON.parse(JSON.stringify(fatture));
+  }catch{ _fattTableOk = false; }
+}
+async function _loadFatture(){
+  const r = await _sbReadFatture();
+  if(r && r._missing){
+    try{ fatture = JSON.parse(localStorage.getItem(_lsKey("fatture"))||"[]"); }catch{ fatture = []; }
+  } else if(Array.isArray(r)){
+    if(r.length === 0){
+      // Tabella appena creata o partizione ancora vuota: NON azzerare le fatture
+      // già inserite su questo computer. Si promuovono sul cloud una volta sola
+      // (stesso pattern di _syncLocale), altrimenti restano prigioniere del browser.
+      let loc = [];
+      try{ loc = JSON.parse(localStorage.getItem(_lsKey("fatture"))||"[]"); }catch{ loc = []; }
+      if(Array.isArray(loc) && loc.length){
+        fatture = loc;
+        _fattBase = JSON.parse(JSON.stringify(fatture));
+        await _sbUpsertFatture();
+      } else {
+        fatture = [];
+      }
+    } else {
+      fatture = r;
+    }
+  }
+  _fattBase = JSON.parse(JSON.stringify(fatture));
+}
+
+async function _rebaseFatture(){
+  const r = await _sbReadFatture();
+  if(r && !r._missing && Array.isArray(r)){
+    fatture = _merge3(_fattBase, fatture, r);
+    _fattBase = JSON.parse(JSON.stringify(fatture));
+  }
+}
+
+// ─── Scadenza e stato: sempre calcolati ──────────────────────────────────────
+function _fineMese(d){ const x=new Date(d.getFullYear(), d.getMonth()+1, 0); return x; }
+function _isoDate(d){ // componenti LOCALI: toISOString() sposterebbe la data indietro nei fusi a est di Greenwich
+  const m=String(d.getMonth()+1).padStart(2,"0"), g=String(d.getDate()).padStart(2,"0");
+  return `${d.getFullYear()}-${m}-${g}`; }
+
+// Convenzione italiana: "30 gg data fattura fine mese" = +30 giorni, poi si
+// scivola all'ultimo giorno del mese in cui si cade.
+function _fattScadenza(f){
+  if(f.scadenzaManuale) return f.scadenzaManuale;
+  if(!f.dataFattura) return "";
+  const cond = String(f.condizioniPagamento ?? "30");
+  const base = new Date(f.dataFattura + "T00:00:00");
+  if(isNaN(base)) return "";
+  if(cond === "anticipato") return f.dataFattura;
+  if(cond === "fm") return _isoDate(_fineMese(base));
+  const gg = parseInt(cond) || 0;
+  const d = new Date(base); d.setDate(d.getDate() + gg);
+  return cond.endsWith("fm") ? _isoDate(_fineMese(d)) : _isoDate(d);
+}
+function _fattTotale(f){ return Math.round((parseFloat(f.totale)||0)*100)/100; }
+function _fattPagato(f){ return Math.round((parseFloat(f.importoPagato)||0)*100)/100; }
+function _fattResiduo(f){ return Math.round((_fattTotale(f) - _fattPagato(f))*100)/100; }
+function _fattStato(f){
+  const res = _fattResiduo(f);
+  if(res <= 0.005) return "soluto";
+  const sc = _fattScadenza(f);
+  const scaduta = sc && sc < today();
+  if(_fattPagato(f) > 0) return scaduta ? "parziale_scaduta" : "parziale";
+  return scaduta ? "scaduta" : "insoluta";
+}
+const _STATO_META = {
+  soluto:            { lbl:"Saldata",           col:"var(--green)" },
+  parziale:          { lbl:"Parziale",          col:"var(--orange)" },
+  parziale_scaduta:  { lbl:"Parziale scaduta",  col:"var(--red)" },
+  insoluta:          { lbl:"Da pagare",         col:"var(--txt2)" },
+  scaduta:           { lbl:"Scaduta",           col:"var(--red)" },
+};
+function _fattGiorniAScadenza(f){
+  const sc = _fattScadenza(f); if(!sc) return null;
+  return Math.round((new Date(sc+"T00:00:00") - new Date(today()+"T00:00:00")) / 86400000);
+}
+
+// ─── Stato UI della sezione ──────────────────────────────────────────────────
+const amFiltri = { fornitore:"tutti", stato:"aperte", anno:"tutti", q:"" };
+let amForm = null; // null = form chiuso
+
+function _amFornitori(){
+  const s = new Set();
+  (fatture||[]).forEach(f=>{ if(f.fornitore) s.add(f.fornitore); });
+  (orders||[]).forEach(o=>{ if(o.fornitore) s.add(o.fornitore); });
+  (wines||[]).forEach(w=>{ if(w.distributore) s.add(w.distributore); });
+  return [...s].sort((a,b)=>a.localeCompare(b,"it"));
+}
+function _amAnni(){
+  const s = new Set((fatture||[]).map(f=>String(f.dataFattura||"").slice(0,4)).filter(Boolean));
+  return [...s].sort().reverse();
+}
+function _amFiltrate(){
+  return (fatture||[]).filter(f=>{
+    if(amFiltri.fornitore!=="tutti" && f.fornitore!==amFiltri.fornitore) return false;
+    if(amFiltri.anno!=="tutti" && String(f.dataFattura||"").slice(0,4)!==amFiltri.anno) return false;
+    const st = _fattStato(f);
+    if(amFiltri.stato==="aperte" && st==="soluto") return false;
+    if(amFiltri.stato==="scadute" && st!=="scaduta" && st!=="parziale_scaduta") return false;
+    if(amFiltri.stato==="saldate" && st!=="soluto") return false;
+    if(amFiltri.q){
+      const q = amFiltri.q.toLowerCase();
+      const blob = [f.fornitore,f.numero,f.note].join(" ").toLowerCase();
+      if(!blob.includes(q)) return false;
+    }
+    return true;
+  }).sort((a,b)=>{
+    const sa=_fattScadenza(a)||"9999", sb=_fattScadenza(b)||"9999";
+    return sa.localeCompare(sb) || String(a.fornitore||"").localeCompare(String(b.fornitore||""),"it");
+  });
+}
+
+function _amSetFiltro(k,v){ amFiltri[k]=v; render(); }
+
+// ─── Render sezione ──────────────────────────────────────────────────────────
+function renderAmministrazione(){
+  const tutte = fatture||[];
+  const aperte = tutte.filter(f=>_fattStato(f)!=="soluto");
+  const esposizione = aperte.reduce((s,f)=>s+_fattResiduo(f),0);
+  const scaduto = aperte.filter(f=>{const s=_fattStato(f);return s==="scaduta"||s==="parziale_scaduta";})
+                        .reduce((s,f)=>s+_fattResiduo(f),0);
+  const in30 = aperte.filter(f=>{const g=_fattGiorniAScadenza(f);return g!==null&&g>=0&&g<=30;})
+                     .reduce((s,f)=>s+_fattResiduo(f),0);
+  const annoCorr = String(new Date().getFullYear());
+  const pagatoAnno = tutte.filter(f=>String(f.dataFattura||"").slice(0,4)===annoCorr)
+                          .reduce((s,f)=>s+_fattPagato(f),0);
+
+  const kpi = (lbl,val,col,sub)=>`<div class="card" style="padding:14px">
+    <div style="font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--txt3);margin-bottom:6px">${lbl}</div>
+    <div style="font-family:'Montserrat',sans-serif;font-size:1.4rem;color:${col}">${fmt(val)}</div>
+    <div style="font-size:10px;color:var(--txt4);margin-top:4px">${sub}</div></div>`;
+
+  let html = `<div class="kpi-grid g4" style="margin-bottom:20px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">
+    ${kpi("Esposizione totale", esposizione, "var(--txt)", aperte.length+" fatture aperte")}
+    ${kpi("Scaduto", scaduto, scaduto>0?"var(--red)":"var(--txt3)", "oltre la data di scadenza")}
+    ${kpi("In scadenza 30 gg", in30, in30>0?"var(--orange)":"var(--txt3)", "da pagare entro un mese")}
+    ${kpi("Pagato "+annoCorr, pagatoAnno, "var(--green)", "somma degli acconti e saldi")}
+  </div>`;
+
+  if(!_fattTableOk){
+    html += `<div class="card" style="margin-bottom:16px;border-left:3px solid var(--orange)">
+      <div style="font-size:12px;color:var(--txt2)">⚠️ Tabella <code>cm_fatture</code> non raggiungibile su questo progetto Supabase.
+      Le fatture sono salvate <strong>solo su questo computer</strong> finché non viene creata.
+      Va creata con lo stesso SQL delle altre tabelle blob.</div></div>`;
+  }
+
+  html += amForm ? _amRenderForm() : `<div style="margin-bottom:16px;display:flex;gap:8px;flex-wrap:wrap">
+    <button class="btn-primary" onclick="amNuovaFattura()">+ Nuova fattura</button>
+    <button class="btn-outline btn-sm" onclick="amExportCSV()">↓ CSV scadenzario</button>
+  </div>`;
+
+  // Filtri
+  const fornitori = _amFornitori(), anni = _amAnni();
+  html += `<div class="card" style="margin-bottom:16px">
+    <div class="form-grid g2" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px">
+      <div><label class="form-label">Stato</label>
+        <select class="form-select" onchange="_amSetFiltro('stato',this.value)">
+          <option value="aperte" ${amFiltri.stato==="aperte"?"selected":""}>Da pagare</option>
+          <option value="scadute" ${amFiltri.stato==="scadute"?"selected":""}>Solo scadute</option>
+          <option value="saldate" ${amFiltri.stato==="saldate"?"selected":""}>Saldate</option>
+          <option value="tutte" ${amFiltri.stato==="tutte"?"selected":""}>Tutte</option>
+        </select></div>
+      <div><label class="form-label">Fornitore</label>
+        <select class="form-select" onchange="_amSetFiltro('fornitore',this.value)">
+          <option value="tutti">Tutti</option>
+          ${fornitori.map(f=>`<option ${amFiltri.fornitore===f?"selected":""}>${h(f)}</option>`).join("")}
+        </select></div>
+      <div><label class="form-label">Anno</label>
+        <select class="form-select" onchange="_amSetFiltro('anno',this.value)">
+          <option value="tutti">Tutti</option>
+          ${anni.map(a=>`<option ${amFiltri.anno===a?"selected":""}>${h(a)}</option>`).join("")}
+        </select></div>
+      <div><label class="form-label">Cerca</label>
+        <input class="form-input" value="${h(amFiltri.q)}" placeholder="numero, fornitore, note…"
+          oninput="amFiltri.q=this.value" onchange="render()"></div>
+    </div></div>`;
+
+  // Tabella
+  const righe = _amFiltrate();
+  const totRes = righe.reduce((s,f)=>s+_fattResiduo(f),0);
+  html += `<div class="card" style="padding:0;margin-bottom:20px">
+    <div class="tbl-header"><span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt3)">Scadenzario — ${righe.length} fatture · residuo ${fmt(totRes)}</span></div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Scadenza</th><th>Fornitore</th><th>Numero</th><th>Data fatt.</th>
+        <th class="r">Totale</th><th class="r">Pagato</th><th class="r">Residuo</th><th>Stato</th><th></th></tr></thead>
+      <tbody>${righe.length===0
+        ? `<tr><td colspan="9" style="text-align:center;padding:28px;color:var(--txt4)">Nessuna fattura con questi filtri</td></tr>`
+        : righe.map(f=>{
+            const st=_fattStato(f), m=_STATO_META[st], g=_fattGiorniAScadenza(f), res=_fattResiduo(f);
+            const gLbl = (st==="soluto"||g===null) ? "" :
+              g<0 ? `<div style="font-size:10px;color:var(--red)">${-g} gg fa</div>`
+                  : `<div style="font-size:10px;color:var(--txt4)">fra ${g} gg</div>`;
+            return `<tr>
+              <td style="color:var(--txt2)">${h(_fmtDataIT(_fattScadenza(f)))}${gLbl}</td>
+              <td>${h(f.fornitore||"—")}${f.orderId?`<div style="font-size:10px;color:var(--txt4)">da ordine CM</div>`:""}</td>
+              <td style="color:var(--txt3)">${h(f.numero||"—")}</td>
+              <td style="color:var(--txt3);font-size:.8rem">${h(_fmtDataIT(f.dataFattura))}</td>
+              <td class="r" style="font-family:'Montserrat',sans-serif">${fmt(_fattTotale(f))}</td>
+              <td class="r" style="color:var(--green)">${_fattPagato(f)?fmt(_fattPagato(f)):"—"}</td>
+              <td class="r" style="font-family:'Montserrat',sans-serif;color:${res>0?m.col:"var(--txt4)"}">${res>0?fmt(res):"—"}</td>
+              <td><span style="color:${m.col};font-size:10px;letter-spacing:.08em;text-transform:uppercase">${m.lbl}</span></td>
+              <td style="white-space:nowrap">
+                ${st!=="soluto"?`<button class="btn-outline btn-sm" onclick="amSaldaFattura('${f.id}')" title="Segna saldata">✓</button>`:""}
+                <button class="btn-outline btn-sm" onclick="amModificaFattura('${f.id}')" title="Modifica">✎</button>
+                <button class="btn-outline btn-sm" onclick="amEliminaFattura('${f.id}')" title="Elimina">🗑</button>
+              </td></tr>`;
+          }).join("")}
+      </tbody></table></div></div>`;
+
+  // Riepilogo per fornitore
+  const perForn = {};
+  tutte.forEach(f=>{
+    const k=f.fornitore||"—";
+    if(!perForn[k]) perForn[k]={tot:0,pag:0,res:0,scad:0,n:0};
+    const st=_fattStato(f);
+    perForn[k].tot+=_fattTotale(f); perForn[k].pag+=_fattPagato(f);
+    perForn[k].res+=_fattResiduo(f); perForn[k].n++;
+    if(st==="scaduta"||st==="parziale_scaduta") perForn[k].scad+=_fattResiduo(f);
+  });
+  const rows = Object.entries(perForn).sort((a,b)=>b[1].res-a[1].res);
+  html += `<div class="card" style="padding:0">
+    <div class="tbl-header"><span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt3)">Posizione per fornitore</span></div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Fornitore</th><th class="r">Fatture</th><th class="r">Fatturato</th><th class="r">Pagato</th><th class="r">Da pagare</th><th class="r">di cui scaduto</th></tr></thead>
+      <tbody>${rows.length===0
+        ? `<tr><td colspan="6" style="text-align:center;padding:28px;color:var(--txt4)">Nessuna fattura registrata</td></tr>`
+        : rows.map(([k,v])=>`<tr>
+            <td>${h(k)}</td>
+            <td class="r" style="color:var(--txt3)">${v.n}</td>
+            <td class="r">${fmt(v.tot)}</td>
+            <td class="r" style="color:var(--green)">${fmt(v.pag)}</td>
+            <td class="r" style="font-family:'Montserrat',sans-serif;color:${v.res>0.005?"var(--amber)":"var(--txt4)"}">${fmt(v.res)}</td>
+            <td class="r" style="color:${v.scad>0.005?"var(--red)":"var(--txt4)"}">${v.scad>0.005?fmt(v.scad):"—"}</td>
+          </tr>`).join("")}
+      </tbody></table></div></div>`;
+
+  return html;
+}
+
+// ─── Form nuova/modifica ─────────────────────────────────────────────────────
+function _amRenderForm(){
+  const f = amForm;
+  const ordiniSel = (orders||[])
+    .filter(o=>!fatture.some(x=>x.orderId===o.id && x.id!==f.id))
+    .sort((a,b)=>String(b.dataOrdine||"").localeCompare(String(a.dataOrdine||"")))
+    .slice(0,60);
+  return `<div class="card" style="margin-bottom:16px;border-left:3px solid var(--amber)">
+    <div class="section-label"><span>${f._nuova?"➕ Nuova fattura":"✎ Modifica fattura"}</span></div>
+    ${f._nuova?`<div class="form-row" style="margin-bottom:12px">
+      <label class="form-label">Collega a un ordine (facoltativo — precompila i campi)</label>
+      <select class="form-select" onchange="amPrefillDaOrdine(this.value)">
+        <option value="">— Fattura non legata a un ordine di Cantina Manager —</option>
+        ${ordiniSel.map(o=>`<option value="${o.id}" ${f.orderId===o.id?"selected":""}>${h(o.fornitore||"—")} · ${h(_fmtDataIT(o.dataOrdine))} · ${fmt(_amTotOrdine(o))}</option>`).join("")}
+      </select></div>`:""}
+    <div class="form-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px">
+      <div><label class="form-label">Fornitore *</label>
+        <input class="form-input" list="am-fornitori" value="${h(f.fornitore||"")}" oninput="amForm.fornitore=this.value">
+        <datalist id="am-fornitori">${_amFornitori().map(x=>`<option value="${h(x)}">`).join("")}</datalist></div>
+      <div><label class="form-label">Numero fattura</label>
+        <input class="form-input" value="${h(f.numero||"")}" oninput="amForm.numero=this.value" placeholder="es. 2024/128"></div>
+      <div><label class="form-label">Data fattura *</label>
+        <input class="form-input" type="date" value="${h(f.dataFattura||"")}" onchange="amForm.dataFattura=this.value;render()"></div>
+      <div><label class="form-label">Importo totale € *</label>
+        <input class="form-input" type="number" step="0.01" inputmode="decimal" onfocus="this.select()"
+          value="${f.totale??""}" oninput="amForm.totale=this.value"></div>
+      <div><label class="form-label">Condizioni di pagamento</label>
+        <select class="form-select" onchange="amForm.condizioniPagamento=this.value;render()">
+          ${COND_PAGAMENTO.map(([v,l])=>`<option value="${v}" ${String(f.condizioniPagamento)===v?"selected":""}>${l}</option>`).join("")}
+        </select></div>
+      <div><label class="form-label">Scadenza ${f.scadenzaManuale?"(forzata)":"(calcolata)"}</label>
+        <input class="form-input" type="date" value="${h(f.scadenzaManuale||_fattScadenza(f)||"")}"
+          oninput="amForm.scadenzaManuale=this.value"></div>
+      <div><label class="form-label">Importo già pagato €</label>
+        <input class="form-input" type="number" step="0.01" inputmode="decimal" onfocus="this.select()"
+          value="${f.importoPagato??""}" oninput="amForm.importoPagato=this.value"></div>
+      <div><label class="form-label">Data pagamento</label>
+        <input class="form-input" type="date" value="${h(f.dataPagamento||"")}" oninput="amForm.dataPagamento=this.value"></div>
+    </div>
+    <div class="form-row" style="margin-top:10px"><label class="form-label">Note</label>
+      <input class="form-input" value="${h(f.note||"")}" placeholder="es. fattura cartacea 2023, bonifico 15/03…" oninput="amForm.note=this.value"></div>
+    <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+      <button class="btn-primary" onclick="amSalvaFattura()">💾 Salva fattura</button>
+      <button class="btn-outline" onclick="amAnnullaForm()">Annulla</button>
+    </div>
+  </div>`;
+}
+
+function _amTotOrdine(o){
+  return (o.referenze||[]).reduce((s,r)=>
+    s + (parseFloat(r.prezzoAcq)||0) * (1+(parseInt(r.iva)||22)/100) * (parseInt(r.qtyArr ?? r.qty)||0), 0);
+}
+function amPrefillDaOrdine(id){
+  if(!id){ amForm.orderId=null; render(); return; }
+  const o = (orders||[]).find(x=>x.id===id); if(!o) return;
+  amForm.orderId    = o.id;
+  amForm.fornitore  = o.fornitore || amForm.fornitore || "";
+  amForm.dataFattura= o.dataArrivo || o.dataOrdine || amForm.dataFattura || today();
+  amForm.totale     = Math.round(_amTotOrdine(o)*100)/100;
+  render();
+}
+function amNuovaFattura(){
+  amForm = { id:uid(), _nuova:true, fornitore:"", numero:"", dataFattura:today(),
+             totale:"", condizioniPagamento:"30", scadenzaManuale:"", importoPagato:"",
+             dataPagamento:"", note:"", orderId:null };
+  render();
+}
+function amModificaFattura(id){
+  const f = (fatture||[]).find(x=>x.id===id); if(!f) return;
+  amForm = { ...f, _nuova:false };
+  render();
+}
+function amAnnullaForm(){ amForm=null; render(); }
+
+function amSalvaFattura(){
+  const f = amForm; if(!f) return;
+  if(!f.fornitore || !String(f.fornitore).trim()){ notify("Indica il fornitore","err"); return; }
+  if(!f.dataFattura){ notify("Indica la data della fattura","err"); return; }
+  const tot = parseFloat(f.totale);
+  if(!(tot > 0)){ notify("L'importo deve essere maggiore di zero","err"); return; }
+  const pag = parseFloat(f.importoPagato)||0;
+  if(pag > tot + 0.005){ notify("L'importo pagato supera il totale della fattura","err"); return; }
+
+  const rec = {
+    id: f.id, fornitore: String(f.fornitore).trim(), numero: String(f.numero||"").trim(),
+    dataFattura: f.dataFattura, totale: Math.round(tot*100)/100,
+    condizioniPagamento: String(f.condizioniPagamento ?? "30"),
+    scadenzaManuale: f.scadenzaManuale || "",
+    importoPagato: Math.round(pag*100)/100,
+    dataPagamento: f.dataPagamento || "",
+    note: String(f.note||"").trim(), orderId: f.orderId || null,
+    ts: f.ts || Date.now(),
+  };
+  const i = (fatture||[]).findIndex(x=>x.id===rec.id);
+  if(i >= 0) fatture[i] = rec; else fatture = [...(fatture||[]), rec];
+  amForm = null;
+  _amPersist();
+  notify(i>=0 ? "✅ Fattura aggiornata" : "✅ Fattura registrata");
+  render();
+}
+
+function amSaldaFattura(id){
+  const f = (fatture||[]).find(x=>x.id===id); if(!f) return;
+  _confirmModal(
+    `Segnare come <strong>saldata</strong> la fattura ${h(f.numero||"—")} di ${h(f.fornitore||"—")} da ${fmt(_fattTotale(f))}?<br>
+     <span style="color:var(--txt3);font-size:12px">Residuo attuale ${fmt(_fattResiduo(f))}. La data di pagamento sarà oggi.</span>`,
+    "✓ Segna saldata",
+    ()=>{
+      f.importoPagato = _fattTotale(f);
+      f.dataPagamento = f.dataPagamento || today();
+      _amPersist(); notify("✅ Fattura saldata"); render();
+    }
+  );
+}
+function amEliminaFattura(id){
+  const f = (fatture||[]).find(x=>x.id===id); if(!f) return;
+  _confirmModal(
+    `Eliminare la fattura ${h(f.numero||"—")} di <strong>${h(f.fornitore||"—")}</strong> da ${fmt(_fattTotale(f))}?`,
+    "🗑 Elimina",
+    ()=>{ fatture = fatture.filter(x=>x.id!==id); _amPersist(); notify("Fattura eliminata"); render(); },
+    "danger"
+  );
+}
+
+function _amPersist(){
+  try{ localStorage.setItem(_lsKey("fatture"), JSON.stringify(fatture)); }catch{}
+  _sbUpsertFatture();
+}
+
+function amExportCSV(){
+  const righe = _amFiltrate();
+  const head = ["Scadenza","Fornitore","Numero","Data fattura","Condizioni","Totale","Pagato","Residuo","Stato","Data pagamento","Note"];
+  const body = righe.map(f=>[
+    _fattScadenza(f), f.fornitore||"", f.numero||"", f.dataFattura||"",
+    (COND_PAGAMENTO.find(c=>c[0]===String(f.condizioniPagamento))||["",""])[1],
+    _fattTotale(f).toFixed(2), _fattPagato(f).toFixed(2), _fattResiduo(f).toFixed(2),
+    _STATO_META[_fattStato(f)].lbl, f.dataPagamento||"", (f.note||"").replace(/[\r\n;]/g," ")
+  ]);
+  const csv = [head, ...body].map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(";")).join("\r\n");
+  const blob = new Blob(["\uFEFF"+csv], {type:"text/csv;charset=utf-8"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `scadenzario_${NOME_LOCALE.replace(/\s+/g,"_")}_${today()}.csv`;
+  a.click(); URL.revokeObjectURL(a.href);
 }

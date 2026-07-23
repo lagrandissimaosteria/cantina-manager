@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Cantina Manager</title>
+<title>Cantina Manager — Osteria Lagrandissima</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600&family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&display=swap" rel="stylesheet">
@@ -424,7 +424,7 @@ td[ondblclick]:hover{background:rgba(255,159,10,.06)!important}
   <div id="sidebar">
     <div class="sidebar-logo">
       <h1>🍷 <span class="nav-btn-label">Cantina</span></h1>
-      <p class="nav-btn-label">La Grandissima Osteria</p>
+      <p class="nav-btn-label">Osteria Lagrandissima</p>
     </div>
     <nav id="sidebar-nav">
       <button class="nav-btn active" data-section="dashboard" data-label="Plancia" onclick="go('dashboard')"><span class="nav-icon">📊</span><span class="nav-btn-label"> Plancia</span></button>
@@ -436,6 +436,7 @@ td[ondblclick]:hover{background:rgba(255,159,10,.06)!important}
       <button class="nav-btn" data-section="ordini" data-label="Ordini" onclick="go('ordini')"><span class="nav-icon">🛒</span><span class="nav-btn-label"> Ordini</span></button>
       <div class="nav-sep"></div>
       <button class="nav-btn" data-section="export" data-label="Export" onclick="go('export')"><span class="nav-icon">💾</span><span class="nav-btn-label"> Export</span></button>
+      <button class="nav-btn" data-section="amministrazione" data-label="Amministrazione" onclick="go('amministrazione')"><span class="nav-icon">💶</span><span class="nav-btn-label"> Amministrazione</span></button>
       <button class="nav-btn" data-section="impostazioni" data-label="Impostazioni" onclick="go('impostazioni')"><span class="nav-icon">⚙️</span><span class="nav-btn-label"> Impostazioni</span></button>
       <button id="sidebar-toggle-btn" onclick="toggleSidebar()" style="width:100%;display:flex;align-items:center;gap:10px;padding:10px 20px;font-size:10px;letter-spacing:.12em;text-transform:uppercase;font-family:inherit;text-align:left;color:var(--txt4);background:none;border:none;border-top:1px solid var(--border);margin-top:4px;cursor:pointer;transition:all .15s" onmouseover="this.style.color='var(--txt2)'" onmouseout="this.style.color='var(--txt4)'"><span class="nav-icon" id="sidebar-toggle-icon">◀</span><span class="nav-btn-label"> Riduci</span></button>
     </nav>
@@ -563,6 +564,40 @@ td[ondblclick]:hover{background:rgba(255,159,10,.06)!important}
   </div>
 </div>
 
+<!-- ── CONFIG LOCALE · LA GRANDISSIMA OSTERIA ───────────────────────────────
+     Deve stare PRIMA di manager.js. È l'UNICO punto che distingue questo
+     locale dagli altri due: manager.js è identico byte per byte sui tre repo.
+     dbUser "default" = partizione dati storica. NON cambiarlo: cambiarlo
+     significa staccare il locale da tutto il suo pregresso. -->
+<script>
+  window.CM_CONFIG = {
+    dbUser:              "default",
+    // Dati di fatturazione fissi: fondo indelebile, sopravvivono all'azzeramento
+    // di localStorage e a una riga cm_locale vuota o assente.
+    localeDefault: {
+      nome:       "BALANCE F&B S.R.L.",
+      indirizzo:  "VIA PONTE NUOVO 25",
+      cap:        "20128",
+      citta:      "MILANO",
+      provincia:  "MI",
+      piva:       "12257410964",
+      cf:         "SPSDVD95H16C933R",
+      sdi:        "USAL8PV"
+    },
+    nomeLocale:          "Osteria Lagrandissima",
+    skuPrefix:           "LG-",
+    lsPrefix:            "lg_",
+    theme:               "amber",
+    trasferimenti:       true,
+    servizioBottiglia:   0,
+    servizioDal:         "",
+    servizioIva:         10,
+    ivaSomministrazione: 10,
+    // mar–dom. Sabato pranzo+cena, domenica solo pranzo → 6 giorni / 7 servizi.
+    giorniApertura:      [2,3,4,5,6,0],
+    serviziGiorno:       { 6:2 }
+  };
+</script>
 <script src="manager.js"></script>
 
 <!-- NOTE VELOCE MODAL -->
