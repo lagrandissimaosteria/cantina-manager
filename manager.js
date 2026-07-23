@@ -112,6 +112,12 @@ let fatture = [], _fattBase = [], _fattTableOk = true; // scadenzario fatture fo
 // dead zone facendo fallire l'intero loadData().
 let _settingsTableOk = true, _settingsPushTimer = null;
 let _movLedgerVuoto = 0; // >0 = ledger remoto vuoto con storico in cache locale
+// Motivo per cui la sessione NON è allineata al remoto (""=allineata). Impostato
+// da loadData quando ripiega sul backup locale o quando una tabella critica non
+// è leggibile. Finché è valorizzato, le scritture remote automatiche sono
+// BLOCCATE: salvare una cache locale stantia sopra il remoto è esattamente ciò
+// che ha fatto riapparire bottiglie già scaricate.
+let _degradedMode = "", _degradedWarned = false;
 const MOV_DELETE_ABS = 25;   // soglia assoluta: n. movimenti cancellati in un save
 const MOV_DELETE_PCT = 0.20; // soglia relativa: quota della baseline caricata
 let _bozzeSb = []; // bozze da ordini_testata+righe, caricate in background
@@ -1215,6 +1221,17 @@ async function _flushSave(){
 
   if(!_sb){ return; }
 
+  if(_degradedMode){
+    // Sessione non allineata al remoto: il backup locale è già stato scritto da
+    // scheduleSave, quindi il lavoro non si perde, ma NON lo si propaga.
+    _setDbStatus("err","Sola lettura — "+_degradedMode);
+    if(!_degradedWarned){
+      _degradedWarned = true;
+      notify("🔒 Sola lettura: questa sessione non è allineata al database ("+_degradedMode+"). Modifiche salvate solo qui. Ricarica la pagina per riallinearti.","err");
+    }
+    return;
+  }
+
   _saveInFlight = true;
   _savePending  = false;
   _setDbStatus("sync","Sincronizzazione…");
@@ -1315,6 +1332,12 @@ function scheduleSave(){
 async function forceSave(){
   clearTimeout(saveTimer);
   if(!_sb){ notify("⚠️ Nessuna connessione Supabase","err"); return; }
+  if(_degradedMode){
+    // Override umano ammesso, ma mai silenzioso: qui si sovrascrive il remoto
+    // con dati potenzialmente più vecchi.
+    notify("🔒 Sessione non allineata ("+_degradedMode+"): ricarica la pagina prima di sincronizzare, oppure usa Sync forzato dopo un caricamento riuscito.","err");
+    return;
+  }
   _setDbStatus("sync","Sincronizzazione…");
   // Snapshot immutabile DEEP prima dell'await
   const snapshot = JSON.parse(JSON.stringify({
@@ -1353,6 +1376,7 @@ async function loadData(){
   }
   _setDbStatus("sync","Caricamento…");
   _movLedgerVuoto = 0;
+  _degradedMode = ""; _degradedWarned = false;
   try{
     // allSettled: una tabella secondaria che fallisce (RLS mancante, timeout,
     // tabella assente) non deve più far collassare l'intero caricamento sul
@@ -1421,6 +1445,7 @@ async function loadData(){
       _setDbStatus("err","Ledger vuoto — movimenti in sola lettura");
       notify("⚠️ Ledger remoto VUOTO ma "+_movLedgerVuoto+" movimenti in cache locale: verifica user_id/migrazione. Scritture movimenti bloccate.","err");
     } else if(degradate.length){
+      _degradedMode = "tabelle non lette: "+degradate.join(", ");
       _setDbStatus("err","Parziale: "+degradate.join(", "));
       notify("⚠️ Caricamento parziale — non leggibili: "+degradate.join(", "),"err");
     } else {
@@ -1436,6 +1461,7 @@ async function loadData(){
     } else render(); // re-render after async load
   }catch(e){
     const msg = e?.message || String(e);
+    _degradedMode = "caricamento remoto fallito";
     console.error("[loadData] fallito:", msg, e?.code||"", e?.details||"", "| user_id:", _effectiveDbUser());
     _setDbStatus("err","Errore lettura: "+msg.slice(0,60));
     notify("⚠️ DB non raggiungibile ("+msg.slice(0,80)+") — carico backup locale","err");
