@@ -112,6 +112,8 @@ let fatture = [], _fattBase = [], _fattTableOk = true; // scadenzario fatture fo
 // dead zone facendo fallire l'intero loadData().
 let _settingsTableOk = true, _settingsPushTimer = null;
 let _movLedgerVuoto = 0; // >0 = ledger remoto vuoto con storico in cache locale
+const MOV_DELETE_ABS = 25;   // soglia assoluta: n. movimenti cancellati in un save
+const MOV_DELETE_PCT = 0.20; // soglia relativa: quota della baseline caricata
 let _bozzeSb = []; // bozze da ordini_testata+righe, caricate in background
 let section = "dashboard";
 let search = "", filterTipo = "tutti", filterFormato = "tutti",
@@ -1051,17 +1053,38 @@ async function _flushMovementsV2(){
   const cur = new Map(movements.map(m => [m.id, _movHash(m)]));
   const upserts = movements.filter(m => _movSyncBaseline.get(m.id) !== cur.get(m.id));
   const deletes = [..._movSyncBaseline.keys()].filter(id => !cur.has(id));
+
+  // ── TRIPWIRE ANTI-TOMBSTONE DI MASSA ────────────────────────────────────────
+  // 1055 movimenti tombstonati in un colpo (23/07/2026): il ledger era stato
+  // caricato, i movimenti in memoria si sono azzerati e il save successivo ha
+  // letto la differenza come "cancellati tutti". Le giacenze avevano già un
+  // guard (INTEGRITY_GUARD), i movimenti no. Una cancellazione legittima è
+  // puntuale: qualche riga, non un intero storico. Oltre soglia si ABORTISCE la
+  // sola parte di cancellazione — gli upsert restano, così il lavoro in corso
+  // non si perde — e si avvisa in modo visibile.
+  const baseN = _movSyncBaseline.size;
+  const troppi = deletes.length >= MOV_DELETE_ABS && baseN > 0 && (deletes.length / baseN) >= MOV_DELETE_PCT;
+  if(troppi){
+    console.error("[ledger] cancellazione di massa BLOCCATA:", deletes.length, "su", baseN);
+    notify(`🛑 Bloccata cancellazione di ${deletes.length} movimenti su ${baseN}: sembra un azzeramento accidentale, non una tua cancellazione. Storico intatto.`,"err");
+  }
   for(const c of _chunk(upserts, 500)){
     const rows = c.map(m => ({ id:m.id, user_id:_effectiveDbUser(), payload:m, deleted:false }));
     const { error } = await _sb.from("cm_movements_ledger").upsert(rows, {onConflict:"id"});
     if(error) throw error;
   }
-  for(const c of _chunk(deletes, 500)){
-    const { error } = await _sb.from("cm_movements_ledger")
-      .update({ deleted:true }).in("id", c).eq("user_id", _effectiveDbUser());
-    if(error) throw error;
+  if(!troppi){
+    for(const c of _chunk(deletes, 500)){
+      const { error } = await _sb.from("cm_movements_ledger")
+        .update({ deleted:true }).in("id", c).eq("user_id", _effectiveDbUser());
+      if(error) throw error;
+    }
   }
-  _movSyncBaseline = cur; // baseline = ciò che abbiamo appena sincronizzato
+  // Se le cancellazioni sono state bloccate, le righe sospette restano nella
+  // baseline: al prossimo salvataggio il guard rivaluta anziché dimenticarsene.
+  _movSyncBaseline = troppi
+    ? new Map([...cur, ...[...(_movSyncBaseline)].filter(([id]) => !cur.has(id))])
+    : cur;
 }
 
 // ── PUBLIC API ────────────────────────────────────────────────────────────────
