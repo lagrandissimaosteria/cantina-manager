@@ -576,7 +576,7 @@ function _reverseMovEffect(w, mov){
   const q=parseInt(mov.qty)||0; if(q<=0) return {...w};
   let giac=parseInt(w.giacenza)||0;
   let lots=(w.lots||[]).map(l=>({...l}));
-  const _adds = mov.tipo==="carico" || (_isRettifica(mov.tipo) && mov.segno!=="-");
+  const _adds = mov.tipo==="carico" || mov.tipo==="trasferimento-entrata" || (_isRettifica(mov.tipo) && mov.segno!=="-");
   if(_adds){
     const li=lots.findIndex(l=>l.id===mov.id+"_lot");
     if(li>=0){ giac-=(parseInt(lots[li].qtyRimanente)||0); lots.splice(li,1); }
@@ -592,7 +592,7 @@ function _applyMovEffect(w, mov){
   const q=parseInt(mov.qty)||0; if(q<=0) return {...w};
   let giac=parseInt(w.giacenza)||0;
   let lots=(w.lots||[]).map(l=>({...l}));
-  const _adds = mov.tipo==="carico" || (_isRettifica(mov.tipo) && mov.segno!=="-");
+  const _adds = mov.tipo==="carico" || mov.tipo==="trasferimento-entrata" || (_isRettifica(mov.tipo) && mov.segno!=="-");
   if(_adds){
     const pAcq=costoCarico(mov,w);
     lots=[...lots,{id:mov.id+"_lot",data:mov.data,fattura:mov.fattura||"",fornitore:mov.fornitore||"",prezzoAcq:pAcq,iva:w.iva||22,qtyCaricata:q,qtyRimanente:q}];
@@ -613,8 +613,45 @@ function badge(t){return `<span class="badge badge-${t||'default'}">${h(t||'')}<
 // Rettifica giacenza: alza/abbassa la giacenza (segno +/−) SENZA impatto sul denaro
 // (non è né spesa né ricavo). "correzione" mantenuto come alias retro-compatibile.
 function _isRettifica(t){ return t==="rettifica"||t==="correzione"; }
+// ─── PROVENIENZA DEI CARICHI: INVENTARIO vs ACQUISTO ─────────────────────────
+// Regola operativa: un carico creato a mano dalla sezione Carico/Scarico è un
+// semplice ingresso in inventario — le bottiglie sono già in casa, non c'è
+// esborso. Un carico generato da un ordine ricevuto è un acquisto vero.
+// I movimenti creati dalla ricezione ordine portano origine:"ordine" + ordineId;
+// per lo storico precedente a questi campi si riconoscono dalla nota
+// "Da ordine …" o da una fattura riconducibile a un ordine (stessa euristica di
+// listCarichiSospetti). Comportamento predefinito su tutti e tre i locali:
+// una referenza caricata a mano è entrata in cantina, non è stata comprata
+// nell'esercizio corrente. Si disattiva con CONFIG.caricoManualeNonSpesa:false.
+// CONFIG.caricoInizialeFino ("YYYY-MM-DD") è una rete di sicurezza per azzerare
+// il pregresso: forza a inventario i carichi fino a quella data, MA non tocca
+// quelli nati da un ordine ricevuto — un acquisto vero resta un costo anche se
+// retrodatato dentro la finestra.
+// Le rettifiche (± giacenza) non sono né acquisto né vendita: restano fuori da
+// acquisti, ricavi e cash-flow perché il tipo movimento non è carico/scarico.
+const CARICO_MANUALE_NON_SPESA = CONFIG.caricoManualeNonSpesa !== false;
+const CARICO_INIT_FINO = String(CONFIG.caricoInizialeFino||"").trim();
+function _daOrdine(m){
+  if(!m) return false;
+  if(m.origine==="ordine" || m.ordineId) return true;
+  const note=String(m.note??"").trim().toLowerCase();
+  if(note.startsWith("da ordine")) return true;
+  const kf=String(m.fattura??"").trim().toLowerCase();
+  if(!kf) return false;
+  return (orders||[]).some(o=>[o.numeroFattura,o.fattura].some(f=>String(f??"").trim().toLowerCase()===kf));
+}
+function _isCaricoIniziale(m){
+  if(!m || m.tipo!=="carico") return false;
+  if(m.inventarioIniziale===true) return true;   // marcatura manuale esplicita
+  if(_daOrdine(m)) return false;                 // da ordine = acquisto, sempre
+  if(CARICO_INIT_FINO && (m.data||"") <= CARICO_INIT_FINO) return true;
+  return CARICO_MANUALE_NON_SPESA;
+}
+function _isAcquisto(m){ return !!m && !m.deleted && m.tipo==="carico" && !_isCaricoIniziale(m); }
 function _movVis(m){ const t=m&&m.tipo;
   if(t==="scarico") return {s:"-",i:"\u2b07",c:"#FF453A"};
+  if(t==="trasferimento-uscita") return {s:"-",i:"\u2b07",c:"#5AC8FA"};
+  if(t==="trasferimento-entrata") return {s:"+",i:"\u2b06",c:"#5AC8FA"};
   if(_isRettifica(t)) return {s:(m.segno==="-"?"-":"+"),i:"\u00b1",c:"#5AC8FA"};
   return {s:"+",i:"\u2b06",c:"#30D158"}; }
 function margColor(mp){return mp===null?"var(--txt4)":mp>=50?"#30D158":mp>=30?"var(--amber)":"#FF453A"}
@@ -1625,6 +1662,7 @@ function _applySidebarState(){
 const SECTION_TITLES={dashboard:"Plancia",inventario:"Inventario Vini","scarico-serata":"🍾 Scarico Serata",movimenti:"Carico / Scarico",fallate:"Gestione Fallate",ordini:"Ordini Fornitore",export:"Export & Bilancio",amministrazione:"💶 Amministrazione",impostazioni:"⚙️ Impostazioni"};
 function go(s){
   if(s==="analytics") s="dashboard"; // sezioni fuse in "Plancia"
+  if(s==="trasferimenti" && !CONFIG.trasferimenti) s="dashboard"; // feature off su questo locale
   section=s;
   if(selMode) exitSel(); // NAV-03: resetta selezione multipla al cambio sezione
   if(s!=="inventario"){ filterTipo="tutti"; filterVitigni.clear(); filterFormato="tutti"; filterDistrib="tutti"; filterProduttore="tutti"; filterRegione="tutti"; filterNazione="tutti"; filterGiacenza="tutti"; _hideTopbarActions(); }
@@ -2065,6 +2103,7 @@ function render(){
     c.innerHTML=renderOrdini();
     _loadBozzeSb(); // carica bozze remote in background e aggiorna se ci sono
   }
+  else if(section==="trasferimenti") c.innerHTML=renderTrasferimenti();
   else if(section==="export") c.innerHTML=renderExport();
   else if(section==="amministrazione") c.innerHTML=renderAmministrazione();
   else if(section==="impostazioni") c.innerHTML=renderImpostazioni();
@@ -2530,7 +2569,7 @@ function renderPlancia(){
   const tipoPie=TIPOLOGIE.filter(t=>_giacByTipo[t]>0).map(t=>({name:t,value:_giacByTipo[t]}));
 
   // ACQUISTI per periodo
-  const carichi=_mov.filter(m=>m.tipo==="carico");
+  const carichi=_mov.filter(_isAcquisto); // inventario di apertura escluso dagli acquisti
   function getAcquistiPerPeriodo(periodo){
     const buckets={};
     carichi.forEach(m=>{
@@ -2578,14 +2617,14 @@ function renderPlancia(){
   let costo30=0,ricavo30=0,cQ30=0,sQ30=0;
   movements.filter(m=>!m.deleted&&(m.data||"")>=_cut30).forEach(m=>{
     const w=wineMap[m.wineId]; const q=parseInt(m.qty)||0;
-    if(m.tipo==="carico"){ const p=costoCarico(m,w); const iva=(parseInt(w?.iva)||22)/100; costo30+=p*(1+iva)*q; cQ30+=q; }
+    if(m.tipo==="carico"){ if(_isCaricoIniziale(m)) return; const p=costoCarico(m,w); const iva=(parseInt(w?.iva)||22)/100; costo30+=p*(1+iva)*q; cQ30+=q; }
     else if(m.tipo==="scarico"){ ricavo30+=_pf(calcRicavoTotaleMovimento(m,w)); sQ30+=q; }
   });
   const netto30=ricavo30-costo30;
 
   // APPROVVIGIONAMENTO & FORNITORI (carichi ≥ 2026-01-01)
   const _fEpoch="2026-01-01";
-  const _fCarichi=movements.filter(m=>!m.deleted&&m.tipo==="carico"&&(m.data||"")>=_fEpoch);
+  const _fCarichi=movements.filter(m=>_isAcquisto(m)&&(m.data||"")>=_fEpoch);
   const _fAgg={};
   let _fTot=0,_fBt=0;
   let _fManqBt=0,_fManqRighe=0,_fManqImp=0;
@@ -2702,7 +2741,7 @@ function renderPlancia(){
     const k=(m.data||"").slice(0,7); if(!cashMap[k]) return;
     const w=wineMap[m.wineId];
     if(m.tipo==="scarico"&&w) cashMap[k].ricavo+=calcRicavoTotaleMovimento(m,w);
-    else if(m.tipo==="carico"){ const p=costoCarico(m,w); const iva=(parseInt(w?.iva)||22)/100; cashMap[k].spesa+=p*(1+iva)*m.qty; }
+    else if(m.tipo==="carico"&&!_isCaricoIniziale(m)){ const p=costoCarico(m,w); const iva=(parseInt(w?.iva)||22)/100; cashMap[k].spesa+=p*(1+iva)*m.qty; }
   });
   const cashData=Object.values(cashMap);
 
@@ -2903,7 +2942,7 @@ function renderPlancia(){
   // Acquisti per periodo (chart, splittato)
   html+=`<div class="card" style="padding:0;margin-bottom:20px">
     <div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
-      <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--amber3)">📦</span><span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Acquisti per ${periodoLabels[analyticsAcquistiPeriodo]}</span></div>
+      <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--amber3)">📦</span><span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Acquisti per ${periodoLabels[analyticsAcquistiPeriodo]}</span>${(CARICO_MANUALE_NON_SPESA||CARICO_INIT_FINO)?`<span style="font-size:9px;color:var(--txt4);text-transform:none;letter-spacing:0"> \u00b7 solo carichi da ordine ricevuto</span>`:''}</div>
       <div style="display:flex;gap:4px">${["giorno","settimana","mese"].map(p=>`<button class="${analyticsAcquistiPeriodo===p?"btn-primary btn-sm":"btn-outline btn-sm"}" onclick="analyticsAcquistiPeriodo='${p}';render()">${periodoLabels[p]}</button>`).join("")}</div>
     </div>
     ${acquistiData.length===0?`<div style="padding:32px;text-align:center;color:var(--txt4);font-size:11px">Nessun carico registrato</div>`:`<div style="padding:20px"><div class="chart-container" style="height:200px"><canvas id="chart-acquisti"></canvas></div></div>`}
@@ -3812,7 +3851,7 @@ function renderMovimenti(){
         <thead><tr>${selMode==='movimenti'?`<th class="cb-col"><input type="checkbox" id="cb-sel-all" class="cb-sel" onchange="toggleSelAll()"></th>`:''}<th>Data</th><th>Tipo</th><th>Vino</th><th>Vitigni</th><th>Annata</th><th>Produttore</th><th>Nazione</th><th>N° Fattura</th><th>Fornitore</th><th class="r">Qtà</th><th class="r">P.Acq+IVA</th><th class="r">P.Carta/Ricavo</th><th>Note</th><th class="c"></th></tr></thead>
         <tbody>
           ${movements.length===0?`<tr><td colspan="10" style="text-align:center;padding:28px;color:var(--txt4)">Nessun movimento registrato</td></tr>`:
-          (()=>{ const wMap=Object.fromEntries(wines.map(w=>[w.id,w])); return movements.map(m=>{const wObj=wMap[m.wineId]; const wAnn=wObj?.annata||""; const costoIva=wObj?calcCostoIvaBottiglia(wObj):0; return `<tr data-sel-id="${m.id}">${selMode==='movimenti'?`<td class="cb-col"><input type="checkbox" class="cb-sel" data-id="${m.id}" onchange="toggleSel('${m.id}');_updateBulkBar()"></td>`:''}<td style="color:var(--txt2)">${h(_fmtDataIT(m.data))}</td><td><span style="font-size:9px;padding:2px 8px;border:1px solid;${m.tipo==="scarico"?"background:rgba(255,69,58,.12);color:#FF6B6B;border-color:#CC3025":_isRettifica(m.tipo)?"background:rgba(90,200,250,.12);color:#5AC8FA;border-color:#3a86a8":"background:rgba(20,83,45,.3);color:#30D158;border-color:#166534"}">${h((m.tipo||"").toUpperCase())}</span></td><td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(m.wineName)}</td><td style="color:var(--txt3);font-size:10px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(wObj?.vitigni||"—")}</td><td style="color:var(--amber);font-family:'Montserrat',sans-serif;white-space:nowrap">${wAnn?h(wAnn):'<span style="color:var(--txt4)">N.V.</span>'}</td><td style="color:var(--txt2);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(m.produttore||"—")}</td><td style="color:var(--amber3);font-size:10px;white-space:nowrap">${h(m.nazione||wObj?.nazione||"—")}</td><td style="color:var(--txt3)">${h(m.fattura||"—")}</td><td style="color:var(--txt3)">${h(m.fornitore||"—")}</td><td class="r" style="font-family:'Montserrat',sans-serif;color:${_movVis(m).c};font-size:1rem">${_movVis(m).s}${m.qty}</td><td class="r" style="color:var(--txt3);white-space:nowrap">${costoIva?fmt(costoIva):"—"}</td><td class="r" style="color:var(--amber);white-space:nowrap">${wObj?.prezzoCarta?fmt(parseFloat(wObj.prezzoCarta)):"—"}</td><td style="color:var(--txt4);font-size:10px">${h(m.note||"—")}</td><td class="c"><button onclick="openMovModal('${m.id}')" style="background:none;border:1px solid var(--border2);color:var(--txt3);font-size:11px;padding:3px 8px;cursor:pointer;font-family:inherit;transition:all .15s" onmouseover="this.style.borderColor='var(--amber3)';this.style.color='var(--amber)'" onmouseout="this.style.borderColor='var(--border2)';this.style.color='var(--txt3)'">✏️</button></td></tr>`; }).join(""); })() }
+          (()=>{ const wMap=Object.fromEntries(wines.map(w=>[w.id,w])); return movements.map(m=>{const wObj=wMap[m.wineId]; const wAnn=wObj?.annata||""; const costoIva=wObj?calcCostoIvaBottiglia(wObj):0; return `<tr data-sel-id="${m.id}">${selMode==='movimenti'?`<td class="cb-col"><input type="checkbox" class="cb-sel" data-id="${m.id}" onchange="toggleSel('${m.id}');_updateBulkBar()"></td>`:''}<td style="color:var(--txt2)">${h(_fmtDataIT(m.data))}</td><td><span style="font-size:9px;padding:2px 8px;border:1px solid;${m.tipo==="scarico"?"background:rgba(255,69,58,.12);color:#FF6B6B;border-color:#CC3025":_isRettifica(m.tipo)?"background:rgba(90,200,250,.12);color:#5AC8FA;border-color:#3a86a8":"background:rgba(20,83,45,.3);color:#30D158;border-color:#166534"}">${h((m.tipo||"").toUpperCase())}${_isCaricoIniziale(m)?' \u00b7 INV.':''}</span></td><td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(m.wineName)}</td><td style="color:var(--txt3);font-size:10px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(wObj?.vitigni||"—")}</td><td style="color:var(--amber);font-family:'Montserrat',sans-serif;white-space:nowrap">${wAnn?h(wAnn):'<span style="color:var(--txt4)">N.V.</span>'}</td><td style="color:var(--txt2);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(m.produttore||"—")}</td><td style="color:var(--amber3);font-size:10px;white-space:nowrap">${h(m.nazione||wObj?.nazione||"—")}</td><td style="color:var(--txt3)">${h(m.fattura||"—")}</td><td style="color:var(--txt3)">${h(m.fornitore||"—")}</td><td class="r" style="font-family:'Montserrat',sans-serif;color:${_movVis(m).c};font-size:1rem">${_movVis(m).s}${m.qty}</td><td class="r" style="color:var(--txt3);white-space:nowrap">${costoIva?fmt(costoIva):"—"}</td><td class="r" style="color:var(--amber);white-space:nowrap">${wObj?.prezzoCarta?fmt(parseFloat(wObj.prezzoCarta)):"—"}</td><td style="color:var(--txt4);font-size:10px">${h(m.note||"—")}</td><td class="c"><button onclick="openMovModal('${m.id}')" style="background:none;border:1px solid var(--border2);color:var(--txt3);font-size:11px;padding:3px 8px;cursor:pointer;font-family:inherit;transition:all .15s" onmouseover="this.style.borderColor='var(--amber3)';this.style.color='var(--amber)'" onmouseout="this.style.borderColor='var(--border2)';this.style.color='var(--txt3)'">✏️</button></td></tr>`; }).join(""); })() }
         </tbody>
       </table>
     </div>
@@ -4272,7 +4311,7 @@ function registraMovimento(){
   });
   // M7: snapshot del costo medio ponderato SOLO allo scarico (vendita). La rettifica non è vendita.
   const _costoSnap = tipo==="scarico" ? calcCostoIvaBottiglia(wine) : undefined;
-  const _movEntry = {id:uid(),wineId,wineName:wine.nome,produttore:wine.produttore,nazione:wine.nazione||"",tipo,qty:q,data,fattura,fornitore,note,ts:Date.now()};
+  const _movEntry = {id:uid(),wineId,wineName:wine.nome,produttore:wine.produttore,nazione:wine.nazione||"",tipo,qty:q,data,fattura,fornitore,note,origine:"manuale",ts:Date.now()};
   if(_isRettifica(tipo)) _movEntry.segno = segno;
   if(_costoSnap) _movEntry.costoUnitarioIva = _costoSnap;
   if(tipo==="scarico") _movEntry.servizio = parseFloat(CONFIG.servizioBottiglia)||0; // snapshot servizio
@@ -5607,6 +5646,7 @@ function confermaRicezioneOrdine(){
 
     movements.unshift({id:uid(),wineId:wine.id,wineName:wine.nome,produttore:wine.produttore,nazione:wine.nazione||"",
       tipo:"carico",qty:qtyArr,data:dataArrivo,fattura,prezzoAcqLotto:pAcq,
+      origine:"ordine",ordineId:ordine?.id||ricezioneModalData.ordineId||"",
       fornitore:fornitureName,note:"Da ordine "+ordine?.dataOrdine,ts:Date.now()});
 
     // Aggiorna qtyArr sulla referenza nell'ordine (oggetto ordine, mutazione locale accettabile)
@@ -5724,6 +5764,7 @@ function confermaRicezioneGlobale(){
 
       newMovsGlob.push({id:uid(),wineId:wine.id,wineName:wine.nome,produttore:wine.produttore,nazione:wine.nazione||"",
         tipo:"carico",qty,data:dataArrivo,fattura,prezzoAcqLotto:pAcq,
+        origine:"ordine",ordineId:ordine.id||"",
         fornitore:fornitureName,note:"Da ordine "+ordine.dataOrdine,ts:Date.now()});
       totRef++;
     });
@@ -5801,7 +5842,26 @@ function _mergeNonEmpty(base, over){
   }
   return out;
 }
-function _loadLocale(){ const _def={nome:"",indirizzo:"",cap:"",citta:"",provincia:"",piva:"",cf:"",sdi:"",pec:"",email:"",telefono:"",noteConsegna:""}; const _base=_mergeNonEmpty(_def, CONFIG.localeDefault); try{ const s=localStorage.getItem(_lsKey("locale")); return s?_mergeNonEmpty(_base, JSON.parse(s)):_base; }catch{ return _base; } }
+function _loadLocale(){
+  const _def={
+    nome:"", ragioneSociale:"",
+    indirizzo:"", cap:"", citta:"", provincia:"",                   // indirizzo di consegna
+    sedeIndirizzo:"", sedeCap:"", sedeCitta:"", sedeProvincia:"",   // sede legale
+    piva:"", cf:"", sdi:"", pec:"", email:"", telefono:"", noteConsegna:""
+  };
+  const _base=_mergeNonEmpty(_def, CONFIG.localeDefault);
+  try{ const s=localStorage.getItem(_lsKey("locale")); return s?_mergeNonEmpty(_base, JSON.parse(s)):_base; }catch{ return _base; }
+}
+// Sede legale assente ⇒ si ricade sull'indirizzo di consegna: i dati storici
+// (che avevano un solo indirizzo) continuano a stampare fatturazione corretta.
+function _fmtAddr(via,cap,citta,prov){
+  const l2=[cap,citta,prov?`(${prov})`:""].filter(Boolean).join(" ");
+  return [via,l2].filter(Boolean).join(", ");
+}
+function _addrConsegna(l){ l=l||localeData; return _fmtAddr(l.indirizzo,l.cap,l.citta,l.provincia); }
+function _addrSede(l){ l=l||localeData; return _fmtAddr(l.sedeIndirizzo,l.sedeCap,l.sedeCitta,l.sedeProvincia); }
+function _addrFatt(l){ return _addrSede(l)||_addrConsegna(l); }
+function _ragione(l){ l=l||localeData; return (l.ragioneSociale||"").trim()||l.nome||NOME_LOCALE; }
 function _saveLocaleLocal(d){ try{ localStorage.setItem(_lsKey("locale"),JSON.stringify(d)); }catch{} }
 let _localeBase = {}; // baseline per il merge campo-per-campo tra postazioni
 // I dati di fatturazione seguono il locale, non il browser: localStorage resta per
@@ -6015,10 +6075,10 @@ function stampaOrdine(id) {
   <div class="header">
     <div>
       <div class="brand">🍷 ${localeData.nome||NOME_LOCALE}</div>
-      <div class="brand-sub">${(()=>{const a=[localeData.indirizzo,[localeData.cap,localeData.citta,localeData.provincia?'('+localeData.provincia+')':''].filter(Boolean).join(' ')].filter(Boolean).join(', ');return a||'Gestione Cantina';})()}</div>
+      <div class="brand-sub">${(()=>{const r=_ragione(localeData),a=_addrFatt(localeData);const rs=(r&&r!==(localeData.nome||NOME_LOCALE))?r:'';return [rs,a].filter(Boolean).join(' — ')||'Gestione Cantina';})()}</div>
       ${localeData.piva?`<div style="font-size:9px;color:#888;margin-top:2px">P.IVA: ${localeData.piva}${localeData.cf?' &middot; C.F.: '+localeData.cf:''}</div>`:''}
       ${(localeData.email||localeData.telefono)?`<div style="font-size:9px;color:#888">${[localeData.email,localeData.telefono].filter(Boolean).join(' &middot; ')}</div>`:''}
-      ${localeData.noteConsegna?`<div style="font-size:9px;color:#888;margin-top:4px;max-width:280px"><strong>Consegna:</strong> ${localeData.noteConsegna}</div>`:''}
+      ${(()=>{const c=_addrConsegna(localeData);const b=[c,localeData.noteConsegna].filter(Boolean).join(' — ');return b?`<div style="font-size:9px;color:#888;margin-top:4px;max-width:280px"><strong>Consegna:</strong> ${b}</div>`:'';})()}
     </div>
     <div class="order-meta">
       <h2>Ordine Fornitore</h2>
@@ -6145,10 +6205,12 @@ async function emailOrdine(id) {
 
   const fornEmail=_getFornEmail(o.fornitore||"");
   const loc=_loadLocale();
-  const addrLine=[loc.cap,loc.citta,loc.provincia?"("+loc.provincia+")":""].filter(Boolean).join(" ");
+  const _sede=_addrSede(loc), _cons=_addrConsegna(loc);
   const mittente=[
-    loc.nome||NOME_LOCALE,
-    loc.indirizzo?(loc.indirizzo+(addrLine?" — "+addrLine:"")):"",
+    _ragione(loc),
+    (loc.nome && loc.nome!==_ragione(loc))?"Insegna: "+loc.nome:"",
+    (_sede||_cons)?"Sede legale: "+(_sede||_cons):"",
+    (_sede&&_cons&&_cons!==_sede)?"Indirizzo di consegna: "+_cons:"",
     loc.piva?"P.IVA: "+loc.piva:"",
     loc.cf?"C.F.: "+loc.cf:"",
     loc.sdi?"SDI: "+loc.sdi:"",
@@ -6156,7 +6218,9 @@ async function emailOrdine(id) {
     loc.email?"Email: "+loc.email:"",
     loc.telefono?"Tel: "+loc.telefono:""
   ].filter(Boolean).join("\n");
-  const consegnaBlock=loc.noteConsegna?"\n\n──────────────────────────────────\nINDICAZIONI CONSEGNA:\n"+loc.noteConsegna:"";
+  const consegnaBlock=(_cons||loc.noteConsegna)
+    ?"\n\n──────────────────────────────────\nINDICAZIONI CONSEGNA:\n"+[_cons,loc.noteConsegna].filter(Boolean).join("\n")
+    :"";
   const testoCompleto = decodeURIComponent(body)+consegnaBlock+"\n\n──────────────────────────────────\n"+mittente;
 
   // Versione compatta usata se il mailto completo supera il limite del browser
@@ -6220,7 +6284,7 @@ function whatsappOrdine(id) {
   }).join('\n');
 
   const mittente = [loc.nome||NOME_LOCALE, loc.telefono?'Tel: '+loc.telefono:''].filter(Boolean).join(' · ');
-  const consegna = loc.noteConsegna ? '\n\n📦 *Consegna:* '+loc.noteConsegna : '';
+  const consegna = (()=>{const c=_addrConsegna(loc);const b=[c,loc.noteConsegna].filter(Boolean).join(' — ');return b?'\n\n📦 *Consegna:* '+b:'';})();
   const totaleWa = hasAnyDiscount
     ? `*Lordo: ${fmt(totLordo)}* — sconti applicati → *Netto: ${fmt(totNetto)}* · ${totQty} bottiglie`
     : `*Totale: ${totQty} bottiglie*`;
@@ -6329,14 +6393,31 @@ function renderImpostazioni(){
     <div class="card">
       <div class="section-label"><span>🏠 Dati del Locale</span></div>
       <div class="form-grid g2">
-        <div class="col-span-2"><label class="form-label">Nome Locale</label><input class="form-input" id="loc-nome" value="${h(d.nome)}" placeholder="Palinurobar"></div>
+        <div><label class="form-label">Nome Locale <span style="color:var(--txt4);font-size:9px;text-transform:none;letter-spacing:0">— insegna</span></label><input class="form-input" id="loc-nome" value="${h(d.nome)}" placeholder="Palinurobar"></div>
+        <div><label class="form-label">Ragione Sociale</label><input class="form-input" id="loc-ragioneSociale" value="${h(d.ragioneSociale||'')}" placeholder="es. Palinuro S.r.l."></div>
+        <div><label class="form-label">Email locale</label><input class="form-input" id="loc-email" value="${h(d.email)}" placeholder="info@palinurobar.it"></div>
+        <div><label class="form-label">Telefono</label><input class="form-input" id="loc-telefono" value="${h(d.telefono)}" placeholder="+39 02 1234567"></div>
+      </div>
+
+      <div class="section-label" style="margin-top:20px"><span>🚚 Indirizzo di Consegna</span></div>
+      <div class="form-grid g2">
         <div class="col-span-2"><label class="form-label">Indirizzo</label><input class="form-input" id="loc-indirizzo" value="${h(d.indirizzo)}" placeholder="es. Via Roma 1"></div>
         <div><label class="form-label">CAP</label><input class="form-input" id="loc-cap" value="${h(d.cap)}" placeholder="20100"></div>
         <div><label class="form-label">Città</label><input class="form-input" id="loc-citta" value="${h(d.citta)}" placeholder="Milano"></div>
         <div><label class="form-label">Provincia</label><input class="form-input" id="loc-provincia" value="${h(d.provincia)}" placeholder="MI"></div>
-        <div><label class="form-label">Email locale</label><input class="form-input" id="loc-email" value="${h(d.email)}" placeholder="info@palinurobar.it"></div>
-        <div><label class="form-label">Telefono</label><input class="form-input" id="loc-telefono" value="${h(d.telefono)}" placeholder="+39 02 1234567"></div>
       </div>
+      <label class="form-label" style="margin-top:12px;display:block">Indicazioni Consegna</label>
+      <textarea class="form-input" id="loc-noteConsegna" rows="3" style="resize:vertical" placeholder="es. Consegnare martedì 8–12. Suonare citofono Cucina. Ingresso merci su Via Verdi.">${h(d.noteConsegna)}</textarea>
+
+      <div class="section-label" style="margin-top:20px"><span>🏛️ Sede Legale</span></div>
+      <p style="font-size:10px;color:var(--txt4);margin-bottom:8px">Se lasciata vuota, per la fatturazione viene usato l'indirizzo di consegna.</p>
+      <div class="form-grid g2">
+        <div class="col-span-2"><label class="form-label">Indirizzo</label><input class="form-input" id="loc-sedeIndirizzo" value="${h(d.sedeIndirizzo||'')}" placeholder="es. Via Verdi 10"></div>
+        <div><label class="form-label">CAP</label><input class="form-input" id="loc-sedeCap" value="${h(d.sedeCap||'')}" placeholder="20100"></div>
+        <div><label class="form-label">Città</label><input class="form-input" id="loc-sedeCitta" value="${h(d.sedeCitta||'')}" placeholder="Milano"></div>
+        <div><label class="form-label">Provincia</label><input class="form-input" id="loc-sedeProvincia" value="${h(d.sedeProvincia||'')}" placeholder="MI"></div>
+      </div>
+
       <div class="section-label" style="margin-top:20px"><span>🧾 Dati Fatturazione</span></div>
       <div class="form-grid g2">
         <div><label class="form-label">Partita IVA</label><input class="form-input" id="loc-piva" value="${h(d.piva)}" placeholder="IT12345678901"></div>
@@ -6344,8 +6425,6 @@ function renderImpostazioni(){
         <div><label class="form-label">Codice SDI <span style="color:var(--txt4);font-size:9px;text-transform:none;letter-spacing:0">— per fatture elettroniche</span></label><input class="form-input" id="loc-sdi" value="${h(d.sdi||'')}" placeholder="es. ABC1234"></div>
         <div><label class="form-label">PEC <span style="color:var(--txt4);font-size:9px;text-transform:none;letter-spacing:0">— alternativa a SDI</span></label><input class="form-input" id="loc-pec" value="${h(d.pec||'')}" placeholder="es. azienda@pec.it"></div>
       </div>
-      <div class="section-label" style="margin-top:20px"><span>🚚 Indicazioni Consegna</span></div>
-      <textarea class="form-input" id="loc-noteConsegna" rows="4" style="resize:vertical" placeholder="es. Consegnare martedì 8–12. Suonare citofono Cucina. Ingresso merci su Via Verdi.">${h(d.noteConsegna)}</textarea>
       <button class="btn-primary" style="margin-top:16px;width:100%;justify-content:center" onclick="salvaImpostazioni()">💾 Salva Impostazioni</button>
     </div>
     <div class="card">
@@ -6359,10 +6438,15 @@ function renderImpostazioni(){
 function salvaImpostazioni(){
   localeData={
     nome:(document.getElementById("loc-nome")?.value||"").trim()||NOME_LOCALE,
+    ragioneSociale:(document.getElementById("loc-ragioneSociale")?.value||"").trim(),
     indirizzo:(document.getElementById("loc-indirizzo")?.value||"").trim(),
     cap:(document.getElementById("loc-cap")?.value||"").trim(),
     citta:(document.getElementById("loc-citta")?.value||"").trim(),
     provincia:(document.getElementById("loc-provincia")?.value||"").trim(),
+    sedeIndirizzo:(document.getElementById("loc-sedeIndirizzo")?.value||"").trim(),
+    sedeCap:(document.getElementById("loc-sedeCap")?.value||"").trim(),
+    sedeCitta:(document.getElementById("loc-sedeCitta")?.value||"").trim(),
+    sedeProvincia:(document.getElementById("loc-sedeProvincia")?.value||"").trim(),
     piva:(document.getElementById("loc-piva")?.value||"").trim(),
     cf:(document.getElementById("loc-cf")?.value||"").trim(),
     sdi:(document.getElementById("loc-sdi")?.value||"").trim(),
@@ -6379,7 +6463,7 @@ function salvaImpostazioni(){
 function renderExport(){
   const dateStr=new Date().toLocaleDateString("it-IT");
   const wineMap=Object.fromEntries(wines.map(w=>[w.id,w]));
-  const carichi=movements.filter(m=>m.tipo==="carico");
+  const carichi=movements.filter(_isAcquisto); // inventario di apertura escluso
   let totImponibileAcq=0,totIvaAcq=0;
   carichi.forEach(m=>{const w=wineMap[m.wineId];const p=costoCarico(m,w);const imp=p*m.qty;totImponibileAcq+=imp;totIvaAcq+=imp*((parseInt(w?.iva)||22)/100);});
   let totPerdite=0,totIvaPerd=0;
@@ -6387,7 +6471,7 @@ function renderExport(){
   const totIvaStock=wines.reduce((s,w)=>s+calcValore(w)*((parseInt(w.iva)||22)/100),0);
   const s=getStats();
 
-  let html=(CONFIG.trasferimenti?_transferCardHtml():"")+`<div class="card card-amber" style="margin-bottom:20px">
+  let html=`<div class="card card-amber" style="margin-bottom:20px">
     <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px">
       <div><div style="font-size:10px;letter-spacing:.25em;text-transform:uppercase;color:var(--txt2);margin-bottom:4px">💾 Bilancio di Magazzino</div><div style="font-family:'Montserrat',sans-serif;font-weight:300;font-size:1.3rem;color:var(--txt)">Situazione al ${dateStr}</div></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
@@ -9730,111 +9814,331 @@ document.addEventListener('keydown', function(e){
   }, 25000);
 })();
 
-// ─── TRASFERIMENTI TRA LOCALI (export/import manifesto) ──────────────────────
+// ─── TRASFERIMENTI TRA LOCALI — pagina dedicata (ricerca + carrello + storico) ─
 // Isolamento totale: nessuna credenziale cross-project. Comunicazione SOLO via
-// manifesto base64/.json. Costo-neutro (lotti FIFO col costo originale, esclusi
-// dal P&L: tipi "trasferimento-uscita"/"trasferimento-entrata" ≠ scarico/carico).
-// Idempotente per transferId (verificato sul ledger movimenti).
-const TRANSFER_MANIFEST_V = 1;
-let _spedForm = {wineId:"", qty:1, dest:"", note:""};
+// manifesto base64/.json. Costo-neutro: i lotti viaggiano col costo originale e
+// i tipi "trasferimento-uscita"/"trasferimento-entrata" NON sono carico/scarico
+// ⇒ _isAcquisto()/_isCaricoIniziale() li ignorano già, il P&L resta pulito.
+// Ogni movimento porta con sé la propria riga di manifesto (tLine + snapshot
+// lotti): lo storico è ricostruibile e il manifesto ri-generabile senza tabelle
+// aggiuntive. Idempotenza per transferId verificata sul ledger movimenti.
+const TRANSFER_MANIFEST_V = 2;
 
+let _tfQ        = "";              // query ricerca referenze
+let _tfSel      = new Set();       // wineId spuntati nei risultati
+let _tfCart     = [];              // [{wineId, qty}] righe dell'invio in preparazione
+let _tfMeta     = {dest:"", data:"", note:""};
+let _tfHistQ    = "";
+let _tfHistTab  = "tutti";         // tutti | inviati | ricevuti
+let _tfOpen     = new Set();       // gruppi storico espansi (transferId|dir)
+
+function _tfNorm(s){ return (s==null?"":String(s)).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,""); }
 function _transferMatchKey(o){
   return [(o.produttore||"").trim().toLowerCase(),(o.nome||"").trim().toLowerCase(),(o.annata||"").toString().trim().toLowerCase()].join("|");
 }
 function _b64EncodeUtf8(str){ return btoa(unescape(encodeURIComponent(str))); }
 function _b64DecodeUtf8(b64){ return decodeURIComponent(escape(atob(b64))); }
+function _tfIsTransfer(m){ return !!m && !m.deleted && (m.tipo==="trasferimento-uscita"||m.tipo==="trasferimento-entrata"); }
 
-// ── SPEDISCI (export) ────────────────────────────────────────────────────────
-function openSpedisciModal(){
-  _spedForm = {wineId:"", qty:1, dest:"", note:""};
-  const bd=document.createElement("div");
-  bd.className="modal-backdrop"; bd.id="sped-backdrop";
-  bd.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);z-index:40;display:flex;align-items:center;justify-content:center;padding:16px";
-  const opts=wines.filter(w=>(parseInt(w.giacenza)||0)>0).sort((a,b)=>(a.nome||"").localeCompare(b.nome||""))
-    .map(w=>`<option value="${w.id}">${h(w.nome)} — ${h(w.produttore||"")}${w.annata?" · "+h(w.annata):""} · ${w.giacenza}bt</option>`).join("");
-  bd.innerHTML=`
-    <div class="modal" style="max-width:460px" onclick="event.stopPropagation()">
-      <div class="modal-header"><h2>📤 Spedisci a un altro locale</h2>
-        <button style="font-size:18px;color:var(--txt3)" onclick="document.getElementById('sped-backdrop').remove()">✕</button></div>
-      <div class="modal-body">
-        <div class="form-row"><label class="form-label">Vino</label>
-          <select id="sped-wine" class="form-select" onchange="_spedForm.wineId=this.value;_spedSync()">
-            <option value="">— Seleziona vino —</option>${opts}</select></div>
-        <div class="form-grid g2" style="margin-top:10px">
-          <div><label class="form-label">Quantità (bt)</label>
-            <input id="sped-qty" class="form-input" type="number" min="1" step="1" value="1" onfocus="this.select()" oninput="_spedForm.qty=this.value;_spedSync()"></div>
-          <div><label class="form-label">Locale destinazione</label>
-            <input id="sped-dest" class="form-input" placeholder="es. Portland" oninput="_spedForm.dest=this.value"></div>
-        </div>
-        <div class="form-row" style="margin-top:10px"><label class="form-label">Nota (opzionale)</label>
-          <input id="sped-note" class="form-input" placeholder="es. rifornimento sala" oninput="_spedForm.note=this.value"></div>
-        <div id="sped-info" style="margin-top:14px;font-size:11px;color:var(--txt3)"></div>
+// ── RICERCA REFERENZE ────────────────────────────────────────────────────────
+function _tfResults(){
+  const q=_tfNorm(_tfQ).trim();
+  if(q.length<1) return [];
+  const toks=q.split(/\s+/).filter(Boolean);
+  const out=wines.filter(w=>{
+    if((parseInt(w.giacenza)||0)<=0) return false;
+    const hay=_tfNorm([w.nome,w.produttore,w.annata,w.vitigni,w.tipologia,w.regione,w.nazione,w.zona,w.sku,w.distributore].join(" "));
+    return toks.every(t=>hay.includes(t));
+  });
+  out.sort((a,b)=>{
+    const an=_tfNorm(a.nome), bn=_tfNorm(b.nome), t0=toks[0];
+    const as=an.startsWith(t0)?0:1, bs=bn.startsWith(t0)?0:1;
+    return as!==bs ? as-bs : an.localeCompare(bn);
+  });
+  return out.slice(0,80);
+}
+function _tfSetQ(v){ _tfQ=v; _tfRenderResults(); }
+function _tfToggleSel(id){ if(_tfSel.has(id)) _tfSel.delete(id); else _tfSel.add(id); _tfRenderResults(); }
+function _tfSelAll(on){ if(on) _tfResults().forEach(w=>_tfSel.add(w.id)); else _tfResults().forEach(w=>_tfSel.delete(w.id)); _tfRenderResults(); }
+function _tfAddOne(id){ _tfAddIds([id]); }
+function _tfAddSelected(){
+  const ids=_tfResults().filter(w=>_tfSel.has(w.id)).map(w=>w.id);
+  if(!ids.length){ notify("⚠️ Nessuna referenza selezionata","err"); return; }
+  _tfAddIds(ids);
+}
+function _tfAddIds(ids){
+  let added=0;
+  ids.forEach(id=>{
+    const w=wines.find(x=>x.id===id); if(!w) return;
+    const g=parseInt(w.giacenza)||0; if(g<=0) return;
+    const ex=_tfCart.find(l=>l.wineId===id);
+    if(ex){ ex.qty=Math.min(g,(parseInt(ex.qty)||0)+1); }
+    else { _tfCart.push({wineId:id,qty:1}); added++; }
+    _tfSel.delete(id);
+  });
+  notify(added?`➕ ${added} referenz${added===1?"a aggiunta":"e aggiunte"} all'invio`:"➕ Quantità aggiornata");
+  _tfRenderResults(); _tfRenderCart();
+}
+function _tfSetQty(id,v){
+  const l=_tfCart.find(x=>x.wineId===id); if(!l) return;
+  const w=wines.find(x=>x.id===id); const g=parseInt(w?.giacenza)||0;
+  let q=parseInt(v)||0; if(q<0)q=0; if(q>g)q=g;
+  l.qty=q; _tfRenderCart();
+}
+function _tfStepQty(id,d){ const l=_tfCart.find(x=>x.wineId===id); if(!l) return; _tfSetQty(id,(parseInt(l.qty)||0)+d); }
+function _tfRemove(id){ _tfCart=_tfCart.filter(l=>l.wineId!==id); _tfRenderCart(); _tfRenderResults(); }
+function _tfClearCart(){ if(!_tfCart.length) return; _tfCart=[]; _tfRenderCart(); _tfRenderResults(); }
+function _tfMetaSet(k,v){ _tfMeta[k]=v; if(k==="dest") _tfRenderCart(); }
+
+// ── STORICO (derivato dai movimenti, nessuna tabella aggiuntiva) ─────────────
+function _tfHistory(){
+  const g=new Map();
+  movements.forEach(m=>{
+    if(!_tfIsTransfer(m)) return;
+    const dir=m.tipo==="trasferimento-uscita"?"out":"in";
+    const tid=m.transferId||("legacy-"+m.id);
+    const k=tid+"|"+dir;
+    if(!g.has(k)) g.set(k,{key:k,transferId:tid,dir,data:m.data||"",ts:m.ts||0,
+      controparte:(dir==="out"?(m.dest||""):(m.from||"")),note:m.transferNote||"",lines:[],tot:0});
+    const grp=g.get(k);
+    grp.ts=Math.max(grp.ts,m.ts||0);
+    if(!grp.controparte) grp.controparte=(dir==="out"?(m.dest||""):(m.from||_tfFromNote(m.note)));
+    if(!grp.note && m.transferNote) grp.note=m.transferNote;
+    const q=parseInt(m.qty)||0;
+    grp.lines.push({movId:m.id,wineId:m.wineId,nome:m.wineName||"",produttore:m.produttore||"",annata:(m.tLine&&m.tLine.annata)||"",qty:q,tLine:m.tLine||null});
+    grp.tot+=q;
+  });
+  return [...g.values()].sort((a,b)=> (b.ts||0)-(a.ts||0) || (b.data||"").localeCompare(a.data||""));
+}
+function _tfFromNote(n){ const s=String(n||""); return s.startsWith("da ")?s.slice(3).trim():""; }
+function _tfHistFiltered(){
+  const q=_tfNorm(_tfHistQ).trim();
+  return _tfHistory().filter(g=>{
+    if(_tfHistTab==="inviati" && g.dir!=="out") return false;
+    if(_tfHistTab==="ricevuti" && g.dir!=="in") return false;
+    if(!q) return true;
+    const hay=_tfNorm([g.controparte,g.note,g.data,g.transferId,...g.lines.map(l=>l.nome+" "+l.produttore+" "+l.annata)].join(" "));
+    return q.split(/\s+/).every(t=>hay.includes(t));
+  });
+}
+function _tfHistSetQ(v){ _tfHistQ=v; _tfRenderHist(); }
+function _tfHistSetTab(t){ _tfHistTab=t; _tfRenderHist(); }
+function _tfToggleOpen(k){ if(_tfOpen.has(k)) _tfOpen.delete(k); else _tfOpen.add(k); _tfRenderHist(); }
+function _tfDestKnown(){
+  const s=new Set();
+  _tfHistory().forEach(g=>{ if(g.controparte) s.add(g.controparte); });
+  return [...s].sort();
+}
+
+// ── PAGINA ───────────────────────────────────────────────────────────────────
+function renderTrasferimenti(){
+  if(!_tfMeta.data) _tfMeta.data=today();
+  return `
+  <div class="card" style="margin-bottom:20px;border-color:rgba(90,200,250,.35)">
+    <div style="font-size:10px;letter-spacing:.25em;text-transform:uppercase;color:#5AC8FA;margin-bottom:4px">🔄 Trasferimenti tra locali</div>
+    <div style="font-size:12px;color:var(--txt3)">Costo-neutro · isolamento totale · nessun impatto su acquisti, ricavi e P&amp;L. Cerca le referenze, componi l'invio, genera il manifesto e passalo al locale ricevente.</div>
+  </div>
+
+  <div class="card" style="margin-bottom:20px">
+    <div style="font-size:10px;letter-spacing:.25em;text-transform:uppercase;color:var(--txt2);margin-bottom:12px">📤 Nuovo invio</div>
+    <input id="tf-q" class="form-input" style="width:100%" placeholder="🔍 Cerca referenza: nome, produttore, annata, vitigno, regione, SKU…"
+      value="${h(_tfQ)}" oninput="_tfSetQ(this.value)" autocomplete="off">
+    <div id="tf-results" style="margin-top:10px">${_tfResultsHtml()}</div>
+    <div id="tf-cart" style="margin-top:18px">${_tfCartHtml()}</div>
+  </div>
+
+  <div class="card" style="margin-bottom:20px">
+    <div style="font-size:10px;letter-spacing:.25em;text-transform:uppercase;color:var(--txt2);margin-bottom:10px">📥 Ricevi un manifesto</div>
+    <textarea id="tf-ricev" class="form-input" style="width:100%;height:90px;font-family:monospace;font-size:10px;resize:vertical"
+      placeholder="Incolla qui il codice manifesto (base64 o JSON)…" oninput="_tfRicevPreview()"></textarea>
+    <div style="display:flex;align-items:center;gap:10px;margin-top:8px;flex-wrap:wrap">
+      <label class="btn-outline btn-sm" style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;padding:6px 12px">
+        📁 Carica file .json <input type="file" accept=".json,.txt" onchange="_tfRicevFile(event)" style="display:none"></label>
+      <button class="btn-primary btn-sm" id="tf-ricev-btn" onclick="_tfConfermaRicevi()" disabled style="opacity:.4;pointer-events:none">📥 Importa</button>
+    </div>
+    <div id="tf-ricev-preview" style="margin-top:12px;font-size:12px;color:var(--txt2)"></div>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+      <div style="font-size:10px;letter-spacing:.25em;text-transform:uppercase;color:var(--txt2)">🗂️ Storico trasferimenti</div>
+      <button class="btn-outline btn-sm" onclick="_tfExportStoricoCSV()">↓ Esporta CSV</button>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+      <input id="tf-hist-q" class="form-input" style="flex:1;min-width:200px" placeholder="🔍 Filtra storico: locale, referenza, data, nota…" value="${h(_tfHistQ)}" oninput="_tfHistSetQ(this.value)" autocomplete="off">
+      ${["tutti","inviati","ricevuti"].map(t=>`<button class="btn-outline btn-sm" onclick="_tfHistSetTab('${t}')" style="${_tfHistTab===t?"border-color:#5AC8FA;color:#5AC8FA":""}">${t==="tutti"?"Tutti":t==="inviati"?"📤 Inviati":"📥 Ricevuti"}</button>`).join("")}
+    </div>
+    <div id="tf-hist">${_tfHistHtml()}</div>
+  </div>`;
+}
+
+function _tfResultsHtml(){
+  if(!_tfQ.trim()) return `<div style="font-size:11px;color:var(--txt4);padding:6px 0">Scrivi almeno una parola per cercare tra le referenze con giacenza disponibile.</div>`;
+  const res=_tfResults();
+  if(!res.length) return `<div style="font-size:11px;color:#fb923c;padding:6px 0">Nessuna referenza disponibile per «${h(_tfQ)}».</div>`;
+  const nSel=res.filter(w=>_tfSel.has(w.id)).length;
+  const rows=res.map(w=>{
+    const g=parseInt(w.giacenza)||0;
+    const inCart=_tfCart.find(l=>l.wineId===w.id);
+    const on=_tfSel.has(w.id);
+    return `<div style="display:flex;align-items:center;gap:10px;padding:7px 8px;border-bottom:1px solid var(--border);${on?"background:rgba(90,200,250,.07)":""}">
+      <input type="checkbox" ${on?"checked":""} onchange="_tfToggleSel('${w.id}')" style="cursor:pointer">
+      <div style="flex:1;min-width:0;cursor:pointer" onclick="_tfToggleSel('${w.id}')">
+        <div style="font-size:12px;color:var(--txt);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(w.nome)}${w.annata?` <span style="color:var(--amber)">${h(w.annata)}</span>`:""}</div>
+        <div style="font-size:10px;color:var(--txt3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(w.produttore||"—")}${w.regione?" · "+h(w.regione):""}${w.sku?" · "+h(w.sku):""}</div>
       </div>
-      <div class="modal-footer">
-        <button class="btn-outline" onclick="document.getElementById('sped-backdrop').remove()">Annulla</button>
-        <button class="btn-primary" onclick="_generaManifesto()">📦 Genera manifesto</button>
+      <div style="font-size:11px;color:var(--txt2);white-space:nowrap">${g}bt${inCart?` <span style="color:#5AC8FA">· ${inCart.qty} in invio</span>`:""}</div>
+      <button class="btn-outline btn-sm" style="padding:3px 9px" onclick="_tfAddOne('${w.id}')">＋</button>
+    </div>`;
+  }).join("");
+  return `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+      <span style="font-size:10px;color:var(--txt4)">${res.length} risultat${res.length===1?"o":"i"}${res.length===80?" (primi 80)":""}</span>
+      <button class="btn-outline btn-sm" style="padding:2px 8px;font-size:10px" onclick="_tfSelAll(true)">Seleziona tutti</button>
+      <button class="btn-outline btn-sm" style="padding:2px 8px;font-size:10px" onclick="_tfSelAll(false)">Deseleziona</button>
+      <button class="btn-primary btn-sm" style="padding:2px 10px;font-size:10px;${nSel?"":"opacity:.4;pointer-events:none"}" onclick="_tfAddSelected()">➕ Aggiungi selezionati (${nSel})</button>
+    </div>
+    <div style="max-height:340px;overflow:auto;border:1px solid var(--border)">${rows}</div>`;
+}
+function _tfRenderResults(){ const el=document.getElementById("tf-results"); if(el) el.innerHTML=_tfResultsHtml(); }
+
+function _tfCartHtml(){
+  const dl=_tfDestKnown();
+  const head=`<div style="font-size:10px;letter-spacing:.25em;text-transform:uppercase;color:var(--txt2);margin-bottom:8px">📦 Invio in preparazione</div>`;
+  if(!_tfCart.length) return head+`<div style="font-size:11px;color:var(--txt4)">Nessuna referenza nell'invio. Cerca qui sopra e aggiungi con ＋ o in blocco.</div>`;
+  let tot=0, err=false;
+  const rows=_tfCart.map(l=>{
+    const w=wines.find(x=>x.id===l.wineId);
+    const g=parseInt(w?.giacenza)||0, q=parseInt(l.qty)||0;
+    tot+=q; if(q<=0||q>g) err=true;
+    return `<tr>
+      <td style="padding:6px 8px">${h(w?.nome||"?")}${w?.annata?` <span style="color:var(--amber)">${h(w.annata)}</span>`:""}<div style="font-size:10px;color:var(--txt3)">${h(w?.produttore||"")}</div></td>
+      <td class="r" style="padding:6px 8px;color:var(--txt3);white-space:nowrap">${g}bt</td>
+      <td class="r" style="padding:6px 8px;white-space:nowrap">
+        <button class="btn-outline btn-sm" style="padding:2px 7px" onclick="_tfStepQty('${l.wineId}',-1)">−</button>
+        <input class="form-input" type="number" min="1" max="${g}" step="1" value="${q}" onfocus="this.select()" oninput="_tfSetQtySoft('${l.wineId}',this.value)" onchange="_tfSetQty('${l.wineId}',this.value)" style="width:64px;display:inline-block;text-align:center;margin:0 4px">
+        <button class="btn-outline btn-sm" style="padding:2px 7px" onclick="_tfStepQty('${l.wineId}',1)">＋</button>
+      </td>
+      <td class="c" style="padding:6px 8px"><button class="btn-outline btn-sm" style="padding:2px 8px;border-color:rgba(255,69,58,.4);color:#FF6B6B" onclick="_tfRemove('${l.wineId}')">✕</button></td>
+    </tr>`;
+  }).join("");
+  const ready=!err && tot>0 && (_tfMeta.dest||"").trim().length>0;
+  return head+`
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt4);border-bottom:1px solid var(--border)">
+        <th style="text-align:left;padding:4px 8px">Referenza</th><th class="r" style="padding:4px 8px">Disp.</th><th class="r" style="padding:4px 8px">Qtà invio</th><th style="width:40px"></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="form-grid g2" style="margin-top:14px">
+      <div><label class="form-label">Locale destinazione *</label>
+        <input class="form-input" list="tf-dest-list" placeholder="es. Portland" value="${h(_tfMeta.dest)}" oninput="_tfMetaSet('dest',this.value)">
+        <datalist id="tf-dest-list">${dl.map(d=>`<option value="${h(d)}">`).join("")}</datalist></div>
+      <div><label class="form-label">Data invio</label>
+        <input class="form-input" type="date" value="${h(_tfMeta.data||today())}" onchange="_tfMetaSet('data',this.value)"></div>
+    </div>
+    <div class="form-row" style="margin-top:10px"><label class="form-label">Nota (opzionale)</label>
+      <input class="form-input" placeholder="es. rifornimento sala" value="${h(_tfMeta.note)}" oninput="_tfMetaSet('note',this.value)"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:14px">
+      <div style="font-size:11px;color:${err?"#FF453A":"var(--txt3)"}">${err?"Quantità non valida su una o più righe (max = giacenza).":`${_tfCart.length} referenze · <b style="color:#5AC8FA">${tot}bt</b> · costo lotti trasferito invariato (costo-neutro)`}</div>
+      <div style="display:flex;gap:8px">
+        <button class="btn-outline btn-sm" onclick="_tfClearCart()">Svuota</button>
+        <button class="btn-primary" style="${ready?"":"opacity:.4;pointer-events:none"}" onclick="_tfGenera()">📦 Genera manifesto</button>
       </div>
     </div>`;
-  bd.addEventListener("click",e=>{ if(e.target===bd) bd.remove(); });
-  document.body.appendChild(bd);
 }
-function _spedSync(){
-  const w=wines.find(x=>x.id===_spedForm.wineId);
-  const el=document.getElementById("sped-info"); if(!el) return;
-  if(!w){ el.textContent=""; return; }
-  const q=parseInt(_spedForm.qty)||0, g=parseInt(w.giacenza)||0;
-  el.innerHTML=q>g
-    ? `<span style="color:#FF453A">Giacenza insufficiente: ${g} disponibili</span>`
-    : `Giacenza attuale <b style="color:var(--amber)">${g}</b> → dopo invio <b style="color:#30D158">${g-q}</b> · costo lotti trasferito invariato (costo-neutro)`;
-}
-function _generaManifesto(){
-  const w=wines.find(x=>x.id===_spedForm.wineId);
-  if(!w){ notify("⚠️ Seleziona un vino","err"); return; }
-  const qty=parseInt(_spedForm.qty)||0;
-  const g=parseInt(w.giacenza)||0;
-  if(qty<=0){ notify("⚠️ Quantità non valida","err"); return; }
-  if(qty>g){ notify(`⚠️ Giacenza insufficiente (${g} disponibili)`,"err"); return; }
-  // FIFO consume con snapshot lotti (costo originale)
-  let rem=qty; const snapLots=[];
-  const updLots=(w.lots||[]).map(l=>{
+function _tfRenderCart(){ const el=document.getElementById("tf-cart"); if(el) el.innerHTML=_tfCartHtml(); }
+// oninput non deve ri-renderare (perderebbe il focus): aggiorna solo il modello.
+function _tfSetQtySoft(id,v){ const l=_tfCart.find(x=>x.wineId===id); if(l) l.qty=parseInt(v)||0; }
+
+// ── GENERAZIONE MANIFESTO + USCITA ───────────────────────────────────────────
+function _tfLotsSnapshot(w,qty){
+  let rem=qty; const snap=[];
+  const upd=(w.lots||[]).map(l=>{
     if(rem<=0||(parseInt(l.qtyRimanente)||0)<=0) return l;
     const c=Math.min(rem,parseInt(l.qtyRimanente)||0); rem-=c;
-    snapLots.push({prezzoAcq:parseFloat(l.prezzoAcq)||0,iva:parseInt(l.iva)||parseInt(w.iva)||22,qty:c,data:l.data||"",fattura:l.fattura||"",fornitore:l.fornitore||""});
+    snap.push({prezzoAcq:parseFloat(l.prezzoAcq)||0,iva:parseInt(l.iva)||parseInt(w.iva)||22,qty:c,data:l.data||"",fattura:l.fattura||"",fornitore:l.fornitore||""});
     return {...l,qtyRimanente:(parseInt(l.qtyRimanente)||0)-c};
   });
   if(rem>0){ // vino legacy senza lotti sufficienti: snapshot al costo scheda
-    snapLots.push({prezzoAcq:parseFloat(w.prezzoAcq)||0,iva:parseInt(w.iva)||22,qty:rem,data:today(),fattura:"",fornitore:""}); rem=0;
+    snap.push({prezzoAcq:parseFloat(w.prezzoAcq)||0,iva:parseInt(w.iva)||22,qty:rem,data:today(),fattura:"",fornitore:""});
+  }
+  return {snap,upd};
+}
+function _tfManifestLine(w,qty,snap){
+  return {nome:w.nome,produttore:w.produttore||"",annata:w.annata||"",vitigni:w.vitigni||"",tipologia:w.tipologia||"Rosso",
+    regione:w.regione||"",nazione:w.nazione||"Italia",zona:w.zona||"",iva:parseInt(w.iva)||22,
+    prezzoCarta:parseFloat(w.prezzoCarta)||0,qty,lots:snap};
+}
+function _tfGenera(){
+  const dest=(_tfMeta.dest||"").trim();
+  if(!dest){ notify("⚠️ Indica il locale destinazione","err"); return; }
+  if(!_tfCart.length){ notify("⚠️ Nessuna referenza nell'invio","err"); return; }
+  const data=_tfMeta.data||today();
+  const note=(_tfMeta.note||"").trim();
+  const prepared=[];
+  for(const l of _tfCart){
+    const w=wines.find(x=>x.id===l.wineId);
+    if(!w){ notify("⚠️ Referenza non trovata, rimuovila dall'invio","err"); return; }
+    const q=parseInt(l.qty)||0, g=parseInt(w.giacenza)||0;
+    if(q<=0){ notify(`⚠️ Quantità non valida su ${w.nome}`,"err"); return; }
+    if(q>g){ notify(`⚠️ Giacenza insufficiente su ${w.nome} (${g} disponibili)`,"err"); return; }
+    prepared.push({w,q});
   }
   const transferId=uid();
-  const dest=(_spedForm.dest||"").trim();
-  const note=(_spedForm.note||"").trim();
-  wines=wines.map(x=> x.id!==w.id ? x : {...x,giacenza:Math.max(0,g-qty),lots:updLots});
-  movements=[{id:uid(),wineId:w.id,wineName:w.nome,produttore:w.produttore,nazione:w.nazione||"",tipo:"trasferimento-uscita",qty,data:today(),fattura:"",fornitore:"",note:(dest?"→ "+dest:"")+(note?" · "+note:""),ts:Date.now(),transferId,dest}, ...movements];
+  const lines=[], newMovs=[];
+  let winesNext=wines;
+  prepared.forEach(({w,q})=>{
+    const cur=winesNext.find(x=>x.id===w.id);
+    const {snap,upd}=_tfLotsSnapshot(cur,q);
+    const line=_tfManifestLine(cur,q,snap);
+    lines.push(line);
+    winesNext=winesNext.map(x=> x.id!==cur.id ? x : {...x,giacenza:Math.max(0,(parseInt(x.giacenza)||0)-q),lots:upd});
+    newMovs.push({id:uid(),wineId:cur.id,wineName:cur.nome,produttore:cur.produttore,nazione:cur.nazione||"",
+      tipo:"trasferimento-uscita",qty:q,data,fattura:"",fornitore:"",
+      note:"→ "+dest+(note?" · "+note:""),ts:Date.now(),
+      origine:"trasferimento",transferId,dest,transferNote:note,tLine:line});
+  });
+  const tot=lines.reduce((s,l)=>s+l.qty,0);
+  wines=winesNext;
+  movements=[...newMovs,...movements];
   scheduleSave(); clearTimeout(saveTimer); _flushSave();
-  const manifest={
-    v:TRANSFER_MANIFEST_V, type:"cantina-transfer", transferId,
-    from:NOME_LOCALE, fromDbUser:_effectiveDbUser(), dest, data:today(), note,
-    lines:[{nome:w.nome,produttore:w.produttore||"",annata:w.annata||"",vitigni:w.vitigni||"",tipologia:w.tipologia||"Rosso",regione:w.regione||"",nazione:w.nazione||"Italia",zona:w.zona||"",iva:parseInt(w.iva)||22,prezzoCarta:parseFloat(w.prezzoCarta)||0,qty,lots:snapLots}]
-  };
+  const manifest={v:TRANSFER_MANIFEST_V,type:"cantina-transfer",transferId,
+    from:NOME_LOCALE,fromDbUser:_effectiveDbUser(),dest,data,note,lines};
+  _tfCart=[]; _tfMeta={dest:"",data:today(),note:""}; _tfSel.clear(); _tfQ="";
+  notify(`📤 Trasferimento registrato: ${tot}bt → ${dest}`);
+  render();
+  _tfShowManifesto(manifest);
+}
+function _tfManifestFromGroup(g){
+  const lines=g.lines.map(l=>l.tLine).filter(Boolean);
+  if(!lines.length) return null;
+  return {v:TRANSFER_MANIFEST_V,type:"cantina-transfer",transferId:g.transferId,
+    from:NOME_LOCALE,fromDbUser:_effectiveDbUser(),dest:g.controparte||"",data:g.data||today(),note:g.note||"",lines};
+}
+function _tfShowManifestoGroup(key){
+  const g=_tfHistory().find(x=>x.key===key);
+  if(!g){ notify("⚠️ Trasferimento non trovato","err"); return; }
+  const man=_tfManifestFromGroup(g);
+  if(!man){ notify("⚠️ Manifesto non ricostruibile (trasferimento antecedente all'aggiornamento)","err"); return; }
+  _tfShowManifesto(man);
+}
+function _tfShowManifesto(manifest){
   const json=JSON.stringify(manifest,null,2);
   const b64=_b64EncodeUtf8(json);
-  document.getElementById("sped-backdrop")?.remove();
-  _showManifestoModal(b64,json,transferId,w,qty,dest);
-  notify(`📤 Trasferimento in uscita registrato (${qty}bt)`);
-}
-function _showManifestoModal(b64,json,transferId,w,qty,dest){
+  const tot=manifest.lines.reduce((s,l)=>s+(parseInt(l.qty)||0),0);
+  const fname=`trasferimento_${(NOME_LOCALE||"cantina").replace(/[^a-z0-9]+/gi,"-").toLowerCase()}_${String(manifest.transferId).slice(0,8)}.json`;
+  document.getElementById("man-backdrop")?.remove();
   const bd=document.createElement("div");
   bd.className="modal-backdrop"; bd.id="man-backdrop";
   bd.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);z-index:41;display:flex;align-items:center;justify-content:center;padding:16px";
-  const fname=`trasferimento_${(NOME_LOCALE||"cantina").replace(/[^a-z0-9]+/gi,"-").toLowerCase()}_${transferId.slice(0,8)}.json`;
   bd.innerHTML=`
-    <div class="modal" style="max-width:520px" onclick="event.stopPropagation()">
+    <div class="modal" style="max-width:560px" onclick="event.stopPropagation()">
       <div class="modal-header"><h2>✅ Manifesto pronto</h2>
         <button style="font-size:18px;color:var(--txt3)" onclick="document.getElementById('man-backdrop').remove()">✕</button></div>
       <div class="modal-body">
-        <div style="font-size:12px;color:var(--txt2);margin-bottom:10px">${qty}bt · ${h(w.nome)}${w.annata?" "+h(w.annata):""} → <b>${h(dest||"destinazione")}</b>. Consegna questo codice al locale ricevente (incolla in <b>Ricevi</b>) o scarica il file.</div>
-        <textarea id="man-b64" readonly class="form-input" style="width:100%;height:120px;font-family:monospace;font-size:10px;resize:vertical" onclick="this.select()">${b64}</textarea>
-        <div style="font-size:10px;color:var(--txt4);margin-top:6px">transferId: ${transferId}</div>
+        <div style="font-size:12px;color:var(--txt2);margin-bottom:10px">${manifest.lines.length} referenze · ${tot}bt → <b>${h(manifest.dest||"destinazione")}</b>. Consegna questo codice al locale ricevente (incolla in <b>Ricevi</b>) oppure scarica il file.</div>
+        <div style="max-height:130px;overflow:auto;border:1px solid var(--border);margin-bottom:10px">${manifest.lines.map(l=>`<div style="padding:4px 8px;border-bottom:1px solid var(--border);font-size:11px">${parseInt(l.qty)||0}bt · <b>${h(l.nome)}</b>${l.annata?" "+h(l.annata):""} — ${h(l.produttore||"")}</div>`).join("")}</div>
+        <textarea id="man-b64" readonly class="form-input" style="width:100%;height:110px;font-family:monospace;font-size:10px;resize:vertical" onclick="this.select()">${b64}</textarea>
+        <div style="font-size:10px;color:var(--txt4);margin-top:6px">transferId: ${h(manifest.transferId)}</div>
       </div>
       <div class="modal-footer">
         <button class="btn-outline" onclick="navigator.clipboard.writeText(document.getElementById('man-b64').value).then(()=>notify('📋 Codice copiato'))">📋 Copia codice</button>
@@ -9853,115 +10157,145 @@ function _downloadManifesto(fname){
   setTimeout(()=>URL.revokeObjectURL(url),2000);
 }
 
-// ── RICEVI (import) ──────────────────────────────────────────────────────────
-function openRiceviModal(){
-  const bd=document.createElement("div");
-  bd.className="modal-backdrop"; bd.id="ricev-backdrop";
-  bd.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);z-index:40;display:flex;align-items:center;justify-content:center;padding:16px";
-  bd.innerHTML=`
-    <div class="modal" style="max-width:520px" onclick="event.stopPropagation()">
-      <div class="modal-header"><h2>📥 Ricevi trasferimento</h2>
-        <button style="font-size:18px;color:var(--txt3)" onclick="document.getElementById('ricev-backdrop').remove()">✕</button></div>
-      <div class="modal-body">
-        <div class="form-row"><label class="form-label">Incolla il codice manifesto</label>
-          <textarea id="ricev-b64" class="form-input" style="width:100%;height:110px;font-family:monospace;font-size:10px;resize:vertical" placeholder="Incolla qui il codice base64…" oninput="_ricevPreview()"></textarea></div>
-        <div style="text-align:center;font-size:10px;color:var(--txt4);margin:8px 0">— oppure —</div>
-        <label class="btn-outline btn-sm" style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;padding:6px 12px">
-          📁 Carica file .json <input type="file" accept=".json" onchange="_ricevFile(event)" style="display:none"></label>
-        <div id="ricev-preview" style="margin-top:14px;font-size:12px;color:var(--txt2)"></div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn-outline" onclick="document.getElementById('ricev-backdrop').remove()">Annulla</button>
-        <button class="btn-primary" id="ricev-confirm" onclick="_confermaRicevi()" disabled style="opacity:.4;pointer-events:none">📥 Importa</button>
-      </div>
-    </div>`;
-  bd.addEventListener("click",e=>{ if(e.target===bd) bd.remove(); });
-  document.body.appendChild(bd);
-}
+// ── RICEZIONE ────────────────────────────────────────────────────────────────
 function _parseManifesto(raw){
   raw=(raw||"").trim(); if(!raw) return null;
   let obj=null;
   try{ obj=JSON.parse(raw); }catch{
     try{ obj=JSON.parse(_b64DecodeUtf8(raw.replace(/\s+/g,""))); }catch{ return null; }
   }
-  if(!obj||obj.type!=="cantina-transfer"||!Array.isArray(obj.lines)) return null;
+  if(!obj||obj.type!=="cantina-transfer"||!Array.isArray(obj.lines)||!obj.lines.length) return null;
   return obj;
 }
-function _ricevFile(ev){
+function _tfRicevFile(ev){
   const f=ev.target.files&&ev.target.files[0]; if(!f) return;
   const r=new FileReader();
-  r.onload=()=>{ const ta=document.getElementById("ricev-b64"); if(ta){ ta.value=(r.result||"").toString(); _ricevPreview(); } };
-  r.readAsText(f);
+  r.onload=()=>{ const ta=document.getElementById("tf-ricev"); if(ta){ ta.value=(r.result||"").toString(); _tfRicevPreview(); } };
+  r.readAsText(f); ev.target.value="";
 }
-function _ricevPreview(){
-  const raw=document.getElementById("ricev-b64")?.value||"";
-  const el=document.getElementById("ricev-preview");
-  const btn=document.getElementById("ricev-confirm");
-  const man=_parseManifesto(raw);
+function _tfRicevPreview(){
+  const raw=document.getElementById("tf-ricev")?.value||"";
+  const el=document.getElementById("tf-ricev-preview");
+  const btn=document.getElementById("tf-ricev-btn");
   const enable=b=>{ if(!btn)return; btn.disabled=!b; btn.style.opacity=b?"1":".4"; btn.style.pointerEvents=b?"auto":"none"; };
-  if(!man){ if(el) el.innerHTML=raw?`<span style="color:#FF453A">Manifesto non valido o illeggibile</span>`:""; enable(false); return; }
+  const man=_parseManifesto(raw);
+  if(!man){ if(el) el.innerHTML=raw.trim()?`<span style="color:#FF453A">Manifesto non valido o illeggibile</span>`:""; enable(false); return; }
   const dup=movements.some(m=>m.tipo==="trasferimento-entrata"&&m.transferId===man.transferId);
+  const self=man.fromDbUser && man.fromDbUser===_effectiveDbUser();
   const tot=man.lines.reduce((s,l)=>s+(parseInt(l.qty)||0),0);
-  const rows=man.lines.map(l=>`<div style="padding:4px 0;border-bottom:1px solid var(--border)">${parseInt(l.qty)||0}bt · <b>${h(l.nome)}</b>${l.annata?" "+h(l.annata):""} — ${h(l.produttore||"")}</div>`).join("");
+  const rows=man.lines.map(l=>{
+    const key=_transferMatchKey(l);
+    const known=wines.some(w=>_transferMatchKey(w)===key);
+    return `<div style="padding:4px 0;border-bottom:1px solid var(--border)">${parseInt(l.qty)||0}bt · <b>${h(l.nome)}</b>${l.annata?" "+h(l.annata):""} — ${h(l.produttore||"")} <span style="color:${known?"var(--txt4)":"#30D158"};font-size:10px">${known?"· aggiorna esistente":"· nuova referenza"}</span></div>`;
+  }).join("");
   if(el) el.innerHTML=`
-    <div style="margin-bottom:8px">Da <b>${h(man.from||"?")}</b> · ${h(man.data||"")} · ${tot}bt${man.note?" · "+h(man.note):""}</div>
+    <div style="margin-bottom:8px">Da <b>${h(man.from||"?")}</b> · ${h(_fmtDataIT(man.data||""))} · ${man.lines.length} referenze · ${tot}bt${man.note?" · "+h(man.note):""}</div>
     ${rows}
-    ${dup?`<div style="margin-top:10px;color:#fb923c">⚠️ Trasferimento già ricevuto (transferId ${man.transferId.slice(0,8)}) — reimportazione bloccata</div>`:""}`;
-  enable(!dup);
+    ${dup?`<div style="margin-top:10px;color:#fb923c">⚠️ Trasferimento già ricevuto (transferId ${h(String(man.transferId).slice(0,8))}) — reimportazione bloccata</div>`:""}
+    ${self?`<div style="margin-top:10px;color:#FF453A">⚠️ Questo manifesto è stato generato da questa stessa cantina — importarlo duplicherebbe le bottiglie</div>`:""}`;
+  enable(!dup && !self);
 }
-function _confermaRicevi(){
-  const raw=document.getElementById("ricev-b64")?.value||"";
+function _tfConfermaRicevi(){
+  const raw=document.getElementById("tf-ricev")?.value||"";
   const man=_parseManifesto(raw);
   if(!man){ notify("⚠️ Manifesto non valido","err"); return; }
+  if(man.fromDbUser && man.fromDbUser===_effectiveDbUser()){ notify("⚠️ Manifesto emesso da questa stessa cantina","err"); return; }
   if(movements.some(m=>m.tipo==="trasferimento-entrata"&&m.transferId===man.transferId)){
     notify("⚠️ Trasferimento già ricevuto","err"); return;
   }
   let created=0, updated=0, totBt=0;
   const newMovs=[];
+  const data=today();
   man.lines.forEach(line=>{
     const qtyLine=parseInt(line.qty)||0; if(qtyLine<=0) return;
     const recLots=(Array.isArray(line.lots)&&line.lots.length?line.lots:[{prezzoAcq:0,iva:line.iva||22,qty:qtyLine}])
-      .map(s=>({id:uid(),data:s.data||today(),fattura:s.fattura||"",fornitore:s.fornitore||"",prezzoAcq:parseFloat(s.prezzoAcq)||0,iva:parseInt(s.iva)||parseInt(line.iva)||22,qtyCaricata:parseInt(s.qty)||0,qtyRimanente:parseInt(s.qty)||0}));
+      .map(s=>({id:uid(),data:s.data||data,fattura:s.fattura||"",fornitore:s.fornitore||"",prezzoAcq:parseFloat(s.prezzoAcq)||0,iva:parseInt(s.iva)||parseInt(line.iva)||22,qtyCaricata:parseInt(s.qty)||0,qtyRimanente:parseInt(s.qty)||0}));
     const key=_transferMatchKey(line);
     const idx=wines.findIndex(w=>_transferMatchKey(w)===key);
+    let target;
     if(idx>=0){
-      const w=wines[idx];
+      target=wines[idx];
       wines=wines.map((x,i)=> i!==idx ? x : {...x,giacenza:(parseInt(x.giacenza)||0)+qtyLine,lots:[...(x.lots||[]),...recLots]});
       updated++;
-      newMovs.push({id:uid(),wineId:w.id,wineName:w.nome,produttore:w.produttore,nazione:w.nazione||"",tipo:"trasferimento-entrata",qty:qtyLine,data:today(),fattura:"",fornitore:"",note:"da "+(man.from||"?"),ts:Date.now(),transferId:man.transferId});
     } else {
       const nz=inferPaese(line.nazione,line.regione,line.zona)||line.nazione||"Italia";
-      const nw={id:uid(),nome:line.nome,produttore:line.produttore||"",distributore:"",annata:line.annata||"",vitigni:_normVitigni(line.vitigni||""),tipologia:line.tipologia||"Rosso",regione:line.regione||"",nazione:nz,zona:line.zona||"",prezzoAcq:parseFloat(recLots[0]?.prezzoAcq)||0,iva:parseInt(line.iva)||22,prezzoCarta:parseFloat(line.prezzoCarta)||0,sku:_nextSku(),giacenza:qtyLine,lots:recLots};
-      wines=[...wines,nw];
+      target={id:uid(),nome:line.nome,produttore:line.produttore||"",distributore:"",annata:line.annata||"",vitigni:_normVitigni(line.vitigni||""),
+        tipologia:line.tipologia||"Rosso",regione:line.regione||"",nazione:nz,zona:line.zona||"",
+        prezzoAcq:parseFloat(recLots[0]?.prezzoAcq)||0,iva:parseInt(line.iva)||22,prezzoCarta:parseFloat(line.prezzoCarta)||0,
+        sku:_nextSku(),giacenza:qtyLine,lots:recLots};
+      wines=[...wines,target];
       created++;
-      newMovs.push({id:uid(),wineId:nw.id,wineName:nw.nome,produttore:nw.produttore,nazione:nw.nazione||"",tipo:"trasferimento-entrata",qty:qtyLine,data:today(),fattura:"",fornitore:"",note:"da "+(man.from||"?"),ts:Date.now(),transferId:man.transferId});
     }
+    newMovs.push({id:uid(),wineId:target.id,wineName:target.nome,produttore:target.produttore,nazione:target.nazione||"",
+      tipo:"trasferimento-entrata",qty:qtyLine,data,fattura:"",fornitore:"",
+      note:"da "+(man.from||"?")+(man.note?" · "+man.note:""),ts:Date.now(),
+      origine:"trasferimento",transferId:man.transferId,from:man.from||"",transferNote:man.note||"",tLine:line});
     totBt+=qtyLine;
   });
   if(totBt===0){ notify("⚠️ Nessuna riga valida nel manifesto","err"); return; }
   movements=[...newMovs,...movements];
   scheduleSave(); clearTimeout(saveTimer); _flushSave();
-  document.getElementById("ricev-backdrop")?.remove();
   notify(`📥 Ricevuti ${totBt}bt · ${updated} referenze aggiornate, ${created} nuove`);
-  if(section==="inventario") renderInventarioOnly(); else render();
+  if(section==="trasferimenti") render();
+  else if(section==="inventario") renderInventarioOnly(); else render();
 }
 
-function _transferCardHtml(){
-  const inCnt=movements.filter(m=>m.tipo==="trasferimento-entrata").length;
-  const outCnt=movements.filter(m=>m.tipo==="trasferimento-uscita").length;
-  return `<div class="card" style="margin-bottom:20px;border-color:rgba(90,200,250,.35)">
-    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">
-      <div>
-        <div style="font-size:10px;letter-spacing:.25em;text-transform:uppercase;color:#5AC8FA;margin-bottom:4px">🔄 Trasferimenti tra locali</div>
-        <div style="font-size:12px;color:var(--txt3)">Costo-neutro · isolamento totale · manifesto copia-incolla o .json${(inCnt||outCnt)?` · <span style="color:var(--txt2)">${outCnt} inviati / ${inCnt} ricevuti</span>`:""}</div>
-      </div>
-      <div style="display:flex;gap:8px">
-        <button class="btn-outline btn-sm" style="border-color:rgba(90,200,250,.5);color:#5AC8FA" onclick="openSpedisciModal()">📤 Spedisci</button>
-        <button class="btn-primary btn-sm" onclick="openRiceviModal()">📥 Ricevi</button>
-      </div>
-    </div>
-  </div>`;
+// ── STORICO: HTML ────────────────────────────────────────────────────────────
+function _tfHistHtml(){
+  const gs=_tfHistFiltered();
+  if(!gs.length) return `<div style="font-size:11px;color:var(--txt4);padding:6px 0">Nessun trasferimento${_tfHistQ?" per «"+h(_tfHistQ)+"»":""}.</div>`;
+  return gs.map(g=>{
+    const out=g.dir==="out";
+    const col=out?"#5AC8FA":"#30D158";
+    const open=_tfOpen.has(g.key);
+    const det=open?`<div style="margin-top:8px;border-top:1px solid var(--border)">
+        ${g.lines.map(l=>`<div style="display:flex;justify-content:space-between;gap:10px;padding:4px 0;border-bottom:1px solid var(--border);font-size:11px">
+          <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(l.nome)}${l.annata?` <span style="color:var(--amber)">${h(l.annata)}</span>`:""} <span style="color:var(--txt3)">${h(l.produttore||"")}</span></span>
+          <span style="color:${col};white-space:nowrap">${out?"−":"+"}${l.qty}bt</span></div>`).join("")}
+        <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <span style="font-size:10px;color:var(--txt4)">ID ${h(String(g.transferId).slice(0,8))}</span>
+          ${out?`<button class="btn-outline btn-sm" style="padding:2px 8px;font-size:10px" onclick="_tfShowManifestoGroup('${g.key}')">📋 Rivedi manifesto</button>`:""}
+        </div></div>`:"";
+    return `<div style="border:1px solid var(--border);border-left:2px solid ${col};padding:10px 12px;margin-bottom:8px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;cursor:pointer" onclick="_tfToggleOpen('${g.key}')">
+        <div style="min-width:0">
+          <div style="font-size:12px;color:var(--txt)"><span style="color:${col}">${out?"📤 Inviato a":"📥 Ricevuto da"}</span> <b>${h(g.controparte||"—")}</b></div>
+          <div style="font-size:10px;color:var(--txt3)">${h(_fmtDataIT(g.data))} · ${g.lines.length} referenze${g.note?" · "+h(g.note):""}</div>
+        </div>
+        <div style="font-family:'Montserrat',sans-serif;font-size:1.05rem;color:${col};white-space:nowrap">${out?"−":"+"}${g.tot}bt <span style="font-size:11px;color:var(--txt4)">${open?"▲":"▼"}</span></div>
+      </div>${det}</div>`;
+  }).join("");
 }
+function _tfRenderHist(){ const el=document.getElementById("tf-hist"); if(el) el.innerHTML=_tfHistHtml(); }
+
+function _tfExportStoricoCSV(){
+  const gs=_tfHistFiltered();
+  if(!gs.length){ notify("⚠️ Nessun trasferimento da esportare","err"); return; }
+  const headers=["Data","Direzione","Locale","Referenza","Produttore","Annata","Bottiglie","Nota","TransferID"];
+  const rows=[];
+  gs.forEach(g=>g.lines.forEach(l=>rows.push([
+    g.data,g.dir==="out"?"INVIATO":"RICEVUTO",g.controparte||"",l.nome,l.produttore||"",l.annata||"",
+    (g.dir==="out"?"-":"+")+l.qty,g.note||"",g.transferId])));
+  dlCSV(toCSV([headers,...rows]),`trasferimenti_${new Date().toLocaleDateString("it-IT").replace(/\//g,"-")}.csv`);
+  notify("📥 Storico trasferimenti esportato");
+}
+
+// Registrazione voce di menu + titolo sezione: la differenza tra i tre locali
+// resta interamente in CONFIG.trasferimenti, manager.js è identico ovunque.
+(function _tfInstallNav(){
+  if(!CONFIG.trasferimenti) return;
+  SECTION_TITLES.trasferimenti="🔄 Trasferimenti";
+  const nav=document.getElementById("sidebar-nav");
+  if(!nav || nav.querySelector('[data-section="trasferimenti"]')) return;
+  const btn=document.createElement("button");
+  btn.className="nav-btn";
+  btn.setAttribute("data-section","trasferimenti");
+  btn.setAttribute("data-label","Trasferimenti");
+  btn.setAttribute("onclick","go('trasferimenti')");
+  btn.innerHTML='<span class="nav-icon">🔄</span><span class="nav-btn-label"> Trasferimenti</span>';
+  const ref=nav.querySelector('[data-section="export"]');
+  if(ref) nav.insertBefore(btn,ref); else nav.appendChild(btn);
+})();
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // AMMINISTRAZIONE — Scadenzario fatture fornitore
@@ -10388,3 +10722,155 @@ function amExportCSV(){
   a.download = `scadenzario_${NOME_LOCALE.replace(/\s+/g,"_")}_${today()}.csv`;
   a.click(); URL.revokeObjectURL(a.href);
 }
+
+// ─── SUGGERIMENTI INLINE STILE T9 ─────────────────────────────────────────────
+// Completamento inline su tutti i campi testuali: mentre si digita, la parte
+// mancante della proposta compare già scritta e selezionata (grigio/ambra).
+// SPAZIO (o Tab / →) accetta, si continua a digitare per ignorarla, ESC/Backspace
+// la annulla. Delegato su document: funziona anche sui DOM rigenerati a ogni
+// render, senza toccare il markup esistente. Il vocabolario è quello dei
+// <datalist> già presenti, più i valori realmente inseriti (apprendimento
+// locale) e le sorgenti dichiarate con data-t9.
+(function(){
+  const T9_TYPES  = new Set(["text","search","url",""]);
+  const T9_MAX    = 400;                 // voci apprese per campo
+  const T9_MIN    = 2;                   // caratteri minimi prima di proporre
+  // Mitigazione mobile: le tastiere predittive Android/iOS gestiscono male la
+  // selezione programmatica (ghost cancellato, caratteri duplicati). Sotto
+  // pointer:coarse il motore resta spento; _t9Coarse è live, così un 2-in-1 che
+  // passa da tablet a laptop lo riattiva senza reload.
+  // CONFIG.t9Mobile === true forza l'attivazione anche su touch.
+  const _t9MQ = (window.matchMedia ? window.matchMedia("(pointer:coarse)") : null);
+  let   _t9Coarse = !!(_t9MQ && _t9MQ.matches);
+  if(_t9MQ){
+    const _upd = e => { _t9Coarse = e.matches; if(_t9Coarse) _t9Clear(); };
+    if(_t9MQ.addEventListener) _t9MQ.addEventListener("change", _upd);
+    else if(_t9MQ.addListener) _t9MQ.addListener(_upd);
+  }
+  const _t9Off = () => _t9Coarse && CONFIG.t9Mobile !== true;
+
+  let   _t9El     = null;                // campo con proposta attiva
+  let   _t9Typed  = "";                  // ciò che l'utente ha realmente scritto
+  let   _t9Busy   = false;
+
+  // Sorgenti extra: <input data-t9="produttori">
+  const T9_SRC = {
+    produttori:  ()=>wines.map(w=>w.produttore),
+    fornitori:   ()=>[...wines.map(w=>w.distributore), ...orders.map(o=>o.fornitore)],
+    vini:        ()=>wines.map(w=>w.nomeVino),
+    vitigni:     ()=>wines.flatMap(w=>String(w.vitigni||"").split(/[,;]/)),
+    tipologie:   ()=>TIPOLOGIE,
+    regioni:     ()=>wines.map(w=>w.regione),
+    nazioni:     ()=>wines.map(w=>w.nazione)
+  };
+
+  function _t9Key(el){ return el.getAttribute("list") || el.dataset.t9 || el.id || ""; }
+  function _t9Store(){ try{ return JSON.parse(localStorage.getItem(_lsKey("t9"))||"{}"); }catch{ return {}; } }
+  function _t9Learn(el, val){
+    const k=_t9Key(el), v=String(val||"").trim();
+    if(!k || v.length<T9_MIN) return;
+    const st=_t9Store(); const arr=st[k]||[];
+    const i=arr.findIndex(x=>x.toLowerCase()===v.toLowerCase());
+    if(i>=0) arr.splice(i,1);
+    arr.unshift(v);                       // più recente = più probabile
+    st[k]=arr.slice(0,T9_MAX);
+    try{ localStorage.setItem(_lsKey("t9"), JSON.stringify(st)); }catch{}
+  }
+
+  function _t9Field(el){
+    return !!el && el.tagName==="INPUT" && !el.readOnly && !el.disabled
+      && T9_TYPES.has((el.type||"").toLowerCase())
+      && el.id!=="auth-email" && el.id!=="auth-pw"
+      && el.dataset.t9!=="off"
+      && typeof el.setSelectionRange==="function";
+  }
+  // Il completamento inline si spegne su touch, l'apprendimento del vocabolario
+  // no: ciò che si digita da telefono resta disponibile come suggerimento su
+  // desktop (e viceversa).
+  function _t9Enabled(el){ return !_t9Off() && _t9Field(el); }
+
+  function _t9Vocab(el){
+    const out=[];
+    const lid=el.getAttribute("list");
+    if(lid){ const dl=document.getElementById(lid); if(dl) for(const o of dl.options) if(o.value) out.push(o.value); }
+    const src=el.dataset.t9 && T9_SRC[el.dataset.t9];
+    if(src){ try{ out.push(...src()); }catch{} }
+    const learned=_t9Store()[_t9Key(el)];
+    if(learned) out.push(...learned);
+    return out;
+  }
+
+  // Prefisso sull'intero valore o su una parola successiva ("cont" → "Giacomo
+  // Conterno"): stesso comportamento del completamento del telefono.
+  function _t9Match(el, typed){
+    const q=typed.toLowerCase();
+    let best=null, bestScore=1e9;
+    const seen=new Set();
+    for(const raw of _t9Vocab(el)){
+      const v=String(raw||"").trim(); if(!v) continue;
+      const lv=v.toLowerCase();
+      if(seen.has(lv)) continue; seen.add(lv);
+      if(lv===q || !lv.startsWith(q)) continue;
+      const score=v.length;               // completamento più corto = più probabile
+      if(score<bestScore){ bestScore=score; best=v; }
+    }
+    return best;
+  }
+
+  function _t9Clear(){ _t9El=null; _t9Typed=""; }
+
+  function _t9Fire(el){
+    _t9Busy=true;
+    // Solo "input": lanciare "change" qui farebbe scattare gli onchange che
+    // rigenerano il DOM, con perdita del focus mentre si sta ancora scrivendo.
+    // Il "change" nativo arriva comunque al blur.
+    el.dispatchEvent(new Event("input",{bubbles:true}));
+    _t9Busy=false;
+  }
+
+  // Proposta: solo mentre si aggiunge testo in coda (mai in cancellazione).
+  document.addEventListener("input", e=>{
+    const el=e.target;
+    if(_t9Busy || !_t9Enabled(el)) return;
+    if(e.isComposing || (e.inputType && e.inputType!=="insertText" && e.inputType!=="insertCompositionText")){ _t9Clear(); return; }
+    const typed=el.value;
+    if(typed.length<T9_MIN || el.selectionStart!==typed.length){ _t9Clear(); return; }
+    const m=_t9Match(el, typed);
+    if(!m){ _t9Clear(); return; }
+    el.value=typed.slice(0,typed.length)+m.slice(typed.length);
+    el.setSelectionRange(typed.length, m.length);
+    _t9El=el; _t9Typed=typed;
+  }, false); // bubble: gli handler oninput del campo vedono prima il testo digitato
+
+  document.addEventListener("keydown", e=>{
+    const el=e.target;
+    if(el!==_t9El) return;
+    const hasGhost = el.selectionStart===_t9Typed.length && el.selectionEnd===el.value.length && el.selectionEnd>el.selectionStart;
+    if(!hasGhost){ _t9Clear(); return; }
+    if(e.key===" "||e.key==="Spacebar"||e.key==="Tab"||e.key==="ArrowRight"||e.key==="Enter"){
+      if(e.key===" "||e.key==="Spacebar") e.preventDefault();   // lo spazio accetta, non si inserisce
+      const v=el.value;
+      el.setSelectionRange(v.length, v.length);
+      _t9Clear(); _t9Learn(el, v); _t9Fire(el);
+      return;
+    }
+    if(e.key==="Escape"||e.key==="Backspace"||e.key==="Delete"){
+      e.preventDefault();
+      el.value=_t9Typed;
+      el.setSelectionRange(_t9Typed.length,_t9Typed.length);
+      _t9Clear(); _t9Fire(el);
+    }
+  }, true);
+
+  document.addEventListener("blur", e=>{
+    const el=e.target;
+    if(!_t9Field(el)) return;
+    if(el===_t9El) _t9Clear();
+    _t9Learn(el, el.value);               // impara ciò che viene confermato
+  }, true);
+
+  // Evidenza della parte proposta: selezione ambra tenue, non "testo selezionato".
+  const st=document.createElement("style");
+  st.textContent=".form-input::selection{background:rgba(255,159,10,.30);color:inherit}.form-input::-moz-selection{background:rgba(255,159,10,.30);color:inherit}";
+  document.head.appendChild(st);
+})();
