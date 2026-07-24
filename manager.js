@@ -129,7 +129,7 @@ let search = "", filterTipo = "tutti", filterFormato = "tutti",
 let filterVitigni = new Set(); // multi-select vitigni (chiavi lowercase); Set vuoto = tutti
 let analyticsRegione = "", analyticsNazione = "", analyticsTipo = "", analyticsAcquistiPeriodo = "mese";
 let planciaFornPage = 0; // paginazione tabella fornitori (Plancia)
-let movForm = {wineId:"",tipo:"carico",qty:1,data:today(),fattura:"",fornitore:"",note:"",prezzoAcqLotto:"",_wineText:"",_newProduttore:"",_newTipologia:"Rosso",_newPrezzoCarta:"",_newVitigni:"",_newZona:"",_newAnnata:"",_newRegione:"",_newNazione:"Italia",_newIva:22,_newDistributore:"",_tipologia:"",_newMode:false};
+let movForm = {wineId:"",tipo:"carico",qty:1,data:today(),fattura:"",fornitore:"",note:"",prezzoAcqLotto:"",_wineText:"",_newProduttore:"",_newTipologia:"Rosso",_newPrezzoCarta:"",_newVitigni:"",_newZona:"",_newAnnata:"",_newRegione:"",_newNazione:"Italia",_newIva:22,_newDistributore:"",_newFormato:"0.75",_tipologia:"",_newMode:false};
 let fallForm = {wineId:"",qty:1,motivo:"Tappo difettoso (TCA)",data:today(),note:""};
 // ─── PRICE SUGGESTION (FASCE PREZZO CARTA) ───────────────────────────────────
 // Fascia su prezzoAcq (ex IVA):
@@ -139,6 +139,29 @@ let fallForm = {wineId:"",qty:1,motivo:"Tappo difettoso (TCA)",data:today(),note
 //   > €25        → ×2.3
 // Magnum (rilevata da nome/formato) → ×2.0
 // Risultato arrotondato al mezzo euro superiore, IVA inclusa.
+// ── FORMATI BOTTIGLIA: unica sorgente di verità per select e label ───────────
+const FORMATI_BOTTIGLIA=[
+  {v:"0.375",l:"0.375L Mezza"},{v:"0.5",l:"0.50L (50cl)"},{v:"0.75",l:"0.75L Standard"},
+  {v:"1.0",l:"1L Litro"},{v:"1.5",l:"1.5L Magnum"},{v:"2.0",l:"2.0L Jeroboam"},
+  {v:"3.0",l:"3.0L Doppia Magnum"},{v:"4.5",l:"4.5L Rehoboam"},{v:"6.0",l:"6.0L Mathusalem"}
+];
+function _formatoOptsHtml(sel){
+  const s=parseFloat(sel||"0.75")||0.75;
+  return FORMATI_BOTTIGLIA.map(x=>`<option value="${x.v}" ${parseFloat(x.v)===s?"selected":""}>${x.l}</option>`).join("");
+}
+function _formatoLabel(f){
+  const v=parseFloat(f)||0.75;
+  const hit=FORMATI_BOTTIGLIA.find(x=>parseFloat(x.v)===v);
+  return hit?hit.l:(v+"L");
+}
+// Suffisso mostrato solo quando il formato non è la 0,75: senza, magnum e
+// bottiglia standard dello stesso vino avrebbero etichetta identica nel datalist
+// e il match esatto ne sceglierebbe una a caso.
+function _fmtSuffix(w){ const v=parseFloat(w&&w.formato)||0.75; return v!==0.75?" \u00b7 "+v+"L":""; }
+function _movWineLabel(w){
+  return w.nome+" \u2014 "+w.produttore+(w.annata?" ("+w.annata+")":"")+" ["+w.tipologia+"]"+_fmtSuffix(w);
+}
+
 function _getMolt(w){
   const fmt = parseFloat(w.formato)||0.75;
   if(fmt >= 1.5) return 2.0; // grandi formati (magnum e oltre) → ×2.0
@@ -3682,12 +3705,12 @@ function renderMovimenti(){
       <div class="form-row" style="margin-bottom:8px">
         <label class="form-label">Vino <span style="color:var(--txt4);font-size:9px;text-transform:none;letter-spacing:0">— cerca per nome, produttore o annata</span></label>
         <datalist id="mov-wine-dl">
-          ${wines.map(w=>`<option value="${h(w.nome+' \u2014 '+w.produttore+(w.annata?' ('+w.annata+')':'')+' ['+w.tipologia+']')}">`).join("")}
+          ${wines.map(w=>`<option value="${h(_movWineLabel(w))}">`).join("")}
         </datalist>
         <div style="display:flex;gap:6px">
           <input id="mov-wine-input" class="form-input" list="mov-wine-dl" autocomplete="off"
             placeholder="es. Petricore \u2014 Valentini (2025) [Bianco]"
-            value="${selW?(h(selW.nome)+' \u2014 '+h(selW.produttore)+(selW.annata?' ('+h(selW.annata)+')':'')):(movForm._wineText||'')}"
+            value="${selW?(h(selW.nome)+' \u2014 '+h(selW.produttore)+(selW.annata?' ('+h(selW.annata)+')':'')+h(_fmtSuffix(selW))):(movForm._wineText||'')}"
             style="flex:1"
             oninput="_movWineMatchSilent(this.value.trim())"
             onchange="_movWineMatch(this.value.trim());_movWineUpdatePanel()">
@@ -3698,10 +3721,11 @@ function renderMovimenti(){
             <span style="color:var(--txt2);font-size:12px;font-weight:500">${h(selW.nome)}</span>
             <span style="color:var(--txt3);font-size:11px">${h(selW.produttore)}</span>
             <span style="color:var(--amber);font-family:'Montserrat',sans-serif">${selW.annata?h(selW.annata):'N.V.'}</span>
+            ${(parseFloat(selW.formato)||0.75)!==0.75?`<span style="font-size:9px;font-weight:600;padding:1px 6px;border:1px solid rgba(0,122,255,.35);color:#60a5fa;background:rgba(0,122,255,.1);border-radius:3px">${h(_formatoLabel(selW.formato))}</span>`:''}
             ${selW.vitigni?('<span style="color:var(--txt4);font-size:10px">\ud83c\udf47 '+h(selW.vitigni)+'</span>'):''}
             <span style="margin-left:auto;color:var(--amber);font-family:'Montserrat',sans-serif;font-size:1.1rem">${selW.giacenza} bt</span>
           </div>
-          ${movForm.tipo!=="scarico"?('<div style="margin-top:6px"><button onclick="movForm._newMode=true;movForm.wineId=\'\';movForm._newProduttore=\''+h(selW.produttore)+'\';movForm._newTipologia=\''+selW.tipologia+'\';movForm._newVitigni=\''+h(selW.vitigni||'')+'\';movForm._newRegione=\''+h(selW.regione||'')+'\';movForm._newNazione=\''+h(selW.nazione||'Italia')+'\';movForm._newZona=\''+h(selW.zona||'')+'\';movForm._wineText=\'\';render()" style="font-size:10px;font-weight:600;padding:4px 12px;border:1px solid rgba(255,159,10,.4);color:var(--amber);background:rgba(255,159,10,.1);cursor:pointer;font-family:inherit;border-radius:6px">\u2746 Nuova annata / variante di questo vino</button></div>'):''}`:''
+          ${movForm.tipo!=="scarico"?('<div style="margin-top:6px"><button onclick="movForm._newMode=true;movForm.wineId=\'\';movForm._newProduttore=\''+h(selW.produttore)+'\';movForm._newTipologia=\''+selW.tipologia+'\';movForm._newVitigni=\''+h(selW.vitigni||'')+'\';movForm._newRegione=\''+h(selW.regione||'')+'\';movForm._newNazione=\''+h(selW.nazione||'Italia')+'\';movForm._newZona=\''+h(selW.zona||'')+'\';movForm._newFormato=\''+(parseFloat(selW.formato)||0.75)+'\';movForm._wineText=\'\';render()" style="font-size:10px;font-weight:600;padding:4px 12px;border:1px solid rgba(255,159,10,.4);color:var(--amber);background:rgba(255,159,10,.1);cursor:pointer;font-family:inherit;border-radius:6px">\u2746 Nuova annata / variante di questo vino</button></div>'):''}`:''
         }
         ${(!selW&&movForm._wineText&&!movForm.wineId&&!movForm._newMode)?
           ('<div style="margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-size:10px;color:var(--txt3)">Vino non trovato in cantina.</span>'
@@ -3730,6 +3754,11 @@ function renderMovimenti(){
           <div><label class="form-label">Tipologia *</label>
             <select class="form-select" data-prev="Rosso" onchange="_addTipologiaInline(this,(v)=>_movTipologiaChange(v));if(this.value!=='__new__'){this.dataset.prev=this.value;_movTipologiaChange(this.value)}">
               ${_tipoOptsHtml(movForm._newTipologia||'Rosso')}
+            </select>
+          </div>
+          <div><label class="form-label">Formato *</label>
+            <select class="form-select" onchange="movForm._newFormato=this.value;_movUpdateCartaPreview()">
+              ${_formatoOptsHtml(movForm._newFormato)}
             </select>
           </div>
           <div><label class="form-label">Vitigni</label>
@@ -4184,8 +4213,9 @@ function _movWineMatchSilent(val){
   const v=val.trim().toLowerCase();
   if(!v){movForm.wineId="";movForm._newProduttore="";movForm._tipologia="";movForm._newMode=false;return;}
   // Match esatto sull'etichetta completa con [tipologia]
-  let found=wines.find(w=>(w.nome+' — '+w.produttore+(w.annata?' ('+w.annata+')':'')+ ' ['+w.tipologia+']').toLowerCase()===v);
-  // Match su nome+produttore+annata senza tipologia
+  let found=wines.find(w=>_movWineLabel(w).toLowerCase()===v);
+  // Match su nome+produttore+annata (+formato) senza tipologia
+  if(!found) found=wines.find(w=>(w.nome+' — '+w.produttore+(w.annata?' ('+w.annata+')':'')+_fmtSuffix(w)).toLowerCase()===v);
   if(!found) found=wines.find(w=>(w.nome+' — '+w.produttore+(w.annata?' ('+w.annata+')':'')).toLowerCase()===v);
   // Match esatto su nome+produttore (solo se unico)
   if(!found){const candidates=wines.filter(w=>w.nome.toLowerCase()===v||w.nome.toLowerCase()===v.split(' — ')[0].trim());
@@ -4225,8 +4255,11 @@ function _movUpdateCartaPreview(){
   const pAcq = parseFloat(movForm.prezzoAcqLotto)||0;
   const iva = movForm._newIva||22;
   const pCarta = parseFloat(movForm._newPrezzoCarta)||0;
+  const formato = parseFloat(movForm._newFormato)||0.75;
   const costoIva = pAcq*(1+iva/100);
-  const suggerito = pAcq>0 ? Math.ceil(costoIva*_getMolt({prezzoAcq:pAcq,iva,nome,formato:'0.75'})) : null;
+  // Il moltiplicatore dipende dal formato (grandi formati ×2.0): passarlo fisso
+  // a 0.75 sovrastimava il prezzo carta suggerito su ogni magnum.
+  const suggerito = pAcq>0 ? Math.ceil(costoIva*_getMolt({prezzoAcq:pAcq,iva,nome,formato})) : null;
   if(!nome&&!prod){ preview.style.display='none'; return; }
   preview.style.display='block';
   body.innerHTML = `
@@ -4234,6 +4267,7 @@ function _movUpdateCartaPreview(){
     <div style="font-size:11px;color:var(--txt3);margin-top:2px">${h(prod)}${zona?' · <span style="color:var(--txt4)">'+h(zona)+'</span>':''}</div>
     <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;align-items:center">
       ${badge(tipo)}
+      ${formato!==0.75?`<span style="font-size:9px;font-weight:600;padding:1px 6px;border:1px solid rgba(0,122,255,.35);color:#60a5fa;background:rgba(0,122,255,.1);border-radius:3px">${h(_formatoLabel(formato))}</span>`:''}
       ${vitigni?`<span style="font-size:10px;color:var(--txt4)">🍇 ${h(vitigni)}</span>`:''}
       ${regione?`<span style="font-size:10px;color:var(--txt3)">${h(regione)}</span>`:''}
     </div>
@@ -4269,6 +4303,7 @@ function registraMovimento(){
       regione:(movForm._newRegione||"").trim(),
       nazione:(movForm._newNazione||"Italia").trim(),
       zona:(movForm._newZona||"").trim(),
+      formato:parseFloat(movForm._newFormato)||0.75,
       prezzoAcq:parseFloat(prezzoAcqLotto)||0,
       iva:movForm._newIva||22,
       prezzoCarta:parseFloat(movForm._newPrezzoCarta)||0,
@@ -4316,7 +4351,7 @@ function registraMovimento(){
   if(_costoSnap) _movEntry.costoUnitarioIva = _costoSnap;
   if(tipo==="scarico") _movEntry.servizio = parseFloat(CONFIG.servizioBottiglia)||0; // snapshot servizio
   movements=[_movEntry,...movements];
-  movForm={...movForm,wineId:"",_wineText:"",_newProduttore:"",_newTipologia:"Rosso",_newPrezzoCarta:"",_newVitigni:"",_newZona:"",_newAnnata:"",_newRegione:"",_newNazione:"Italia",_newIva:22,_newDistributore:"",_tipologia:"",_newMode:false,qty:1,fattura:"",fornitore:"",note:"",prezzoAcqLotto:"",segno:"+"};
+  movForm={...movForm,wineId:"",_wineText:"",_newProduttore:"",_newTipologia:"Rosso",_newPrezzoCarta:"",_newVitigni:"",_newZona:"",_newAnnata:"",_newRegione:"",_newNazione:"Italia",_newIva:22,_newDistributore:"",_newFormato:"0.75",_tipologia:"",_newMode:false,qty:1,fattura:"",fornitore:"",note:"",prezzoAcqLotto:"",segno:"+"};
   scheduleSave();
   // PATCH: flush immediato per carichi/scarichi — modificano giacenza
   clearTimeout(saveTimer); _flushSave();
@@ -5181,7 +5216,7 @@ function _refRowHtml(r,i,tipoOpts,ivaOpts,allProduttori,allNomi){
     <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;text-align:center;min-width:52px;width:100%" value="${h(r.annata||'')}" placeholder="es. 2021" onchange="_refChange('${r.id}','annata',this.value.trim())"></td>
     <td style="padding:5px 6px"><select class="form-input" style="font-size:11px;min-width:80px;width:100%" data-prev="${h(r.tipologia)}" onchange="_addTipologiaInline(this,(v)=>_refChange('${r.id}','tipologia',v));if(this.value!=='__new__'){this.dataset.prev=this.value;_refChange('${r.id}','tipologia',this.value)}">${selTipo}</select></td>
     <td style="padding:5px 6px"><select class="form-input" style="font-size:11px;min-width:72px;width:100%" onchange="_refChange('${r.id}','formato',parseFloat(this.value)||0.75);_updateRefCartaSuggerita('${r.id}')">
-      ${[{v:"0.375",l:"0.375L Mezza"},{v:"0.5",l:"0.50L (50cl)"},{v:"0.75",l:"0.75L"},{v:"1.0",l:"1L Litro"},{v:"1.5",l:"1.5L Magnum"},{v:"2.0",l:"2.0L Jero."},{v:"3.0",l:"3.0L D.Mag."},{v:"4.5",l:"4.5L Réhob."},{v:"6.0",l:"6.0L Math."}].map(x=>`<option value="${x.v}" ${parseFloat(r.formato||"0.75")===parseFloat(x.v)?"selected":""}>${x.l}</option>`).join("")}
+      ${_formatoOptsHtml(r.formato)}
     </select></td>
     <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;min-width:80px;width:100%" list="omd-naz-dl" autocomplete="off" value="${h(r.nazione||'')}" placeholder="es. Italia" onchange="_refChangeNazione('${r.id}',this.value.trim())"></td>
     <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;min-width:90px;width:100%" list="omd-reg-dl-${r.id}" autocomplete="off" value="${h(r.regione||'')}" placeholder="es. Piemonte" onchange="_refChange('${r.id}','regione',this.value.trim())"><datalist id="omd-reg-dl-${r.id}">${_ordRegioniPer(r.nazione||'Italia').map(v=>`<option value="${h(v)}">`).join("")}</datalist></td>
