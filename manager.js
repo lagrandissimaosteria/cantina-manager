@@ -715,6 +715,7 @@ function _setDbStatus(state, label){
   const topLbl = document.getElementById("topbar-sync-label");
   if(topDot) topDot.className = "db-dot " + state;
   if(topLbl) topLbl.textContent = label;
+  try{ _syncWatch(state, label); }catch(e){}
 }
 
 function _initSupabase(){
@@ -1173,24 +1174,185 @@ let INTEGRITY_GUARD_ENABLED = true;
 const INTEGRITY_ABS = 25;    // soglia assoluta: n. vini colpiti
 const INTEGRITY_PCT = 0.20;  // soglia relativa: quota dei vini con giacenza
 let _lastGoodWines = null;   // [{id,giacenza}] dell'ultimo stato committato/caricato
+// Stato dell'ULTIMO TENTATIVO di salvataggio (anche fallito). E la baseline del
+// guard: cosi _integrityCheck misura il delta della SINGOLA operazione invece
+// della deriva cumulativa dall'ultimo commit riuscito (causa dell'incidente:
+// baseline stantia -> ogni salvataggio successivo bloccato a catena).
+let _lastAttemptWines = null;
 
 function _snapWines(arr){ return (arr||[]).map(w=>({id:w.id,giacenza:parseFloat(w.giacenza)||0})); }
 
 // Ritorna {block:boolean, reason:string}. prev = ultimo buono, next = da scrivere.
-function _integrityCheck(prev, nextWines){
+// Vini toccati da movimenti non ancora committati sul ledger: sono azzeramenti
+// GIUSTIFICATI (scarico, rettifica). Il guard esiste contro l'azzeramento
+// INSPIEGATO — una sessione corrotta che azzera senza movimenti a supporto.
+function _wineIdsSpiegatiDaMovimenti(){
+  const out=new Set();
+  try{
+    for(const m of (movements||[])){
+      if(!m||!m.wineId) continue;
+      if(_movSyncBaseline.get(m.id)===_movHash(m)) continue; // già sincronizzato
+      out.add(m.wineId);
+    }
+  }catch{}
+  return out;
+}
+
+function _integrityCheck(prev, nextWines, spiegati){
   if(!INTEGRITY_GUARD_ENABLED || !prev || !prev.length) return {block:false};
   const nextMap = new Map((nextWines||[]).map(w=>[w.id, parseFloat(w.giacenza)||0]));
   let azzerati=0, spariti=0, prevNonZero=0;
   for(const pw of prev){
     if(pw.giacenza>0) prevNonZero++;
     if(!nextMap.has(pw.id)){ if(pw.giacenza>0) spariti++; continue; }
-    if(pw.giacenza>0 && nextMap.get(pw.id)<=0) azzerati++;
+    if(pw.giacenza>0 && nextMap.get(pw.id)<=0 && !(spiegati&&spiegati.has(pw.id))) azzerati++;
   }
   const colpiti = azzerati + spariti;
   if(prevNonZero>0 && colpiti>=INTEGRITY_ABS && colpiti/prevNonZero>=INTEGRITY_PCT){
-    return {block:true, reason:`${azzerati} vini azzerati + ${spariti} spariti su ${prevNonZero} con giacenza (${Math.round(colpiti/prevNonZero*100)}%)`};
+    return {block:true, reason:`${azzerati} vini azzerati SENZA movimento + ${spariti} spariti su ${prevNonZero} con giacenza (${Math.round(colpiti/prevNonZero*100)}%)`};
   }
   return {block:false};
+}
+
+// ─── VISIBILITA DEL FALLIMENTO (banner bloccante) ────────────────────────────
+// L'incidente non e stato causato dal blocco in se ma dal fatto che fosse
+// SILENZIOSO: l'app continuava ad accettare movimenti mentre nulla arrivava sul
+// cloud. Qui uno stato non sincronizzato diventa impossibile da non notare e,
+// oltre la soglia di grazia, blocca la registrazione di nuovi movimenti.
+const SYNC_PENDING_GRACE_MS = 15000; // "pending" fisiologico: 400ms. Oltre 15s = guasto.
+const SYNC_ERR_GRACE_MS     = 0;     // "err" = allarme immediato
+const SYNC_BYPASS_MS        = 5*60*1000;
+
+let _syncState       = "off";
+let _syncBadSince    = 0;
+let _syncGraceMs     = 0;    // grazia congelata all'ingresso nello stato guasto
+let _syncBypassUntil = 0;
+let _pendingOps      = 0;
+let _syncTicker      = null;
+let _syncLastLabel   = "";
+let _syncBannerSig   = "";
+let _syncPrevPad     = null;
+
+// Modifiche non ancora presenti sul ledger remoto (delta reale, non stimato).
+function _unsyncedMovCount(){
+  let n=0;
+  try{
+    const cur=new Set();
+    for(const m of (movements||[])){
+      if(!m||!m.id) continue;
+      cur.add(m.id);
+      if(_movSyncBaseline.get(m.id) !== _movHash(m)) n++;
+    }
+    for(const id of _movSyncBaseline.keys()) if(!cur.has(id)) n++;
+  }catch(e){}
+  return n;
+}
+
+function _syncBadFor(){ return _syncBadSince ? Date.now()-_syncBadSince : 0; }
+function _syncAlarm(){
+  if(!_syncBadSince) return false;
+  // La grazia e quella congelata all'ingresso nel guasto: uno stato "sync"
+  // transitorio (ritentativo in corso) non deve far sparire il banner ne
+  // sbloccare i movimenti finche non arriva un "ok" vero.
+  return _syncBadFor() >= _syncGraceMs;
+}
+function _syncBlocked(){ return _syncAlarm() && Date.now() > _syncBypassUntil; }
+
+function _syncWatch(state,label){
+  _syncState=state; _syncLastLabel=label||"";
+  if(state==="ok"){ _syncBadSince=0; _syncGraceMs=0; _pendingOps=0; _syncBypassUntil=0; }
+  else if(state==="off"){ _syncBadSince=0; _syncGraceMs=0; }
+  else if(state==="err"||state==="pending"){
+    if(!_syncBadSince){ _syncBadSince=Date.now(); _syncGraceMs=(state==="err"?SYNC_ERR_GRACE_MS:SYNC_PENDING_GRACE_MS); }
+    else if(state==="err") _syncGraceMs=SYNC_ERR_GRACE_MS; // un errore accerta il guasto: niente piu grazia
+  }
+  _syncRenderBanner();
+  if(!_syncTicker) _syncTicker=setInterval(_syncRenderBanner,1000);
+}
+
+function _syncEnsureCss(){
+  if(document.getElementById("cm-sync-banner-css")) return;
+  const st=document.createElement("style"); st.id="cm-sync-banner-css";
+  st.textContent=`
+#cm-sync-banner{position:fixed;top:0;left:0;right:0;z-index:2147483000;background:#7f1d1d;color:#fff;
+  font:600 13px/1.35 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:10px 14px;
+  box-shadow:0 2px 14px rgba(0,0,0,.45);display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+#cm-sync-banner.bypass{background:#78350f}
+#cm-sync-banner .cm-sb-txt{flex:1 1 260px;min-width:220px}
+#cm-sync-banner .cm-sb-sub{display:block;font-weight:400;opacity:.9;font-size:12px;margin-top:2px}
+#cm-sync-banner button{border:0;border-radius:6px;padding:7px 11px;font:600 12px/1 inherit;cursor:pointer;color:#fff;background:#b91c1c}
+#cm-sync-banner button.pri{background:#fff;color:#7f1d1d}
+#cm-sync-banner button.gh{background:transparent;box-shadow:inset 0 0 0 1px rgba(255,255,255,.45)}
+#cm-sync-banner button:hover{filter:brightness(1.12)}
+@keyframes cmSbFlash{0%,100%{filter:none}50%{filter:brightness(1.9)}}
+#cm-sync-banner.flash{animation:cmSbFlash .28s 3}
+@media print{#cm-sync-banner{display:none}}`;
+  document.head.appendChild(st);
+}
+
+function _syncRenderBanner(){
+  if(typeof document==="undefined"||!document.body) return;
+  let el=document.getElementById("cm-sync-banner");
+  if(!_syncAlarm()){
+    if(el){ el.remove(); document.body.style.paddingTop=_syncPrevPad||""; _syncBannerSig=""; }
+    return;
+  }
+  _syncEnsureCss();
+  const ms=_syncBadFor(), m=Math.floor(ms/60000), sec=Math.floor(ms/1000)%60;
+  const dur = m ? m+"m "+sec+"s" : sec+"s";
+  const movN=_unsyncedMovCount();
+  const byp = Date.now() < _syncBypassUntil;
+  const bypLeft = byp ? Math.ceil((_syncBypassUntil-Date.now())/1000) : 0;
+  const sig=[dur,movN,_pendingOps,byp,_syncLastLabel].join("|");
+  if(el && sig===_syncBannerSig) return;
+  _syncBannerSig=sig;
+  if(!el){
+    el=document.createElement("div"); el.id="cm-sync-banner";
+    if(_syncPrevPad===null) _syncPrevPad=document.body.style.paddingTop||"";
+    document.body.appendChild(el);
+  }
+  el.className = byp ? "bypass" : "";
+  el.innerHTML =
+    '<div class="cm-sb-txt">'+(byp?"\u26a0\ufe0f SBLOCCO TEMPORANEO ATTIVO ("+bypLeft+"s)":"\u26d4 DATI NON SALVATI SUL CLOUD")+
+    '<span class="cm-sb-sub">'+(_syncLastLabel||"Sincronizzazione fallita")+
+      " \u2014 da "+dur+" \u00b7 "+_pendingOps+" modifiche in attesa \u00b7 "+movN+" movimenti non sul ledger"+
+      (byp?" \u00b7 stai lavorando SOLO in locale":" \u00b7 registrazione movimenti BLOCCATA")+'</span></div>'+
+    '<button class="pri" onclick="_syncRetry()">Riprova ora</button>'+
+    '<button onclick="_syncBypass()">'+(byp?"Prolunga sblocco":"Sblocca 5 min")+'</button>'+
+    '<button class="gh" onclick="_syncDownloadBackup()">Scarica backup</button>';
+  try{ document.body.style.paddingTop = el.offsetHeight+"px"; }catch(e){}
+}
+
+function _syncRetry(){ try{ forceSave(); }catch(e){ notify("\u26a0\ufe0f Retry fallito: "+e.message,"err"); } }
+
+function _syncBypass(){
+  if(!confirm("Sbloccare la registrazione dei movimenti per 5 minuti?\n\nI dati NON sono sul cloud: tutto quello che registri resta solo su questo dispositivo finche la sincronizzazione non riprende.\nNON ricaricare la pagina e NON chiudere il browser prima di aver risincronizzato.")) return;
+  _syncBypassUntil = Date.now()+SYNC_BYPASS_MS;
+  _syncBannerSig=""; _syncRenderBanner();
+}
+
+// Scialuppa: esporta lo stato locale prima di qualsiasi ricarica.
+function _syncDownloadBackup(){
+  try{
+    const payload={ts:new Date().toISOString(),user:_effectiveDbUser(),version:_localVersion,
+      wines,movements,orders,fallate,soglie:alertSoglie};
+    const url=URL.createObjectURL(new Blob([JSON.stringify(payload)],{type:"application/json"}));
+    const a=document.createElement("a");
+    a.href=url; a.download="cantina-backup-"+_effectiveDbUser()+"-"+Date.now()+".json";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),4000);
+    notify("\ud83d\udcbe Backup locale scaricato");
+  }catch(e){ notify("\u26a0\ufe0f Export fallito: "+e.message,"err"); }
+}
+
+// Gate: chiamato dai punti di ingresso dei movimenti.
+function _syncGate(azione){
+  if(!_syncBlocked()) return true;
+  _syncBannerSig=""; _syncRenderBanner();
+  const el=document.getElementById("cm-sync-banner");
+  if(el){ el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash"); window.scrollTo({top:0,behavior:"smooth"}); }
+  notify("\ud83d\uded1 "+(azione||"Operazione")+" bloccata: "+_unsyncedMovCount()+" movimenti non sono sul cloud. Usa \"Riprova ora\" oppure sblocca consapevolmente dal banner rosso.","err");
+  return false;
 }
 
 // ── MERGE 3-VIE (lavoro simultaneo da più computer) ──────────────────────────
@@ -1263,7 +1425,7 @@ async function _rebaseOnRemote(){
     }
   }catch{}
   _localVersion  = rver ?? _localVersion;
-  _lastGoodWines = _snapWines(remoteWines); // tripwire valutato contro il remoto vero
+  _lastGoodWines = _lastAttemptWines = _snapWines(remoteWines); // tripwire valutato contro il remoto vero
   _setMergeBase(remoteWines, ro ?? [], rf ?? [], rs ?? {});
   _saveLocalBackup();
   return true;
@@ -1343,7 +1505,7 @@ async function _flushSave(){
     //      un azzeramento/sparizione di massa. Non scrive NIENTE (né blob né
     //      movimenti né versione): lo stato remoto buono resta intatto. Local
     //      backup è già stato fatto da scheduleSave, quindi nulla va perso in RAM.
-    const _guard = _integrityCheck(_lastGoodWines, snapshot.wines);
+    const _guard = _integrityCheck(_lastAttemptWines || _lastGoodWines, snapshot.wines, _wineIdsSpiegatiDaMovimenti());
     if(_guard.block){
       _setDbStatus("err","Salvataggio bloccato");
       notify(`🛑 Modifica sospetta bloccata: ${_guard.reason}. Nulla è stato scritto sul cloud. Se è VOLUTA, premi \"Sync forzato\"; altrimenti ricarica la pagina per recuperare i dati remoti.`,"err");
@@ -1352,8 +1514,23 @@ async function _flushSave(){
       _savePending  = false; // scarta la coda: non ri-tentare in automatico
       return;
     }
+    // Superato il guard: questo stato diventa il riferimento del prossimo delta.
+    // NON si aggiorna sul blocco, altrimenti un azzeramento di massa passerebbe
+    // al tentativo successivo.
+    _lastAttemptWines = _snapWines(snapshot.wines);
 
-    // 2) BLOB (wines/fallate/soglie/orders) + versione. Il blob contiene la giacenza.
+    // 2) MOVIMENTI PRIMA DEL BLOB. Inversione rispetto all'ordine originale.
+    //    Il movimento è l'INTENTO ("ho scaricato 2 bottiglie"), la giacenza è una
+    //    conseguenza calcolabile. Con il blob per primo, un fallimento a metà
+    //    lasciava giacenze committate senza movimenti: irrecuperabile, perché non
+    //    resta traccia di cosa era stato fatto. Con il ledger per primo il caso
+    //    peggiore è un movimento senza giacenza aggiornata: ricostruibile, ed è
+    //    esattamente ciò che serviva nell'incidente degli scarichi persi.
+    //    _flushMovementsV2 è delta-safe e idempotente: se il blob fallisce e si
+    //    ritenta, non duplica nulla.
+    await _flushMovementsV2();
+
+    // 3) BLOB (wines/fallate/soglie/orders) + versione. Il blob contiene la giacenza.
     const newVersion = (_localVersion||0) + 1;
     await Promise.all([
       _sbUpsert("cm_wines",    { user_id:_effectiveDbUser(), data:snapshot.wines }),
@@ -1363,15 +1540,8 @@ async function _flushSave(){
       _sbWriteVersion(newVersion),
     ]);
     _localVersion = newVersion;
-    _lastGoodWines = _snapWines(snapshot.wines); // stato buono committato
+    _lastGoodWines = _lastAttemptWines = _snapWines(snapshot.wines); // stato buono committato
     _setMergeBase(snapshot.wines, snapshot.orders, snapshot.fallate, snapshot.soglie);
-
-    // 3) MOVIMENTI sul ledger append-only — SOLO dopo che la giacenza è committata,
-    //    così movimento e riduzione di giacenza non possono divergere. Se il gate
-    //    sopra avesse bloccato, qui non arriviamo: nessun movimento orfano.
-    //    Resta comunque delta-safe (upsert per id + tombstone): una sessione stantia
-    //    non può cancellare la storia altrui, perché non arriva mai a questo punto.
-    await _flushMovementsV2();
     _setDbStatus("ok","Sincronizzato");
   }catch(e){
     _setDbStatus("err","Errore sync");
@@ -1384,6 +1554,7 @@ async function _flushSave(){
 
 function scheduleSave(){
   clearTimeout(saveTimer);
+  _pendingOps++;      // contatore modifiche non ancora confermate dal cloud
   _saveLocalBackup(); // backup locale ottimistico e immediato (sincrono)
   _setDbStatus("pending","Da sincronizzare…"); // PATCH: indica stato pendente
   saveTimer = setTimeout(_flushSave, 400);
@@ -1407,6 +1578,7 @@ async function forceSave(){
   }));
   try{
     _saveLocalBackup(snapshot);
+    await _flushMovementsV2(); // ledger prima del blob: l'intento è la cosa da salvare per prima
     await Promise.all([
       _sbUpsert("cm_wines",    { user_id:_effectiveDbUser(), data:snapshot.wines }),
       _sbUpsert("cm_fallate",  { user_id:_effectiveDbUser(), data:snapshot.fallate }),
@@ -1416,8 +1588,7 @@ async function forceSave(){
     const newVer = (_localVersion||0) + 1;
     await _sbWriteVersion(newVer);
     _localVersion = newVer;
-    await _flushMovementsV2(); // movimenti sul ledger, dopo il blob giacenza
-    _lastGoodWines = _snapWines(snapshot.wines); // override umano → nuova baseline buona
+    _lastGoodWines = _lastAttemptWines = _snapWines(snapshot.wines); // override umano → nuova baseline buona
     _setMergeBase(snapshot.wines, snapshot.orders, snapshot.fallate, snapshot.soglie);
     _setDbStatus("ok","Sincronizzato");
     notify("✅ Sync forzato — dati inviati a Supabase");
@@ -1496,7 +1667,7 @@ async function loadData(){
 
     _migrateOrders();
     _migrateWines();
-    _lastGoodWines = _snapWines(wines); // baseline integrità = stato remoto appena caricato
+    _lastGoodWines = _lastAttemptWines = _snapWines(wines); // baseline integrità = stato remoto appena caricato
     _setMergeBase(wines, orders, fallate, alertSoglie); // baseline per il merge 3-vie
     await _syncLocale(); // dati di fatturazione dal cloud
     await _syncSettings(); // tipologie + rubriche fornitori dal cloud
@@ -1831,12 +2002,15 @@ function _updateTopbarActions(id){ /* tba buttons removed — noop */ }
   menu.addEventListener('click', e=>{
     const action=e.target.closest('[data-action]')?.dataset.action;
     if(!action||!_targetId) return;
+    // closeMenu() azzera _targetId: l'id va catturato PRIMA, o ogni azione
+    // riceve null (edit apriva "Aggiungi Vino" al posto della scheda).
+    const id=_targetId;
     closeMenu();
-    if(action==='edit')   openWineModal(_targetId);
-    if(action==='dup')    duplicaWine(_targetId);
-    if(action==='note')   openNoteVeloce(_targetId);
-    if(action==='rett')   openRettificaGiacenza(_targetId);
-    if(action==='delete') deleteWine(_targetId);
+    if(action==='edit')   openWineModal(id);
+    if(action==='dup')    duplicaWine(id);
+    if(action==='note')   openNoteVeloce(id);
+    if(action==='rett')   openRettificaGiacenza(id);
+    if(action==='delete') deleteWine(id);
   });
 
   document.addEventListener('click', e=>{
@@ -3558,6 +3732,7 @@ function toggleScaricoPannello(){
 }
 
 function registraScaricaSerata(){
+  if(!_syncGate("Scarico serata")) return;
   const righe = wines
     .filter(w => w.giacenza > 0)
     .map(w => ({ wine: w, qty: parseInt(scaricoSerata.qtys[w.id]) || 0 }))
@@ -3610,6 +3785,7 @@ function registraScaricaSerata(){
 }
 // ─── SCARICO SINGOLA RIGA ─────────────────────────────────────────────────────
 function registraScaricaSingoloVino(wineId){
+  if(!_syncGate("Scarico rapido")) return;
   const qty = parseInt(scaricoSerata.qtys[wineId])||0;
   if(qty <= 0){ notify("⚠️ Inserisci una quantità per questo vino","err"); return; }
   const wine = wines.find(w => w.id === wineId);
@@ -4308,6 +4484,7 @@ function _movUpdateCartaPreview(){
 }
 
 function registraMovimento(){
+  if(!_syncGate("Registrazione movimento")) return;
   // Refresh date if the field was left empty (e.g. session crossed midnight)
   if(!movForm.data) movForm.data=today();
   const {tipo,qty,data,fattura,fornitore,note,prezzoAcqLotto}=movForm;
@@ -5767,6 +5944,7 @@ function chiudiRicezioneGlobale(e){
 }
 
 function confermaRicezioneGlobale(){
+  if(!_syncGate("Conferma ricezione ordine")) return;
   const dataArrivo=document.getElementById("ric-glob-data").value||today();
   const fattura=(document.getElementById("ric-glob-fattura").value||"").trim();
   const selezionati=orders.filter(o=>{
@@ -8177,6 +8355,7 @@ function mobScaricaConfirm(wineId){
 
 // Versione ottimistica non-await: aggiorna UI subito, sync in background
 function registraMovimentoMobileQty(wineId, delta){
+  if(!_syncGate("Movimento rapido")) return;
   _hideMobToast();
   const wine = wines.find(w => w.id === wineId);
   if(!wine) return;
@@ -8262,6 +8441,7 @@ function _renderMobLog(){
 }
 
 async function registraMovimentoMobile(wineId, delta){
+  if(!_syncGate("Movimento rapido")) return;
   _hideMobToast();
 
   const wine = wines.find(w => w.id === wineId);
@@ -10149,6 +10329,7 @@ function _tfManifestLine(w,qty,snap){
     prezzoCarta:parseFloat(w.prezzoCarta)||0,qty,lots:snap};
 }
 function _tfGenera(){
+  if(!_syncGate("Carico da fattura")) return;
   const dest=(_tfMeta.dest||"").trim();
   if(!dest){ notify("⚠️ Indica il locale destinazione","err"); return; }
   if(!_tfCart.length){ notify("⚠️ Nessuna referenza nell'invio","err"); return; }
@@ -10276,6 +10457,7 @@ function _tfRicevPreview(){
   enable(!dup && !self);
 }
 function _tfConfermaRicevi(){
+  if(!_syncGate("Importazione fattura")) return;
   const raw=document.getElementById("tf-ricev")?.value||"";
   const man=_parseManifesto(raw);
   if(!man){ notify("⚠️ Manifesto non valido","err"); return; }
