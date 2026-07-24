@@ -1766,6 +1766,7 @@ function _updateTopbarActions(id){ /* tba buttons removed — noop */ }
   menu.style.cssText = 'position:fixed;z-index:9999;min-width:172px;background:var(--bg2,#1c1917);border:1px solid var(--border2,rgba(68,64,60,.6));border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.04);padding:4px 0;display:none;user-select:none';
   menu.innerHTML = `
     <div data-action="edit"  style="padding:9px 14px;cursor:pointer;font-size:12px;color:var(--txt2,#e7e5e4);display:flex;align-items:center;gap:9px;transition:background .1s">✏️ <span>Modifica scheda</span></div>
+    <div data-action="dup"   style="padding:9px 14px;cursor:pointer;font-size:12px;color:var(--txt2,#e7e5e4);display:flex;align-items:center;gap:9px;transition:background .1s">⧉ <span>Duplica scheda</span></div>
     <div data-action="note"  style="padding:9px 14px;cursor:pointer;font-size:12px;color:var(--txt2,#e7e5e4);display:flex;align-items:center;gap:9px;transition:background .1s">📝 <span>Nota veloce</span></div>
     <div data-action="rett"  style="padding:9px 14px;cursor:pointer;font-size:12px;color:#30D158;display:flex;align-items:center;gap:9px;transition:background .1s">⚖️ <span>Rettifica giacenza</span></div>
     <div style="height:1px;background:var(--border,rgba(68,64,60,.4));margin:3px 8px"></div>
@@ -1832,6 +1833,7 @@ function _updateTopbarActions(id){ /* tba buttons removed — noop */ }
     if(!action||!_targetId) return;
     closeMenu();
     if(action==='edit')   openWineModal(_targetId);
+    if(action==='dup')    duplicaWine(_targetId);
     if(action==='note')   openNoteVeloce(_targetId);
     if(action==='rett')   openRettificaGiacenza(_targetId);
     if(action==='delete') deleteWine(_targetId);
@@ -3721,7 +3723,10 @@ function renderMovimenti(){
             <span style="color:var(--txt2);font-size:12px;font-weight:500">${h(selW.nome)}</span>
             <span style="color:var(--txt3);font-size:11px">${h(selW.produttore)}</span>
             <span style="color:var(--amber);font-family:'Montserrat',sans-serif">${selW.annata?h(selW.annata):'N.V.'}</span>
-            ${(parseFloat(selW.formato)||0.75)!==0.75?`<span style="font-size:9px;font-weight:600;padding:1px 6px;border:1px solid rgba(0,122,255,.35);color:#60a5fa;background:rgba(0,122,255,.1);border-radius:3px">${h(_formatoLabel(selW.formato))}</span>`:''}
+            <span style="display:inline-flex;align-items:center;gap:5px;margin-left:auto">
+              <span style="font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--txt4)">Formato</span>
+              <select class="form-select" style="width:auto;font-size:11px;padding:3px 6px" onchange="_movCambiaFormato(this.value)">${_formatoOptsHtml(selW.formato)}</select>
+            </span>
             ${selW.vitigni?('<span style="color:var(--txt4);font-size:10px">\ud83c\udf47 '+h(selW.vitigni)+'</span>'):''}
             <span style="margin-left:auto;color:var(--amber);font-family:'Montserrat',sans-serif;font-size:1.1rem">${selW.giacenza} bt</span>
           </div>
@@ -4207,6 +4212,29 @@ function _movTipologiaChange(val){
   _movUpdateCartaPreview();
 }
 
+
+// Il formato è un dato di anagrafica, non del singolo carico: cambiarlo qui
+// riscrive la referenza e quindi tutta la storia già registrata su di essa.
+// Con giacenza a magazzino si chiede conferma, perché l'effetto è retroattivo.
+function _movCambiaFormato(v){
+  const w=wines.find(x=>x.id===movForm.wineId);
+  if(!w){ notify("⚠️ Nessun vino selezionato","err"); return; }
+  const nuovo=parseFloat(v)||0.75, attuale=parseFloat(w.formato)||0.75;
+  if(nuovo===attuale) return;
+  const g=parseInt(w.giacenza)||0;
+  if(g>0 && !confirm(
+      `"${w.nome}" ha ${g} bottiglie in giacenza.\n\n`+
+      `Il formato passa da ${attuale}L a ${nuovo}L su TUTTA la referenza: `+
+      `carta vini, movimenti storici e valorizzazione useranno il nuovo formato.\n\n`+
+      `Se le bottiglie in giacenza sono di due formati diversi, annulla e duplica `+
+      `la scheda dall'Inventario invece di modificarla.\n\nProcedere?`)){
+    render(); return;
+  }
+  wines=wines.map(x=>x.id===w.id?{...x,formato:nuovo}:x);
+  scheduleSave();
+  notify("✅ Formato aggiornato: "+_formatoLabel(nuovo));
+  render();
+}
 
 function _movWineMatchSilent(val){
   movForm._wineText=val;
@@ -6698,13 +6726,17 @@ function closeWineDetail(){
 
 // ─── WINE MODAL ───────────────────────────────────────────────────────────────
 function openWineModal(idOrNull){
-  const wine=idOrNull?wines.find(w=>w.id===idOrNull):null;
-  modalWine=wine;
-  document.getElementById("modal-title").textContent=wine?"Modifica Vino":"Aggiungi Vino";
+  // idOrNull può essere: id esistente (modifica), null (nuovo), oppure un oggetto
+  // bozza (duplicazione). La bozza compila il form ma NON è ancora in `wines`:
+  // modalWine resta null, così il salvataggio crea una referenza nuova con SKU nuovo.
+  const isDraft = !!idOrNull && typeof idOrNull==="object";
+  const wine = isDraft ? idOrNull : (idOrNull?wines.find(w=>w.id===idOrNull):null);
+  modalWine = isDraft ? null : wine;
+  document.getElementById("modal-title").textContent = isDraft ? "Duplica Vino" : (wine?"Modifica Vino":"Aggiungi Vino");
   document.getElementById("modal-body").innerHTML=renderModalBody(wine);
   // Bottone elimina: solo in modalità modifica
   let delBtn=document.getElementById("modal-delete-btn");
-  if(wine){
+  if(modalWine){
     if(!delBtn){
       delBtn=document.createElement("button");
       delBtn.id="modal-delete-btn";
@@ -6714,7 +6746,7 @@ function openWineModal(idOrNull){
       const footer=document.querySelector("#wine-modal .modal-footer");
       footer.insertBefore(delBtn,footer.firstChild);
     }
-    delBtn.onclick=()=>{ closeWineModal(); deleteWine(wine.id); };
+    delBtn.onclick=()=>{ const _id=modalWine.id; closeWineModal(); deleteWine(_id); };
   } else {
     if(delBtn) delBtn.remove();
   }
@@ -6961,6 +6993,7 @@ function _toggleFresco(){
 function saveWine(){
   const get=id=>document.getElementById(id)?.value||"";
   let wine={
+    ...(modalWine||{}),   // preserva i campi fuori dal form (noteVeloce, priceHistory, …)
     id:modalWine?.id||uid(),
     nome:get("mf-nome").trim(),produttore:get("mf-produttore").trim(),distributore:get("mf-distributore"),
     annata:get("mf-annata"),vitigni:_normVitigni(get("mf-vitigni")),tipologia:get("mf-tipologia"),formato:parseFloat(get("mf-formato"))||0.75,
@@ -7298,6 +7331,18 @@ function _confirmModal2(message, actionA, actionB){
   setTimeout(()=>{ el.querySelector('#cm2-cancel').focus(); }, 40);
 }
 
+
+// Duplica l'anagrafica di una referenza: stessi dati, giacenza e lotti azzerati.
+// Caso d'uso: nuova annata o stesso vino in un formato diverso, che deve restare
+// una referenza separata (FIFO, costi e carta vini ragionano per referenza).
+function duplicaWine(id){
+  const w=wines.find(x=>x.id===id);
+  if(!w){ notify("⚠️ Vino non trovato","err"); return; }
+  const copia={...w, id:uid(), sku:"", giacenza:0, lots:[], noteVeloce:"" };
+  delete copia.priceHistory; // lo storico prezzi appartiene alla referenza originale
+  openWineModal(copia);
+  notify("⧉ Scheda duplicata — cambia annata o formato, poi salva");
+}
 
 function deleteWine(id){
   const w = wines.find(x=>x.id===id);
