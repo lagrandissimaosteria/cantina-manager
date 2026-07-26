@@ -1374,14 +1374,53 @@ function _setMergeBase(w,o,f,s_){
 function _merge3(base, local, remote){
   const bm=new Map((base||[]).map(x=>[x.id,JSON.stringify(x)]));
   const lm=new Map((local||[]).map(x=>[x.id,x]));
+  const bo=new Map((base||[]).map(x=>[x.id,x]));            // base come oggetti
+  const rm=new Map((remote||[]).map(x=>[x.id,x]));
   const out=new Map((remote||[]).map(x=>[x.id,x]));
   for(const [id,rec] of lm){
     const b=bm.get(id);
     if(b===undefined){ out.set(id, rec); continue; }        // creato localmente
-    if(JSON.stringify(rec)!==b) out.set(id, rec);           // modificato localmente
+    if(JSON.stringify(rec)!==b){
+      // Modificato localmente: il locale vince. Ma se il remoto e' cambiato su
+      // campi DIVERSI dalla giacenza (es. anagrafica da un'altra postazione),
+      // li fondo, proteggendo pero' SEMPRE la giacenza/lotti locali quando il
+      // locale li ha toccati rispetto alla base (=> uno scarico non regredisce).
+      const rrec=rm.get(id), brec=bo.get(id);
+      if(rrec && brec && _hasGiacChange(brec,rec)){
+        out.set(id, _mergePreserveGiac(rrec, rec, brec));
+      } else {
+        out.set(id, rec);
+      }
+    }
   }
   for(const id of bm.keys()) if(!lm.has(id)) out.delete(id); // eliminato localmente
   return [...out.values()];
+}
+// true se local ha cambiato giacenza (o lotti) rispetto alla base
+function _hasGiacChange(base, local){
+  if((base?.giacenza) !== (local?.giacenza)) return true;
+  try{ return JSON.stringify(base?.lots||[]) !== JSON.stringify(local?.lots||[]); }
+  catch{ return true; }
+}
+// Parte dal remoto (assorbe modifiche altrui su anagrafica/prezzi) ma forza
+// giacenza e lotti al valore LOCALE: lo scarico locale non puo' essere annullato
+// da un blob remoto piu' vecchio. Se il remoto ha ANCH'ESSO ridotto la giacenza
+// (scarico da altra postazione), prende il minimo, cosi due scarichi concorrenti
+// non si annullano a vicenda.
+function _mergePreserveGiac(remote, local, base){
+  // Assorbe dal remoto tutti i campi (anagrafica, prezzi) ma la giacenza/lotti
+  // partono dal LOCALE. Se anche il remoto ha modificato la giacenza rispetto
+  // alla base comune (scarico concorrente da un'altra postazione), applica
+  // ENTRAMBI i delta: giacenza_finale = base + delta_locale + delta_remoto.
+  // Cosi due scarichi su postazioni diverse si sommano invece di annullarsi,
+  // e non si scende mai sotto zero.
+  const out={...remote, giacenza: local.giacenza, lots: local.lots};
+  const rg=Number(remote.giacenza), lg=Number(local.giacenza), bg=Number(base.giacenza);
+  if(Number.isFinite(rg)&&Number.isFinite(lg)&&Number.isFinite(bg)){
+    const dLocal=lg-bg, dRemote=rg-bg;
+    out.giacenza = Math.max(0, bg + dLocal + dRemote);
+  }
+  return out;
 }
 function _merge3Obj(base, local, remote){
   const out={...(remote||{})};
@@ -10061,6 +10100,12 @@ document.addEventListener('keydown', function(e){
     try{
       if(!navigator.onLine || !_sb) return;
       if(_saveInFlight || _savePending || saveTimer) return;
+      // FIX RESURREZIONE: se ci sono modifiche locali non ancora sul cloud
+      // (giacenze scaricate in attesa di flush del blob), NON rebasare: il
+      // remoto ha giacenze vecchie e le sovrascriverebbe. Il ledger e' gia'
+      // salvo, ma la giacenza del blob si perderebbe. Aspetta il commit.
+      if(typeof _unsyncedMovCount==="function" && _unsyncedMovCount()>0) return;
+      if(_pendingOps>0) return;
       if(document.hidden) return;
       if(typeof modalWine !== "undefined" && modalWine) return;
       const a = document.activeElement;
