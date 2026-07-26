@@ -6182,7 +6182,7 @@ let localeData = _loadLocale();
 // Rubrica email fornitori — oggetto {nome_fornitore_lowercase: "email@..."}
 function _loadFornEmails(){ try{ const s=localStorage.getItem(_lsKey("forn_emails")); return s?JSON.parse(s):{}; }catch{ return {}; } }
 function _saveFornEmails(obj){ try{ localStorage.setItem(_lsKey("forn_emails"),JSON.stringify(obj)); }catch{} _pushSettings(); }
-let _fornEmails = _loadFornEmails();
+var _fornEmails = (typeof _fornEmails!=='undefined' && _fornEmails) ? _fornEmails : _loadFornEmails();
 function _getFornEmail(forn){ return _fornEmails[(forn||"").toLowerCase().trim()]||""; }
 function _setFornEmail(forn, email){ _fornEmails[(forn||"").toLowerCase().trim()]=email.trim(); _saveFornEmails(_fornEmails); }
 function _getAllFornEmails(){ return _fornEmails; }
@@ -6190,7 +6190,7 @@ function _getAllFornEmails(){ return _fornEmails; }
 // Rubrica telefoni fornitori
 function _loadFornTelefoni(){ try{ const s=localStorage.getItem(_lsKey("forn_tel")); return s?JSON.parse(s):{}; }catch{ return {}; } }
 function _saveFornTelefoni(obj){ try{ localStorage.setItem(_lsKey("forn_tel"),JSON.stringify(obj)); }catch{} _pushSettings(); }
-let _fornTelefoni = _loadFornTelefoni();
+var _fornTelefoni = (typeof _fornTelefoni!=='undefined' && _fornTelefoni) ? _fornTelefoni : _loadFornTelefoni();
 function _getFornTelefono(forn){ return _fornTelefoni[(forn||"").toLowerCase().trim()]||""; }
 function _setFornTelefono(forn, tel){ _fornTelefoni[(forn||"").toLowerCase().trim()]=tel.trim(); _saveFornTelefoni(_fornTelefoni); }
 function _getAllFornTelefoni(){ return _fornTelefoni; }
@@ -6247,8 +6247,10 @@ async function _syncSettings(){
 
   const remE = r.fornEmails   || {};
   const remT = r.fornTelefoni || {};
-  const mE = { ..._fornEmails,   ...remE };
-  const mT = { ..._fornTelefoni, ...remT };
+  const _curE = (typeof _fornEmails!=='undefined' && _fornEmails) ? _fornEmails : {};
+  const _curT = (typeof _fornTelefoni!=='undefined' && _fornTelefoni) ? _fornTelefoni : {};
+  const mE = { ..._curE,   ...remE };
+  const mT = { ..._curT, ...remT };
   if(Object.keys(mE).length !== Object.keys(remE).length) dirty = true;
   if(Object.keys(mT).length !== Object.keys(remT).length) dirty = true;
   _fornEmails   = mE; try{ localStorage.setItem(_lsKey("forn_emails"), JSON.stringify(_fornEmails)); }catch{}
