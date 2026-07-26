@@ -1741,7 +1741,7 @@ async function loadData(){
 }
 
 // storico ordini filtri (in-memory, no persist)
-let storicoQ="", storicoForn="", storicoDataDa="", storicoDataA="";
+var storicoQ="", storicoForn="", storicoDataDa="", storicoDataA="";
 
 
 function renderBulkBar(mode, allIds){
@@ -1778,7 +1778,7 @@ function togglePw(){
 }
 
 // Rate limiting: 3 tentativi falliti → lockout 30s (raddoppia ad ogni ciclo, max 10min)
-const _loginRL = { attempts:0, lockedUntil:0, cooldown:30 };
+var _loginRL = { attempts:0, lockedUntil:0, cooldown:30 };
 function _isLoginLocked(){
   if(_loginRL.lockedUntil && Date.now() < _loginRL.lockedUntil) return true;
   if(_loginRL.lockedUntil && Date.now() >= _loginRL.lockedUntil){
@@ -1870,7 +1870,7 @@ window.addEventListener("beforeunload", (e) => {
 });
 
 // ─── SIDEBAR COLLAPSE ─────────────────────────────────────────────────────────
-let _sidebarCollapsed = localStorage.getItem(_lsKey("sidebar_collapsed")) === "1";
+var _sidebarCollapsed = localStorage.getItem(_lsKey("sidebar_collapsed")) === "1";
 function toggleSidebar(){
   _sidebarCollapsed = !_sidebarCollapsed;
   localStorage.setItem(_lsKey("sidebar_collapsed"), _sidebarCollapsed ? "1" : "0");
@@ -1892,7 +1892,7 @@ function _applySidebarState(){
 }
 
 // ─── NAVIGATION ───────────────────────────────────────────────────────────────
-const SECTION_TITLES={dashboard:"Plancia",inventario:"Inventario Vini","scarico-serata":"🍾 Scarico Serata",movimenti:"Carico / Scarico",fallate:"Gestione Fallate",ordini:"Ordini Fornitore",export:"Export & Bilancio",amministrazione:"💶 Amministrazione",impostazioni:"⚙️ Impostazioni"};
+var SECTION_TITLES={dashboard:"Plancia",inventario:"Inventario Vini","scarico-serata":"🍾 Scarico Serata",movimenti:"Carico / Scarico",fallate:"Gestione Fallate",ordini:"Ordini Fornitore",export:"Export & Bilancio",amministrazione:"💶 Amministrazione",impostazioni:"⚙️ Impostazioni"};
 function go(s){
   if(s==="analytics") s="dashboard"; // sezioni fuse in "Plancia"
   if(s==="trasferimenti" && !CONFIG.trasferimenti) s="dashboard"; // feature off su questo locale
@@ -2210,7 +2210,7 @@ function _confirmRettifica(id, giacAttuale){
 function _hideTopbarActions(){ _selectedWineId=null; }
 
 // ─── COLUMN RESIZE ───────────────────────────────────────────────────────────
-const _colWidths = {};
+var _colWidths = {};
 function initColResize(){
   document.querySelectorAll(".inv-table th").forEach(function(th){
     // Restore saved width
@@ -2598,7 +2598,7 @@ function _syncInvFilterBar(){
   }
 }
 
-let _searchDebounce=null;
+var _searchDebounce=null;
 function renderInventarioOnly(){
   clearTimeout(_searchDebounce);
   _searchDebounce=setTimeout(()=>{
@@ -2667,20 +2667,20 @@ function renderInventarioOnly(){
 // Spina dorsale della dashboard: un solo intervallo pilota TUTTI i riquadri, con
 // confronto automatico sul periodo precedente di pari durata. Prima ogni box
 // usava un orizzonte diverso (30gg / 12 mesi / 90gg) e nulla era confrontabile.
-let _plPer  = _lsGet("pl_periodo","mese");   // oggi | 7g | mese | meseScorso | custom
-let _plGran = _lsGet("pl_gran","giorno");    // giorno | settimana | mese
-let _plDa   = _lsGet("pl_da","");
-let _plA    = _lsGet("pl_a","");
+var _plPer  = _lsGet("pl_periodo","mese");   // oggi | 7g | mese | meseScorso | custom
+var _plGran = _lsGet("pl_gran","giorno");    // giorno | settimana | mese
+var _plDa   = _lsGet("pl_da","");
+var _plA    = _lsGet("pl_a","");
 function _lsGet(k,d){ try{ return localStorage.getItem(_lsKey(k)) ?? d; }catch{ return d; } }
 function _lsSet(k,v){ try{ localStorage.setItem(_lsKey(k),v); }catch{} }
 function _plSetPer(v){ _plPer=v; _lsSet("pl_periodo",v); if(v==="oggi")_plGran="giorno"; render(); }
 function _plSetGran(v){ _plGran=v; _lsSet("pl_gran",v); render(); }
 function _plSetData(which,v){ if(which==="da"){_plDa=v;_lsSet("pl_da",v);} else {_plA=v;_lsSet("pl_a",v);} _plPer="custom"; _lsSet("pl_periodo","custom"); render(); }
 
-const _isoD = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-const _parseD = s => { const [y,m,g]=String(s||"").split("-").map(Number); return new Date(y||1970,(m||1)-1,g||1); };
-const _shiftD = (d,n) => { const x=new Date(d.getFullYear(),d.getMonth(),d.getDate()); x.setDate(x.getDate()+n); return x; };
-const _diffD = (a,b) => Math.round((new Date(b.getFullYear(),b.getMonth(),b.getDate())-new Date(a.getFullYear(),a.getMonth(),a.getDate()))/86400000);
+var _isoD = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+var _parseD = s => { const [y,m,g]=String(s||"").split("-").map(Number); return new Date(y||1970,(m||1)-1,g||1); };
+var _shiftD = (d,n) => { const x=new Date(d.getFullYear(),d.getMonth(),d.getDate()); x.setDate(x.getDate()+n); return x; };
+var _diffD = (a,b) => Math.round((new Date(b.getFullYear(),b.getMonth(),b.getDate())-new Date(a.getFullYear(),a.getMonth(),a.getDate()))/86400000);
 
 // Intervallo corrente + intervallo precedente di pari durata (per i delta).
 function _plRange(){
@@ -3755,7 +3755,7 @@ function _sspStep(wid,delta){
   _sspRefreshCard(wid); _updateScaricoCounts();
 }
 function _ieriStr(){ const d=new Date(); d.setDate(d.getDate()-1); return d.toISOString().split("T")[0]; }
-let scaricoSerata = {
+var scaricoSerata = {
   open: false,
   listCollapsed: false,
   get data(){ return this._data || _ieriStr(); },
@@ -4269,8 +4269,8 @@ function renderScaricoSerataPage(){
 
 }
 
-let reportSerataData = today();
-let _reportInlineOpen = false;
+var reportSerataData = today();
+var _reportInlineOpen = false;
 function toggleReportInline(){
   _reportInlineOpen = !_reportInlineOpen;
   const body = document.getElementById("report-inline-body");
@@ -4928,7 +4928,7 @@ function renderOrdini(){
 
 // Re-render chirurgico della sezione Ordini con debounce e ripristino focus/caret
 // sul campo di ricerca storico — evita la perdita di focus dopo il primo carattere.
-let _storicoDebounce=null;
+var _storicoDebounce=null;
 function renderOrdiniOnly(){
   clearTimeout(_storicoDebounce);
   _storicoDebounce=setTimeout(()=>{
@@ -5080,7 +5080,7 @@ function deleteEvasiSelezionati(){
 }
 
 // ── MODAL MODIFICA ORDINE EVASO ───────────────────────────────────────────────
-let _editOrdineEvasoId = null;
+var _editOrdineEvasoId = null;
 
 function apriOrdineEvasoModal(id){
   const o = orders.find(x => x.id === id);
@@ -6143,7 +6143,7 @@ function _addrSede(l){ l=l||localeData; return _fmtAddr(l.sedeIndirizzo,l.sedeCa
 function _addrFatt(l){ return _addrSede(l)||_addrConsegna(l); }
 function _ragione(l){ l=l||localeData; return (l.ragioneSociale||"").trim()||l.nome||NOME_LOCALE; }
 function _saveLocaleLocal(d){ try{ localStorage.setItem(_lsKey("locale"),JSON.stringify(d)); }catch{} }
-let _localeBase = {}; // baseline per il merge campo-per-campo tra postazioni
+var _localeBase = {}; // baseline per il merge campo-per-campo tra postazioni
 // I dati di fatturazione seguono il locale, non il browser: localStorage resta per
 // l'offline, la verità sta su Supabase (tabella cm_locale, stesso pattern dei blob).
 function _saveLocale(d){
@@ -6177,7 +6177,7 @@ async function _syncLocale(){
     }
   }catch(e){ console.warn("[locale] sync fallita:", e?.message||e); }
 }
-let localeData = _loadLocale();
+var localeData = _loadLocale();
 
 // Rubrica email fornitori — oggetto {nome_fornitore_lowercase: "email@..."}
 function _loadFornEmails(){ try{ const s=localStorage.getItem(_lsKey("forn_emails")); return s?JSON.parse(s):{}; }catch{ return {}; } }
@@ -7326,8 +7326,8 @@ function bulkDeleteOrdini(){
 }
 
 // ─── BULK EDIT MODAL ──────────────────────────────────────────────────────────
-let _bulkMode=null;
-const _bulkFields={
+var _bulkMode=null;
+var _bulkFields={
   wines:[
     {key:"produttore",label:"Produttore",type:"text"},
     {key:"distributore",label:"Distributore",type:"text"},
@@ -8920,7 +8920,7 @@ async function mobConfirmEdit(){
 }
 
 // ─── MODIFICA MOVIMENTO ───────────────────────────────────────────────────────
-let _editMovId = null;
+var _editMovId = null;
 
 function openMovModal(id){
   const m = movements.find(x => x.id === id);
@@ -9254,7 +9254,7 @@ function importBackupJSON(event){
 }
 
 // ─── NOTE VELOCI ──────────────────────────────────────────────────────────────
-let _noteVeloceId = null;
+var _noteVeloceId = null;
 function openNoteVeloce(wineId){
   const w = wines.find(x=>x.id===wineId);
   if(!w) return;
@@ -9281,8 +9281,8 @@ function saveNoteVeloce(){
 }
 
 // ─── TROVA E FONDI DUPLICATI ──────────────────────────────────────────────────
-let _dupGroups = []; // array di gruppi [[wine, wine, ...], ...]
-let _dupGroupIdx = 0; // gruppo attualmente visualizzato nel modal
+var _dupGroups = []; // array di gruppi [[wine, wine, ...], ...]
+var _dupGroupIdx = 0; // gruppo attualmente visualizzato nel modal
 
 function _normDup(s){
   return String(s||"").toLowerCase().trim()
@@ -9309,7 +9309,7 @@ function _trigramSim(a, b){
 }
 
 // Soglia fuzzy: 0.82 = ~82% di trigram in comune (empiricamente calibrato su nomi vino)
-const _DUP_FUZZY_THRESHOLD = 0.82;
+var _DUP_FUZZY_THRESHOLD = 0.82;
 
 // ── FUZZY SEARCH CONDIVISO (identico in carta.js) ────────────────────────────
 // Edit-distance (Levenshtein) — corregge refusi su token singoli
@@ -10129,15 +10129,15 @@ document.addEventListener('keydown', function(e){
 // Ogni movimento porta con sé la propria riga di manifesto (tLine + snapshot
 // lotti): lo storico è ricostruibile e il manifesto ri-generabile senza tabelle
 // aggiuntive. Idempotenza per transferId verificata sul ledger movimenti.
-const TRANSFER_MANIFEST_V = 2;
+var TRANSFER_MANIFEST_V = 2;
 
-let _tfQ        = "";              // query ricerca referenze
-let _tfSel      = new Set();       // wineId spuntati nei risultati
-let _tfCart     = [];              // [{wineId, qty}] righe dell'invio in preparazione
-let _tfMeta     = {dest:"", data:"", note:""};
-let _tfHistQ    = "";
-let _tfHistTab  = "tutti";         // tutti | inviati | ricevuti
-let _tfOpen     = new Set();       // gruppi storico espansi (transferId|dir)
+var _tfQ        = "";              // query ricerca referenze
+var _tfSel      = new Set();       // wineId spuntati nei risultati
+var _tfCart     = [];              // [{wineId, qty}] righe dell'invio in preparazione
+var _tfMeta     = {dest:"", data:"", note:""};
+var _tfHistQ    = "";
+var _tfHistTab  = "tutti";         // tutti | inviati | ricevuti
+var _tfOpen     = new Set();       // gruppi storico espansi (transferId|dir)
 
 function _tfNorm(s){ return (s==null?"":String(s)).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,""); }
 function _transferMatchKey(o){
@@ -10616,7 +10616,7 @@ function _tfExportStoricoCSV(){
 // segnala: nessun errore bloccante, nessuna perdita.
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const COND_PAGAMENTO = [
+var COND_PAGAMENTO = [
   ["anticipato", "Anticipato / Contanti"],
   ["0",          "Vista fattura"],
   ["30",         "30 gg data fattura"],
@@ -10712,7 +10712,7 @@ function _fattStato(f){
   if(_fattPagato(f) > 0) return scaduta ? "parziale_scaduta" : "parziale";
   return scaduta ? "scaduta" : "insoluta";
 }
-const _STATO_META = {
+var _STATO_META = {
   soluto:            { lbl:"Saldata",           col:"var(--green)" },
   parziale:          { lbl:"Parziale",          col:"var(--orange)" },
   parziale_scaduta:  { lbl:"Parziale scaduta",  col:"var(--red)" },
@@ -10725,8 +10725,8 @@ function _fattGiorniAScadenza(f){
 }
 
 // ─── Stato UI della sezione ──────────────────────────────────────────────────
-const amFiltri = { fornitore:"tutti", stato:"aperte", anno:"tutti", q:"" };
-let amForm = null; // null = form chiuso
+var amFiltri = { fornitore:"tutti", stato:"aperte", anno:"tutti", q:"" };
+var amForm = null; // null = form chiuso
 
 function _amFornitori(){
   const s = new Set();
