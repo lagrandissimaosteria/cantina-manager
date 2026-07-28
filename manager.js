@@ -1914,40 +1914,30 @@ function destroyCharts(){
 window.addEventListener("resize", ()=>{ if(section==="inventario") _setInvScrollHeight(); });
 
 // Auto-login se sessione ancora valida
-if(sessionStorage.getItem("cm_logged")==="1"){
+function _bootSession(){
+  if(sessionStorage.getItem("cm_logged")!=="1") return;
   document.getElementById("login-screen").style.display="none";
   _applySidebarState();
   _initSupabase();
-  // FIX MODAL: assicura che tutti i backdrop esistenti nell'HTML chiudano solo
-  // al click sul backdrop stesso, non propagato dall'interno
   document.querySelectorAll(".modal-backdrop").forEach(bd=>{
     if(bd._patchedClose) return;
     bd._patchedClose = true;
     const origOnclick = bd.getAttribute("onclick");
     if(origOnclick){
-      // Rimuovi onclick inline e rimpiazza con addEventListener filtrato
       const closeFnName = origOnclick.replace(/\(.*\)/, "").trim();
       bd.removeAttribute("onclick");
-      bd.addEventListener("click", e => {
-        if(e.target === bd && window[closeFnName]) window[closeFnName]();
-      });
+      bd.addEventListener("click", e => { if(e.target === bd && window[closeFnName]) window[closeFnName](); });
     }
-    // Assicura stopPropagation su .modal figlio
     const inner = bd.querySelector(".modal");
-    if(inner && !inner._patchedStop){
-      inner._patchedStop = true;
-      inner.addEventListener("click", e => e.stopPropagation());
-    }
+    if(inner && !inner._patchedStop){ inner._patchedStop = true; inner.addEventListener("click", e => e.stopPropagation()); }
   });
-  if(_isMobile()){
-    enterMobileMode();
-    loadData();
-  } else {
-    const app=document.getElementById("app");
-    app.classList.remove("hidden"); app.style.display="flex";
-    loadData(); go("dashboard");
-  }
+  if(_isMobile()){ enterMobileMode(); loadData(); }
+  else { const app=document.getElementById("app"); app.classList.remove("hidden"); app.style.display="flex"; loadData(); go("dashboard"); }
 }
+// Deferito: garantisce che TUTTE le definizioni top-level (incl. _isoD/_parseD/
+// _shiftD/_diffD) siano gia' assegnate e il DOM pronto prima del primo render.
+if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", _bootSession);
+else queueMicrotask(_bootSession);
 
 // ─── TOPBAR CONTEXT ACTIONS ───────────────────────────────────────────────────
 var _selectedWineId = null;
@@ -10134,7 +10124,7 @@ var TRANSFER_MANIFEST_V = 2;
 var _tfQ        = "";              // query ricerca referenze
 var _tfSel      = new Set();       // wineId spuntati nei risultati
 var _tfCart     = [];              // [{wineId, qty}] righe dell'invio in preparazione
-var _tfMeta     = {dest:"", data:"", note:""};
+var _tfMeta     = {dest:"", data:"", note:"", mode:"bottiglie"};  // mode: "bottiglie" | "scheda"
 var _tfHistQ    = "";
 var _tfHistTab  = "tutti";         // tutti | inviati | ricevuti
 var _tfOpen     = new Set();       // gruppi storico espansi (transferId|dir)
@@ -10153,7 +10143,7 @@ function _tfResults(){
   if(q.length<1) return [];
   const toks=q.split(/\s+/).filter(Boolean);
   const out=wines.filter(w=>{
-    if((parseInt(w.giacenza)||0)<=0) return false;
+    if(_tfMeta.mode!=="scheda" && (parseInt(w.giacenza)||0)<=0) return false;
     const hay=_tfNorm([w.nome,w.produttore,w.annata,w.vitigni,w.tipologia,w.regione,w.nazione,w.zona,w.sku,w.distributore].join(" "));
     return toks.every(t=>hay.includes(t));
   });
@@ -10308,31 +10298,48 @@ function _tfResultsHtml(){
 }
 function _tfRenderResults(){ const el=document.getElementById("tf-results"); if(el) el.innerHTML=_tfResultsHtml(); }
 
+function _tfSchedaLine(w){
+  return {nome:w.nome,produttore:w.produttore||"",distributore:w.distributore||"",annata:w.annata||"",
+    vitigni:w.vitigni||"",tipologia:w.tipologia||"Rosso",formato:parseFloat(w.formato)||0.75,
+    regione:w.regione||"",nazione:w.nazione||"Italia",zona:w.zona||"",
+    prezzoAcq:parseFloat(w.prezzoAcq)||0,iva:parseInt(w.iva)||22,
+    prezzoCarta:parseFloat(w.prezzoCarta)||0,prezzoCalice:parseFloat(w.prezzoCalice)||0,qty:0,lots:[]};
+}
+function _tfSchedaCreate(line){
+  const nz=inferPaese(line.nazione,line.regione,line.zona)||line.nazione||"Italia";
+  return {id:uid(),nome:line.nome,produttore:line.produttore||"",distributore:line.distributore||"",
+    annata:line.annata||"",vitigni:_normVitigni(line.vitigni||""),tipologia:line.tipologia||"Rosso",
+    formato:parseFloat(line.formato)||0.75,regione:line.regione||"",nazione:nz,zona:line.zona||"",
+    prezzoAcq:parseFloat(line.prezzoAcq)||0,iva:parseInt(line.iva)||22,
+    prezzoCarta:parseFloat(line.prezzoCarta)||0,prezzoCalice:parseFloat(line.prezzoCalice)||0,
+    sku:_nextSku(),giacenza:0,lots:[]};
+}
+function _tfSetMode(m){ _tfMeta.mode=(m==="scheda"?"scheda":"bottiglie"); _tfRenderResults(); _tfRenderCart(); }
 function _tfCartHtml(){
   const dl=_tfDestKnown();
-  const head=`<div style="font-size:10px;letter-spacing:.25em;text-transform:uppercase;color:var(--txt2);margin-bottom:8px">📦 Invio in preparazione</div>`;
+  const scheda=_tfMeta.mode==="scheda";
+  const modeSw=`<div style="display:flex;gap:6px;margin-bottom:12px"><button class="btn-outline btn-sm" style="${!scheda?"border-color:#5AC8FA;color:#5AC8FA":""}" onclick="_tfSetMode('bottiglie')">📦 Bottiglie</button><button class="btn-outline btn-sm" style="${scheda?"border-color:#5AC8FA;color:#5AC8FA":""}" onclick="_tfSetMode('scheda')">📄 Solo scheda</button></div>`;
+  const head=`<div style="font-size:10px;letter-spacing:.25em;text-transform:uppercase;color:var(--txt2);margin-bottom:8px">📦 Invio in preparazione</div>`+modeSw;
   if(!_tfCart.length) return head+`<div style="font-size:11px;color:var(--txt4)">Nessuna referenza nell'invio. Cerca qui sopra e aggiungi con ＋ o in blocco.</div>`;
   let tot=0, err=false;
   const rows=_tfCart.map(l=>{
     const w=wines.find(x=>x.id===l.wineId);
     const g=parseInt(w?.giacenza)||0, q=parseInt(l.qty)||0;
-    tot+=q; if(q<=0||q>g) err=true;
+    if(!scheda){ tot+=q; if(q<=0||q>g) err=true; }
+    const qtyCell=scheda?`<span style="font-size:10px;padding:2px 8px;border:1px solid #3a86a8;color:#5AC8FA;white-space:nowrap">📄 scheda</span>`:`<button class="btn-outline btn-sm" style="padding:2px 7px" onclick="_tfStepQty('${l.wineId}',-1)">−</button><input class="form-input" type="number" min="1" max="${g}" step="1" value="${q}" onfocus="this.select()" oninput="_tfSetQtySoft('${l.wineId}',this.value)" onchange="_tfSetQty('${l.wineId}',this.value)" style="width:64px;display:inline-block;text-align:center;margin:0 4px"><button class="btn-outline btn-sm" style="padding:2px 7px" onclick="_tfStepQty('${l.wineId}',1)">＋</button>`;
     return `<tr>
       <td style="padding:6px 8px">${h(w?.nome||"?")}${w?.annata?` <span style="color:var(--amber)">${h(w.annata)}</span>`:""}<div style="font-size:10px;color:var(--txt3)">${h(w?.produttore||"")}</div></td>
       <td class="r" style="padding:6px 8px;color:var(--txt3);white-space:nowrap">${g}bt</td>
-      <td class="r" style="padding:6px 8px;white-space:nowrap">
-        <button class="btn-outline btn-sm" style="padding:2px 7px" onclick="_tfStepQty('${l.wineId}',-1)">−</button>
-        <input class="form-input" type="number" min="1" max="${g}" step="1" value="${q}" onfocus="this.select()" oninput="_tfSetQtySoft('${l.wineId}',this.value)" onchange="_tfSetQty('${l.wineId}',this.value)" style="width:64px;display:inline-block;text-align:center;margin:0 4px">
-        <button class="btn-outline btn-sm" style="padding:2px 7px" onclick="_tfStepQty('${l.wineId}',1)">＋</button>
-      </td>
+      <td class="r" style="padding:6px 8px;white-space:nowrap">${qtyCell}</td>
       <td class="c" style="padding:6px 8px"><button class="btn-outline btn-sm" style="padding:2px 8px;border-color:rgba(255,69,58,.4);color:#FF6B6B" onclick="_tfRemove('${l.wineId}')">✕</button></td>
     </tr>`;
   }).join("");
-  const ready=!err && tot>0 && (_tfMeta.dest||"").trim().length>0;
+  const ready=(scheda?_tfCart.length>0:(!err&&tot>0))&&(_tfMeta.dest||"").trim().length>0;
+  const footer=scheda?`${_tfCart.length} schede · <b style="color:#5AC8FA">nessuno spostamento di giacenza</b> · clona la referenza completa`:(err?"Quantità non valida su una o più righe (max = giacenza).":`${_tfCart.length} referenze · <b style="color:#5AC8FA">${tot}bt</b> · costo lotti trasferito invariato (costo-neutro)`);
   return head+`
     <table style="width:100%;border-collapse:collapse;font-size:12px">
       <thead><tr style="font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt4);border-bottom:1px solid var(--border)">
-        <th style="text-align:left;padding:4px 8px">Referenza</th><th class="r" style="padding:4px 8px">Disp.</th><th class="r" style="padding:4px 8px">Qtà invio</th><th style="width:40px"></th></tr></thead>
+        <th style="text-align:left;padding:4px 8px">Referenza</th><th class="r" style="padding:4px 8px">Disp.</th><th class="r" style="padding:4px 8px">${scheda?"Tipo":"Qtà invio"}</th><th style="width:40px"></th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
     <div class="form-grid g2" style="margin-top:14px">
@@ -10345,10 +10352,10 @@ function _tfCartHtml(){
     <div class="form-row" style="margin-top:10px"><label class="form-label">Nota (opzionale)</label>
       <input class="form-input" placeholder="es. rifornimento sala" value="${h(_tfMeta.note)}" oninput="_tfMetaSet('note',this.value)"></div>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:14px">
-      <div style="font-size:11px;color:${err?"#FF453A":"var(--txt3)"}">${err?"Quantità non valida su una o più righe (max = giacenza).":`${_tfCart.length} referenze · <b style="color:#5AC8FA">${tot}bt</b> · costo lotti trasferito invariato (costo-neutro)`}</div>
+      <div style="font-size:11px;color:${err?"#FF453A":"var(--txt3)"}">${footer}</div>
       <div style="display:flex;gap:8px">
         <button class="btn-outline btn-sm" onclick="_tfClearCart()">Svuota</button>
-        <button class="btn-primary" style="${ready?"":"opacity:.4;pointer-events:none"}" onclick="_tfGenera()">📦 Genera manifesto</button>
+        <button class="btn-primary" style="${ready?"":"opacity:.4;pointer-events:none"}" onclick="_tfGenera()">${scheda?"📄 Genera manifesto schede":"📦 Genera manifesto"}</button>
       </div>
     </div>`;
 }
@@ -10382,6 +10389,19 @@ function _tfGenera(){
   if(!_tfCart.length){ notify("⚠️ Nessuna referenza nell'invio","err"); return; }
   const data=_tfMeta.data||today();
   const note=(_tfMeta.note||"").trim();
+  if(_tfMeta.mode==="scheda"){
+    const lines=[];
+    for(const l of _tfCart){
+      const w=wines.find(x=>x.id===l.wineId);
+      if(!w){ notify("⚠️ Referenza non trovata, rimuovila dall'invio","err"); return; }
+      lines.push(_tfSchedaLine(w));
+    }
+    const manifest={v:TRANSFER_MANIFEST_V,type:"cantina-transfer",mode:"scheda",transferId:uid(),
+      from:NOME_LOCALE,fromDbUser:_effectiveDbUser(),dest,data,note,lines};
+    _tfCart=[]; _tfMeta={dest:"",data:today(),note:"",mode:"scheda"}; _tfSel.clear(); _tfQ="";
+    notify(`📄 ${lines.length} schede pronte per ${dest} (nessuna bottiglia spostata)`);
+    render(); _tfShowManifesto(manifest); return;
+  }
   const prepared=[];
   for(const l of _tfCart){
     const w=wines.find(x=>x.id===l.wineId);
@@ -10433,6 +10453,7 @@ function _tfShowManifesto(manifest){
   const json=JSON.stringify(manifest,null,2);
   const b64=_b64EncodeUtf8(json);
   const tot=manifest.lines.reduce((s,l)=>s+(parseInt(l.qty)||0),0);
+  const isScheda=manifest.mode==="scheda";
   const fname=`trasferimento_${(NOME_LOCALE||"cantina").replace(/[^a-z0-9]+/gi,"-").toLowerCase()}_${String(manifest.transferId).slice(0,8)}.json`;
   document.getElementById("man-backdrop")?.remove();
   const bd=document.createElement("div");
@@ -10443,8 +10464,8 @@ function _tfShowManifesto(manifest){
       <div class="modal-header"><h2>✅ Manifesto pronto</h2>
         <button style="font-size:18px;color:var(--txt3)" onclick="document.getElementById('man-backdrop').remove()">✕</button></div>
       <div class="modal-body">
-        <div style="font-size:12px;color:var(--txt2);margin-bottom:10px">${manifest.lines.length} referenze · ${tot}bt → <b>${h(manifest.dest||"destinazione")}</b>. Consegna questo codice al locale ricevente (incolla in <b>Ricevi</b>) oppure scarica il file.</div>
-        <div style="max-height:130px;overflow:auto;border:1px solid var(--border);margin-bottom:10px">${manifest.lines.map(l=>`<div style="padding:4px 8px;border-bottom:1px solid var(--border);font-size:11px">${parseInt(l.qty)||0}bt · <b>${h(l.nome)}</b>${l.annata?" "+h(l.annata):""} — ${h(l.produttore||"")}</div>`).join("")}</div>
+        <div style="font-size:12px;color:var(--txt2);margin-bottom:10px">${manifest.lines.length} referenze · ${isScheda?"solo schede · nessuna bottiglia":tot+"bt"} → <b>${h(manifest.dest||"destinazione")}</b>. Consegna questo codice al locale ricevente (incolla in <b>Ricevi</b>) oppure scarica il file.</div>
+        <div style="max-height:130px;overflow:auto;border:1px solid var(--border);margin-bottom:10px">${manifest.lines.map(l=>`<div style="padding:4px 8px;border-bottom:1px solid var(--border);font-size:11px">${isScheda?"📄":`${parseInt(l.qty)||0}bt`} · <b>${h(l.nome)}</b>${l.annata?" "+h(l.annata):""} — ${h(l.produttore||"")}</div>`).join("")}</div>
         <textarea id="man-b64" readonly class="form-input" style="width:100%;height:110px;font-family:monospace;font-size:10px;resize:vertical" onclick="this.select()">${b64}</textarea>
         <div style="font-size:10px;color:var(--txt4);margin-top:6px">transferId: ${h(manifest.transferId)}</div>
       </div>
@@ -10488,6 +10509,18 @@ function _tfRicevPreview(){
   const enable=b=>{ if(!btn)return; btn.disabled=!b; btn.style.opacity=b?"1":".4"; btn.style.pointerEvents=b?"auto":"none"; };
   const man=_parseManifesto(raw);
   if(!man){ if(el) el.innerHTML=raw.trim()?`<span style="color:#FF453A">Manifesto non valido o illeggibile</span>`:""; enable(false); return; }
+  if(man.mode==="scheda"){
+    const self=man.fromDbUser && man.fromDbUser===_effectiveDbUser();
+    const rows=man.lines.map(l=>{
+      const known=wines.some(w=>_transferMatchKey(w)===_transferMatchKey(l));
+      return `<div style="padding:4px 0;border-bottom:1px solid var(--border)"><b>${h(l.nome)}</b>${l.annata?" "+h(l.annata):""} — ${h(l.produttore||"")} <span style="color:${known?"var(--txt4)":"#30D158"};font-size:10px">${known?"· già presente":"· clona scheda"}</span></div>`;
+    }).join("");
+    if(el) el.innerHTML=`
+      <div style="margin-bottom:8px">📄 Solo schede · da <b>${h(man.from||"?")}</b> · ${h(_fmtDataIT(man.data||""))} · ${man.lines.length} referenze · nessuna bottiglia${man.note?" · "+h(man.note):""}</div>
+      ${rows}
+      ${self?`<div style="margin-top:10px;color:#FF453A">⚠️ Manifesto generato da questa stessa cantina</div>`:""}`;
+    enable(!self); return;
+  }
   const dup=movements.some(m=>m.tipo==="trasferimento-entrata"&&m.transferId===man.transferId);
   const self=man.fromDbUser && man.fromDbUser===_effectiveDbUser();
   const tot=man.lines.reduce((s,l)=>s+(parseInt(l.qty)||0),0);
@@ -10511,6 +10544,19 @@ function _tfConfermaRicevi(){
   if(man.fromDbUser && man.fromDbUser===_effectiveDbUser()){ notify("⚠️ Manifesto emesso da questa stessa cantina","err"); return; }
   if(movements.some(m=>m.tipo==="trasferimento-entrata"&&m.transferId===man.transferId)){
     notify("⚠️ Trasferimento già ricevuto","err"); return;
+  }
+  if(man.mode==="scheda"){
+    let clonate=0, presenti=0;
+    man.lines.forEach(line=>{
+      if(!line||!line.nome) return;
+      const key=_transferMatchKey(line);
+      if(wines.some(w=>_transferMatchKey(w)===key)){ presenti++; return; }
+      wines=[...wines,_tfSchedaCreate(line)]; clonate++;
+    });
+    if(clonate===0){ notify(`📄 Nessuna scheda nuova: ${presenti} già presenti`); }
+    else { scheduleSave(); clearTimeout(saveTimer); _flushSave(); notify(`📄 ${clonate} schede clonate${presenti?` · ${presenti} già presenti`:""}`); }
+    if(section==="trasferimenti") render(); else if(section==="inventario") renderInventarioOnly(); else render();
+    return;
   }
   let created=0, updated=0, totBt=0;
   const newMovs=[];
