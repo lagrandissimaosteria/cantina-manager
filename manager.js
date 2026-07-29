@@ -129,6 +129,7 @@ let search = "", filterTipo = "tutti", filterFormato = "tutti",
 let filterVitigni = new Set(); // multi-select vitigni (chiavi lowercase); Set vuoto = tutti
 let analyticsRegione = "", analyticsNazione = "", analyticsTipo = "", analyticsAcquistiPeriodo = "mese";
 let planciaFornPage = 0; // paginazione tabella fornitori (Plancia)
+let planciaMagPage = 0;  // paginazione tabella valore magazzino per fornitore (Plancia)
 let movForm = {wineId:"",tipo:"carico",qty:1,data:today(),fattura:"",fornitore:"",note:"",prezzoAcqLotto:"",_wineText:"",_newProduttore:"",_newTipologia:"Rosso",_newPrezzoCarta:"",_newVitigni:"",_newZona:"",_newAnnata:"",_newRegione:"",_newNazione:"Italia",_newIva:22,_newDistributore:"",_newFormato:"0.75",_tipologia:"",_newMode:false};
 let fallForm = {wineId:"",qty:1,motivo:"Tappo difettoso (TCA)",data:today(),note:""};
 // ─── PRICE SUGGESTION (FASCE PREZZO CARTA) ───────────────────────────────────
@@ -2894,11 +2895,35 @@ function renderPlancia(){
     spesaForn[forn].spesa+=p*(1+iva)*m.qty;
     spesaForn[forn].bottiglie+=m.qty;
   });
+  // Val. magazzino: sommato SOLO ai fornitori gia' attivi nel periodo, per non
+  // creare righe fantasma in una tabella intitolata "gen->oggi".
   wines.forEach(w=>{
     const forn=((w.distributore||"").trim())||"Fornitore Sconosciuto";
-    if(!spesaForn[forn]) spesaForn[forn]={forn,spesa:0,bottiglie:0,valMag:0};
+    if(!spesaForn[forn]) return;
     spesaForn[forn].valMag+=calcValore(w);
   });
+  // Tabella separata: giacenza a magazzino per TUTTI i fornitori in anagrafica,
+  // indipendentemente dal periodo. Risponde a "quanto vale la cantina per fornitore".
+  const magForn={};
+  wines.forEach(w=>{
+    const forn=((w.distributore||"").trim())||"Fornitore Sconosciuto";
+    const bt=parseInt(w.giacenza)||0;
+    if(!magForn[forn]) magForn[forn]={forn,bottiglie:0,valMag:0,valCarta:0,referenze:0};
+    magForn[forn].referenze++;
+    magForn[forn].bottiglie+=bt;
+    magForn[forn].valMag+=calcValore(w);
+    magForn[forn].valCarta+=(parseFloat(w.prezzoCarta)||0)*bt;
+  });
+  const reportMag=Object.values(magForn).filter(r=>r.bottiglie>0||r.valMag>0).sort((a,b)=>b.valMag-a.valMag);
+  const totMagBt=reportMag.reduce((a,r)=>a+r.bottiglie,0);
+  const totMagVal=reportMag.reduce((a,r)=>a+r.valMag,0);
+  const totMagCarta=reportMag.reduce((a,r)=>a+r.valCarta,0);
+  const MAG_PAGE=12;
+  const nPagesM=Math.max(1,Math.ceil(reportMag.length/MAG_PAGE));
+  if(planciaMagPage>=nPagesM) planciaMagPage=nPagesM-1;
+  if(planciaMagPage<0) planciaMagPage=0;
+  const magStart=planciaMagPage*MAG_PAGE;
+  const pageMag=reportMag.slice(magStart,magStart+MAG_PAGE);
   const reportForn=Object.values(spesaForn).sort((a,b)=>b.spesa-a.spesa);
   const totSpesaForn=reportForn.reduce((a,r)=>a+r.spesa,0);
   const totBtForn=reportForn.reduce((a,r)=>a+r.bottiglie,0);
@@ -3214,7 +3239,7 @@ function renderPlancia(){
   html+=`<div class="card" style="padding:0;margin-bottom:20px">
     <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap">
       <span style="color:#007AFF">🏭</span>
-      <span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Ordini per Fornitore · gen→oggi</span>
+      <span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Ordini per Fornitore · gen→oggi</span><span style="font-size:9px;color:var(--txt4)">solo fornitori con acquisti nel periodo</span>
       <span style="margin-left:auto;text-align:right"><span style="font-family:'Montserrat',sans-serif;color:#30D158;font-size:.95rem">${fmt(totSpesaForn)}</span><span style="color:var(--txt4);font-size:9px;letter-spacing:.1em;text-transform:uppercase;margin-left:6px">${fmtN(totBtForn,0)} bt · ${reportForn.length} fornitori</span></span>
     </div>
     ${reportForn.length===0?`<div style="padding:32px;text-align:center;color:var(--txt4);font-size:11px">Nessun carico registrato</div>`:`
@@ -3244,6 +3269,45 @@ function renderPlancia(){
       <button class="btn-outline btn-sm" ${planciaFornPage===0?"disabled style=\"opacity:.35;cursor:default\"":""} onclick="planciaFornPage--;render()">‹ Prec</button>
       <span style="font-size:10px;color:var(--txt4);letter-spacing:.08em">${pageStart+1}–${Math.min(pageStart+FORN_PAGE,reportForn.length)} di ${reportForn.length} · pag. ${planciaFornPage+1}/${nPagesF}</span>
       <button class="btn-outline btn-sm" ${planciaFornPage>=nPagesF-1?"disabled style=\"opacity:.35;cursor:default\"":""} onclick="planciaFornPage++;render()">Succ ›</button>
+    </div>`:""}`}
+  </div>`;
+  // Valore a Magazzino per Fornitore (tutti i fornitori, indipendente dal periodo)
+  html+=`<div class="card" style="padding:0;margin-bottom:20px">
+    <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span style="color:var(--amber)">\u{1F3F7}\u{FE0F}</span>
+      <span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Valore a Magazzino per Fornitore</span>
+      <span style="font-size:9px;color:var(--txt4)">tutti i fornitori \u00b7 giacenza attuale</span>
+      <span style="margin-left:auto;text-align:right"><span style="font-family:'Montserrat',sans-serif;color:var(--txt2);font-size:.95rem">${fmt(totMagVal)}</span><span style="color:var(--txt4);font-size:9px;letter-spacing:.1em;text-transform:uppercase;margin-left:6px">${fmtN(totMagBt,0)} bt \u00b7 ${reportMag.length} fornitori</span></span>
+    </div>
+    ${reportMag.length===0?`<div style="padding:32px;text-align:center;color:var(--txt4);font-size:11px">Nessuna giacenza</div>`:`
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">
+      <thead><tr style="border-bottom:1px solid var(--border)">
+        <th style="text-align:left;padding:9px 20px;color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase">#</th>
+        <th style="text-align:left;padding:9px 12px;color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase">Fornitore</th>
+        <th style="text-align:right;padding:9px 12px;color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase">Ref.</th>
+        <th style="text-align:right;padding:9px 12px;color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase">Bottiglie</th>
+        <th style="text-align:right;padding:9px 12px;color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase">Val. Costo</th>
+        <th style="text-align:right;padding:9px 20px;color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase">Val. Carta</th>
+      </tr></thead>
+      <tbody>${pageMag.map((r,i)=>`<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:9px 20px;color:var(--txt4);font-family:'Montserrat',sans-serif;font-size:10px">${magStart+i+1}</td>
+        <td style="padding:9px 12px;color:var(--txt1);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(r.forn)}</td>
+        <td style="padding:9px 12px;text-align:right;color:var(--txt4)">${fmtN(r.referenze,0)}</td>
+        <td style="padding:9px 12px;text-align:right;color:var(--txt3)">${fmtN(r.bottiglie,0)}</td>
+        <td style="padding:9px 12px;text-align:right;font-family:'Montserrat',sans-serif;color:var(--txt2)">${fmt(r.valMag)}</td>
+        <td style="padding:9px 20px;text-align:right;font-family:'Montserrat',sans-serif;color:var(--amber)">${fmt(r.valCarta)}</td>
+      </tr>`).join("")}</tbody>
+      <tfoot><tr style="border-top:2px solid var(--border2)">
+        <td colspan="3" style="padding:11px 20px;color:var(--txt3);font-size:9px;letter-spacing:.1em;text-transform:uppercase">Totale (tutti)</td>
+        <td style="padding:11px 12px;text-align:right;color:var(--txt2)">${fmtN(totMagBt,0)}</td>
+        <td style="padding:11px 12px;text-align:right;font-family:'Montserrat',sans-serif;color:var(--txt2);font-weight:600">${fmt(totMagVal)}</td>
+        <td style="padding:11px 20px;text-align:right;font-family:'Montserrat',sans-serif;color:var(--amber);font-weight:600">${fmt(totMagCarta)}</td>
+      </tr></tfoot>
+    </table></div>
+    ${nPagesM>1?`<div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:10px">
+      <button class="btn-outline btn-sm" ${planciaMagPage===0?"disabled style=\"opacity:.35;cursor:default\"":""} onclick="planciaMagPage--;render()">\u2039 Prec</button>
+      <span style="font-size:10px;color:var(--txt4);letter-spacing:.08em">${magStart+1}\u2013${Math.min(magStart+MAG_PAGE,reportMag.length)} di ${reportMag.length} \u00b7 pag. ${planciaMagPage+1}/${nPagesM}</span>
+      <button class="btn-outline btn-sm" ${planciaMagPage>=nPagesM-1?"disabled style=\"opacity:.35;cursor:default\"":""} onclick="planciaMagPage++;render()">Succ \u203a</button>
     </div>`:""}`}
   </div>`;
   // Cash Flow (uscite) — spostato in Approvvigionamento
@@ -11155,77 +11219,134 @@ function amExportCSV(){
     return out;
   }
 
-  // Prefisso sull'intero valore o su una parola successiva ("cont" → "Giacomo
-  // Conterno"): stesso comportamento del completamento del telefono.
-  function _t9Match(el, typed){
-    const q=typed.toLowerCase();
-    let best=null, bestScore=1e9;
-    const seen=new Set();
+  // ── MOTORE SUGGERIMENTI (stile barra di ricerca) ───────────────────────────
+  // Il campo contiene SEMPRE e SOLO cio' che l'utente ha digitato: nessun testo
+  // iniettato, nessuna selezione fantasma. I candidati compaiono in un pannello
+  // sotto al campo e si accettano solo esplicitamente (frecce+Invio, Tab, click).
+  // Space, lettere e punteggiatura non accettano mai nulla.
+  const T9_LIST_MAX = 8;
+  let _t9Box=null, _t9Items=[], _t9Idx=-1;
+
+  function _t9Clear(){ _t9CloseBox(); _t9El=null; _t9Typed=""; _t9Items=[]; _t9Idx=-1; }
+
+  function _t9CloseBox(){ if(_t9Box){ _t9Box.remove(); _t9Box=null; } _t9Idx=-1; }
+
+  // Match: prefisso sul valore intero o su una parola successiva
+  // ("cont" -> "Giacomo Conterno"), ordinati per lunghezza crescente.
+  function _t9Matches(el, typed){
+    const q=typed.toLowerCase().trim(); if(!q) return [];
+    const seen=new Set(); const head=[], mid=[];
     for(const raw of _t9Vocab(el)){
       const v=String(raw||"").trim(); if(!v) continue;
       const lv=v.toLowerCase();
-      if(seen.has(lv)) continue; seen.add(lv);
-      if(lv===q || !lv.startsWith(q)) continue;
-      const score=v.length;               // completamento più corto = più probabile
-      if(score<bestScore){ bestScore=score; best=v; }
+      if(seen.has(lv)||lv===q) continue; seen.add(lv);
+      if(lv.startsWith(q)) head.push(v);
+      else if(lv.split(/\s+/).some(word=>word.startsWith(q))) mid.push(v);
     }
-    return best;
+    const byLen=(a,b)=>a.length-b.length||a.localeCompare(b);
+    return [...head.sort(byLen), ...mid.sort(byLen)].slice(0,T9_LIST_MAX);
   }
 
-  function _t9Clear(){ _t9El=null; _t9Typed=""; }
+  function _t9Highlight(v, typed){
+    const q=typed.toLowerCase().trim();
+    const lv=v.toLowerCase();
+    let i=lv.startsWith(q)?0:-1;
+    if(i<0){ const p=lv.split(/\s+/); let off=0;
+      for(const w of p){ if(w.startsWith(q)){ i=lv.indexOf(w,off); break; } off+=w.length+1; } }
+    const esc=s=>String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    if(i<0) return esc(v);
+    return esc(v.slice(0,i))+"<b style=\"color:var(--amber);font-weight:600\">"+esc(v.slice(i,i+q.length))+"</b>"+esc(v.slice(i+q.length));
+  }
+
+  function _t9RenderBox(el){
+    _t9CloseBox();
+    if(!_t9Items.length) return;
+    const r=el.getBoundingClientRect();
+    const box=document.createElement("div");
+    box.className="t9-box";
+    box.style.cssText="position:fixed;z-index:9999;background:var(--bg2,#1c1c1e);border:1px solid var(--border2,#3a3a3c);"
+      +"box-shadow:0 8px 24px rgba(0,0,0,.5);border-radius:8px;overflow:hidden;font-size:12px;"
+      +"max-height:260px;overflow-y:auto;left:"+r.left+"px;top:"+(r.bottom+4)+"px;width:"+Math.max(r.width,180)+"px";
+    _t9Items.forEach((v,i)=>{
+      const row=document.createElement("div");
+      row.className="t9-row";
+      row.style.cssText="padding:7px 11px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"
+        +"color:var(--txt1,#f2f2f7);border-bottom:1px solid var(--border,#2c2c2e)";
+      row.innerHTML=_t9Highlight(v,_t9Typed);
+      row.addEventListener("mouseenter",()=>{ _t9Idx=i; _t9Paint(); });
+      row.addEventListener("mousedown",ev=>{ ev.preventDefault(); _t9Accept(el,v); });
+      box.appendChild(row);
+    });
+    document.body.appendChild(box);
+    _t9Box=box;
+    // se non ci sta sotto, ribalta sopra il campo
+    const bb=box.getBoundingClientRect();
+    if(bb.bottom>window.innerHeight-8) box.style.top=Math.max(8,r.top-bb.height-4)+"px";
+    _t9Paint();
+  }
+
+  function _t9Paint(){
+    if(!_t9Box) return;
+    [..._t9Box.children].forEach((c,i)=>{
+      c.style.background = (i===_t9Idx) ? "rgba(255,159,10,.16)" : "transparent";
+    });
+  }
+
+  function _t9Accept(el, val){
+    el.value=val;
+    _t9Clear();
+    _t9Learn(el, val);
+    _t9Fire(el);
+    try{ el.focus(); el.setSelectionRange(val.length,val.length); }catch{}
+  }
 
   function _t9Fire(el){
     _t9Busy=true;
-    // Solo "input": lanciare "change" qui farebbe scattare gli onchange che
-    // rigenerano il DOM, con perdita del focus mentre si sta ancora scrivendo.
-    // Il "change" nativo arriva comunque al blur.
+    // Solo "input": un "change" qui rigenererebbe il DOM con perdita del focus.
     el.dispatchEvent(new Event("input",{bubbles:true}));
     _t9Busy=false;
   }
 
-  // Proposta: solo mentre si aggiunge testo in coda (mai in cancellazione).
+  // Proposta ad ogni digitazione: nessuna scrittura nel campo, solo il pannello.
   document.addEventListener("input", e=>{
     const el=e.target;
     if(_t9Busy || !_t9Enabled(el)) return;
-    if(e.isComposing || (e.inputType && e.inputType!=="insertText" && e.inputType!=="insertCompositionText")){ _t9Clear(); return; }
+    if(e.isComposing){ _t9Clear(); return; }
     const typed=el.value;
-    if(typed.length<T9_MIN || el.selectionStart!==typed.length){ _t9Clear(); return; }
-    const m=_t9Match(el, typed);
-    if(!m){ _t9Clear(); return; }
-    el.value=typed.slice(0,typed.length)+m.slice(typed.length);
-    el.setSelectionRange(typed.length, m.length);
-    _t9El=el; _t9Typed=typed;
-  }, false); // bubble: gli handler oninput del campo vedono prima il testo digitato
+    if(typed.trim().length<T9_MIN){ _t9Clear(); return; }
+    const ms=_t9Matches(el, typed);
+    if(!ms.length){ _t9Clear(); return; }
+    _t9El=el; _t9Typed=typed; _t9Items=ms; _t9Idx=-1;
+    _t9RenderBox(el);
+  }, false);
 
   document.addEventListener("keydown", e=>{
     const el=e.target;
-    if(el!==_t9El) return;
-    const hasGhost = el.selectionStart===_t9Typed.length && el.selectionEnd===el.value.length && el.selectionEnd>el.selectionStart;
-    if(!hasGhost){ _t9Clear(); return; }
-    if(e.key===" "||e.key==="Spacebar"||e.key==="Tab"||e.key==="ArrowRight"||e.key==="Enter"){
-      if(e.key===" "||e.key==="Spacebar") e.preventDefault();   // lo spazio accetta, non si inserisce
-      const v=el.value;
-      el.setSelectionRange(v.length, v.length);
-      _t9Clear(); _t9Learn(el, v); _t9Fire(el);
-      return;
+    if(el!==_t9El || !_t9Box) return;
+    if(e.key==="ArrowDown"){ e.preventDefault(); _t9Idx=(_t9Idx+1)%_t9Items.length; _t9Paint(); return; }
+    if(e.key==="ArrowUp"){   e.preventDefault(); _t9Idx=(_t9Idx-1+_t9Items.length)%_t9Items.length; _t9Paint(); return; }
+    if(e.key==="Escape"){    e.preventDefault(); _t9Clear(); return; }
+    // Accettazione SOLO con selezione esplicita gia' evidenziata.
+    if((e.key==="Enter"||e.key==="Tab") && _t9Idx>=0){
+      e.preventDefault(); _t9Accept(el,_t9Items[_t9Idx]); return;
     }
-    if(e.key==="Escape"||e.key==="Backspace"||e.key==="Delete"){
-      e.preventDefault();
-      el.value=_t9Typed;
-      el.setSelectionRange(_t9Typed.length,_t9Typed.length);
-      _t9Clear(); _t9Fire(el);
-    }
+    // Tab/Enter senza selezione, spazio, lettere: il pannello si chiude e il
+    // testo digitato resta intatto.
+    if(e.key==="Enter"||e.key==="Tab") _t9Clear();
   }, true);
 
   document.addEventListener("blur", e=>{
     const el=e.target;
     if(!_t9Field(el)) return;
     if(el===_t9El) _t9Clear();
-    _t9Learn(el, el.value);               // impara ciò che viene confermato
+    _t9Learn(el, el.value);
   }, true);
 
-  // Evidenza della parte proposta: selezione ambra tenue, non "testo selezionato".
+  window.addEventListener("scroll", ()=>{ if(_t9El&&_t9Box) _t9RenderBox(_t9El); }, true);
+  window.addEventListener("resize", ()=>_t9CloseBox());
+  document.addEventListener("mousedown", e=>{ if(_t9Box && !_t9Box.contains(e.target) && e.target!==_t9El) _t9Clear(); }, true);
+
   const st=document.createElement("style");
-  st.textContent=".form-input::selection{background:rgba(255,159,10,.30);color:inherit}.form-input::-moz-selection{background:rgba(255,159,10,.30);color:inherit}";
+  st.textContent=".t9-box .t9-row:last-child{border-bottom:none}.t9-box{scrollbar-width:thin}";
   document.head.appendChild(st);
 })();
