@@ -131,7 +131,7 @@ let analyticsRegione = "", analyticsNazione = "", analyticsTipo = "", analyticsA
 let planciaFornPage = 0; // paginazione tabella fornitori (Plancia)
 let planciaMagPage = 0;  // paginazione tabella valore magazzino per fornitore (Plancia)
 let movForm = {wineId:"",tipo:"carico",qty:1,data:today(),fattura:"",fornitore:"",note:"",prezzoAcqLotto:"",_wineText:"",_newProduttore:"",_newTipologia:"Rosso",_newPrezzoCarta:"",_newVitigni:"",_newZona:"",_newAnnata:"",_newRegione:"",_newNazione:"Italia",_newIva:22,_newDistributore:"",_newFormato:"0.75",_tipologia:"",_newMode:false};
-let fallForm = {wineId:"",qty:1,motivo:"Tappo difettoso (TCA)",data:today(),note:""};
+let fallForm = {wineId:"",_wineText:"",qty:1,motivo:"Tappo difettoso (TCA)",data:today(),note:""};
 // ─── PRICE SUGGESTION (FASCE PREZZO CARTA) ───────────────────────────────────
 // Fascia su prezzoAcq (ex IVA):
 //   < €12        → ×3.0
@@ -4656,16 +4656,49 @@ function registraMovimento(){
   notify(tipo==="scarico"?"🍾 Scarico registrato":_isRettifica(tipo)?`🩹 Rettifica giacenza registrata (${segno}${q})`:"📦 Carico registrato"); if(section==="inventario") renderInventarioOnly(); else render();
 }
 
+// Ordinamento alfabetico reale (accenti e maiuscole ignorati) su nome+produttore.
+function _fallSortKey(w){ return ((w.nome||"")+" "+(w.produttore||"")).trim(); }
+// Aggancia il testo digitato a una referenza. commit=true (onchange) azzera il
+// testo quando non c'e' corrispondenza; su oninput si aggiorna solo lo stato,
+// senza re-render, per non perdere il focus mentre si scrive.
+function _fallWineMatch(val, commit){
+  const v=(val||"").trim();
+  fallForm._wineText=v;
+  const hit=wines.find(w=>(parseInt(w.giacenza)||0)>0 && _movWineLabel(w)===v)
+        || wines.find(w=>(parseInt(w.giacenza)||0)>0 && _movWineLabel(w).toLowerCase()===v.toLowerCase());
+  const prev=fallForm.wineId;
+  fallForm.wineId = hit ? hit.id : "";
+  if(hit){ fallForm._wineText=""; render(); return; }
+  if(commit && prev) render();
+}
+
 // ─── FALLATE ─────────────────────────────────────────────────────────────────
 function renderFallate(){
   let html=`<div class="kpi-grid g2" style="margin-bottom:20px">
     <div class="card">
       <div class="section-label"><span>⚠️ Registra Bottiglia Fallata</span></div>
       <div class="form-row"><label class="form-label">Vino</label>
-        <select class="form-select" onchange="fallForm.wineId=this.value;render()">
-          <option value="">— Seleziona vino —</option>
-          ${wines.filter(w=>w.giacenza>0).map(w=>`<option value="${w.id}" ${fallForm.wineId===w.id?"selected":""}>${h(w.nome)} — ${h(w.produttore)} · ${w.giacenza}bt</option>`).join("")}
-        </select>
+        ${(()=>{ const selF=wines.find(w=>w.id===fallForm.wineId); return `
+        <datalist id="fall-wine-dl">
+          ${wines.filter(w=>(parseInt(w.giacenza)||0)>0)
+                 .slice().sort((a,b)=>_fallSortKey(a).localeCompare(_fallSortKey(b),"it",{sensitivity:"base"}))
+                 .map(w=>`<option value="${h(_movWineLabel(w))}">${h((parseInt(w.giacenza)||0)+" bt disponibili")}</option>`).join("")}
+        </datalist>
+        <div style="display:flex;gap:6px">
+          <input id="fall-wine-input" class="form-input" list="fall-wine-dl" data-t9="vini" autocomplete="off"
+            placeholder="Scrivi nome, produttore o annata\u2026"
+            value="${selF?h(_movWineLabel(selF)):(fallForm._wineText||"")}"
+            style="flex:1"
+            oninput="_fallWineMatch(this.value.trim(),false)"
+            onchange="_fallWineMatch(this.value.trim(),true)">
+          ${selF?`<button onclick="fallForm.wineId='';fallForm._wineText='';render()" style="flex-shrink:0;padding:0 10px;border:1px solid var(--border2);color:var(--txt3);background:none;cursor:pointer;font-size:13px;border-radius:var(--radius-sm)" title="Cambia vino">\u2715</button>`:""}
+        </div>
+        ${selF?`<div style="margin-top:6px;display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(255,159,10,.06);border:1px solid rgba(255,159,10,.15);border-radius:var(--radius-sm);flex-wrap:wrap">
+          <span style="font-size:11px;color:var(--txt2)">${h(selF.nome)}${selF.annata?` <span style="color:var(--amber)">${h(selF.annata)}</span>`:""}</span>
+          <span style="font-size:10px;color:var(--txt3)">${h(selF.produttore||"")}</span>
+          <span style="margin-left:auto;font-size:11px;color:${(parseInt(selF.giacenza)||0)>0?"#30D158":"#FF6B6B"}">${parseInt(selF.giacenza)||0} bt disponibili</span>
+        </div>`:(fallForm._wineText&&fallForm._wineText.trim()?`<div style="margin-top:6px;font-size:10px;color:#FF6B6B">Nessuna corrispondenza \u2014 scegli una voce dall'elenco</div>`:"")}
+        `;})()}
       </div>
       <div class="form-grid g2">
         <div><label class="form-label">Quantità</label><input class="form-input" type="number" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" value="${fallForm.qty}" oninput="fallForm.qty=this.value"></div>
@@ -4715,7 +4748,7 @@ function registraFallata(){
     return{...w,giacenza:w.giacenza-q,lots:updLots};
   });
   fallate=[{id:uid(),wineId,wineName:wine.nome,produttore:wine.produttore,qty:q,motivo,data,note,ts:Date.now()},...fallate];
-  fallForm={...fallForm,qty:1,note:""};
+  fallForm={...fallForm,wineId:"",_wineText:"",qty:1,note:""};
   scheduleSave();
   // PATCH: flush immediato per fallate — modificano giacenza
   clearTimeout(saveTimer); _flushSave();
