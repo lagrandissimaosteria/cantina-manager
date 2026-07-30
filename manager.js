@@ -2421,11 +2421,13 @@ function _setInvScrollHeight(){
 }
 
 function afterRender(){
+  _acInit();
   if(section==="dashboard") initPlanciaCharts();
   // Shortcut tooltip hints su bottoni topbar
   _applyShortcutTitles();
   // Auto-focus campo vino su Movimenti (evita clic manuale al cambio sezione)
   if(section==="movimenti"){
+    _movLottoCartaHint(); _movNewCartaHint();
     requestAnimationFrame(()=>{
       const wineInput = document.getElementById('mov-wine-input');
       if(wineInput && !movForm.wineId) wineInput.focus();
@@ -4174,7 +4176,7 @@ function renderMovimenti(){
             </select>
           </div>
           <div><label class="form-label">Vitigni</label>
-            <input class="form-input" placeholder="es. Trebbiano 100%" value="${h(movForm._newVitigni||'')}"
+            <input class="form-input" data-ac-src="vitigni" data-ac-multi="1" autocomplete="off" placeholder="es. Trebbiano, Chardonnay" value="${h(movForm._newVitigni||'')}"
               oninput="movForm._newVitigni=this.value;_movUpdateCartaPreview()">
           </div>
           <div><label class="form-label">Zona / Cru</label>
@@ -4182,29 +4184,34 @@ function renderMovimenti(){
               oninput="movForm._newZona=this.value">
           </div>
           <div><label class="form-label">Regione</label>
-            <input class="form-input" placeholder="es. Abruzzo" value="${h(movForm._newRegione||'')}"
+            <datalist id="mov-new-reg-dl">${_ordRegioniPer(movForm._newNazione||'Italia').map(v=>`<option value="${h(v)}">`).join("")}</datalist>
+            <input class="form-input" list="mov-new-reg-dl" autocomplete="off" placeholder="es. Abruzzo" value="${h(movForm._newRegione||'')}"
               oninput="movForm._newRegione=this.value">
           </div>
           <div><label class="form-label">Nazione</label>
-            <input class="form-input" placeholder="es. Italia" value="${h(movForm._newNazione||'Italia')}"
-              oninput="movForm._newNazione=this.value">
+            <datalist id="mov-new-naz-dl">${_ordNazioni().map(v=>`<option value="${h(v)}">`).join("")}</datalist>
+            <input class="form-input" list="mov-new-naz-dl" autocomplete="off" placeholder="es. Italia" value="${h(movForm._newNazione||'Italia')}"
+              oninput="_movSyncRegioni(this.value)">
+          </div>
+          <div><label class="form-label">Prezzo Acquisto (escl. IVA) €</label>
+            <input class="form-input" type="number" step="0.01" min="0" placeholder="0.00"
+              value="${movForm.prezzoAcqLotto||''}" oninput="movForm.prezzoAcqLotto=this.value;_movUpdateCartaPreview()">
+          </div>
+          <div><label class="form-label">IVA %</label>
+            <select class="form-select" onchange="movForm._newIva=parseInt(this.value);_movUpdateCartaPreview()">
+              ${[4,10,22].map(v=>`<option value="${v}" ${(movForm._newIva||22)===v?"selected":""}>${v}%</option>`).join("")}
+            </select>
+          </div>
+          <div style="grid-column:span 2">
+            <div id="mov-new-carta-hint" style="display:none;align-items:center;gap:8px;padding:5px 8px;background:rgba(255,159,10,.08);border:1px solid rgba(255,159,10,.12);font-size:10px;color:var(--txt3)"></div>
           </div>
           <div><label class="form-label">Prezzo in Carta \u20ac</label>
-            <input class="form-input" type="number" step="0.5" min="0" placeholder="0.00"
+            <input id="mov-new-carta-inp" class="form-input" type="number" step="0.5" min="0" placeholder="0.00"
               value="${movForm._newPrezzoCarta||''}" oninput="movForm._newPrezzoCarta=this.value;_movUpdateCartaPreview()">
           </div>
           <div><label class="form-label">Distributore</label>
             <input class="form-input" placeholder="es. Vini Italiani Srl"
               value="${h(movForm._newDistributore||'')}" oninput="movForm._newDistributore=this.value">
-          </div>
-          <div><label class="form-label">IVA %</label>
-            <select class="form-select" onchange="movForm._newIva=parseInt(this.value)">
-              ${[4,10,22].map(v=>`<option value="${v}" ${(movForm._newIva||22)===v?"selected":""}>${v}%</option>`).join("")}
-            </select>
-          </div>
-          <div><label class="form-label">Prezzo Acquisto (escl. IVA) €</label>
-            <input class="form-input" type="number" step="0.01" min="0" placeholder="0.00"
-              value="${movForm.prezzoAcqLotto||''}" oninput="movForm.prezzoAcqLotto=this.value;_movUpdateCartaPreview()">
           </div>
           <div style="grid-column:span 2">
             <div id="mov-new-preview" style="display:none;padding:10px 14px;background:rgba(0,122,255,.06);border:1px solid rgba(0,122,255,.2);border-radius:var(--radius-sm);font-size:11px">
@@ -4233,7 +4240,10 @@ function renderMovimenti(){
       <div class="form-grid g2" style="margin-bottom:8px">
         <div>
           <label class="form-label">Prezzo Acquisto Lotto (escl. IVA) € <span style="color:var(--txt4);font-size:9px;text-transform:none;letter-spacing:0">— vuoto = prezzo attuale</span></label>
-          <input class="form-input" type="number" value="${movForm.prezzoAcqLotto}" placeholder="${selW?fmtN(selW.prezzoAcq):"0.00"}" oninput="movForm.prezzoAcqLotto=this.value">
+          <input class="form-input" type="number" value="${movForm.prezzoAcqLotto}" placeholder="${selW?fmtN(selW.prezzoAcq):"0.00"}" oninput="movForm.prezzoAcqLotto=this.value;_movLottoCartaHint()">
+        </div>
+        <div style="grid-column:span 2">
+          <div id="mov-lotto-carta-hint" style="display:none;align-items:center;gap:8px;padding:5px 8px;background:rgba(255,159,10,.08);border:1px solid rgba(255,159,10,.12);font-size:10px;color:var(--txt3)"></div>
         </div>
         <div>
           <label class="form-label">Prezzo in Carta € <span style="color:var(--txt4);font-size:9px;text-transform:none;letter-spacing:0">— opzionale</span></label>
@@ -4643,8 +4653,18 @@ function _movCambiaFormato(v){
   render();
 }
 
+function _movSyncRegioni(val){
+  movForm._newNazione=val;
+  const dl=document.getElementById("mov-new-reg-dl");
+  if(dl) dl.innerHTML=_ordRegioniPer(val||"Italia").map(v=>`<option value="${h(v)}">`).join("");
+}
+
 function _movWineMatchSilent(val){
   movForm._wineText=val;
+  // In creazione di una nuova referenza NESSUN match: il nome di fantasia può
+  // coincidere con quello di un altro vino senza che il sistema riagganci la
+  // referenza esistente (era il loop da cui non si usciva).
+  if(movForm._newMode){ movForm.wineId=""; return; }
   const v=val.trim().toLowerCase();
   if(!v){movForm.wineId="";movForm._newProduttore="";movForm._tipologia="";movForm._newMode=false;return;}
   // Match esatto sull'etichetta completa con [tipologia]
@@ -4652,11 +4672,9 @@ function _movWineMatchSilent(val){
   // Match su nome+produttore+annata (+formato) senza tipologia
   if(!found) found=wines.find(w=>(w.nome+' — '+w.produttore+(w.annata?' ('+w.annata+')':'')+_fmtSuffix(w)).toLowerCase()===v);
   if(!found) found=wines.find(w=>(w.nome+' — '+w.produttore+(w.annata?' ('+w.annata+')':'')).toLowerCase()===v);
-  // Match esatto su nome+produttore (solo se unico)
-  if(!found){const candidates=wines.filter(w=>w.nome.toLowerCase()===v||w.nome.toLowerCase()===v.split(' — ')[0].trim());
-    if(candidates.length===1) found=candidates[0];
-    // se ci sono più annate NON fare match automatico — l'utente deve scegliere dall'elenco
-  }
+  // NIENTE match sul solo nome: il vincolo era che un nome uguale a uno esistente
+  // agganciasse d'ufficio quella referenza, imponendone produttore e tipologia.
+  // Per selezionare un vino esistente si sceglie la voce completa dalla tendina.
   movForm.wineId=found?found.id:"";
   if(found){ movForm._newProduttore=""; movForm._tipologia=found.tipologia||""; movForm._newMode=false; }
 }
@@ -4676,7 +4694,53 @@ function _movWineUpdatePanel(){
   }
 }
 
+// Suggerimento prezzo carta nei form movimenti. Stessa formula della scheda vino
+// (_calcPrezzoCartaSuggerito + _getMoltLabel): il suggerimento sta SEMPRE tra il
+// prezzo di acquisto e il prezzo in carta.
+function _movCartaHintHtml(sug,label,applyOnclick){
+  return `<span>Suggerito (${h(label)}):</span><span style="color:var(--amber);font-family:'Montserrat',sans-serif">${fmt(sug)}</span>`
+    +(applyOnclick?`<button type="button" onclick="${applyOnclick}" style="margin-left:auto;font-size:9px;letter-spacing:.1em;text-transform:uppercase;padding:2px 8px;border:1px solid rgba(180,83,9,.5);color:var(--amber);background:rgba(255,159,10,.12);cursor:pointer;font-family:inherit">Usa →</button>`:"");
+}
+function _movLottoCartaHint(){
+  const box=document.getElementById("mov-lotto-carta-hint");
+  if(!box) return;
+  const w=wines.find(x=>x.id===movForm.wineId);
+  const pAcq=parseFloat(movForm.prezzoAcqLotto)||parseFloat(w?.prezzoAcq)||0;
+  const base={prezzoAcq:pAcq,iva:parseInt(w?.iva)||22,nome:w?.nome||"",formato:w?.formato||0.75};
+  const sug=_calcPrezzoCartaSuggerito(base);
+  if(!sug){ box.style.display="none"; return; }
+  box.style.display="flex";
+  box.innerHTML=_movCartaHintHtml(sug,_getMoltLabel(base),w?`_movApplyCartaSuggerita('${w.id}',${sug})`:"");
+}
+// Il campo "Prezzo in Carta" è in sola lettura sul carico di una referenza già
+// in anagrafica: il suggerimento si applica direttamente alla scheda del vino.
+function _movApplyCartaSuggerita(wineId,val){
+  const w=wines.find(x=>x.id===wineId);
+  if(!w||!val){ return; }
+  wines=wines.map(x=>x.id!==wineId?x:{..._trackPriceChange(x,null,val,'suggerimento_carico'),prezzoCarta:val});
+  scheduleSave();
+  notify(`💰 ${w.nome}: prezzo in carta aggiornato a ${fmt(val)}`);
+  render();
+}
+function _movNewCartaHint(){
+  const box=document.getElementById("mov-new-carta-hint");
+  if(!box) return;
+  const base={prezzoAcq:parseFloat(movForm.prezzoAcqLotto)||0,iva:parseInt(movForm._newIva)||22,
+    nome:movForm._wineText||"",formato:parseFloat(movForm._newFormato)||0.75};
+  const sug=_calcPrezzoCartaSuggerito(base);
+  if(!sug){ box.style.display="none"; return; }
+  box.style.display="flex";
+  box.innerHTML=_movCartaHintHtml(sug,_getMoltLabel(base),`_movApplyNewCarta(${sug})`);
+}
+function _movApplyNewCarta(val){
+  movForm._newPrezzoCarta=String(val);
+  const inp=document.getElementById("mov-new-carta-inp");
+  if(inp) inp.value=String(val);
+  _movUpdateCartaPreview();
+}
+
 function _movUpdateCartaPreview(){
+  _movNewCartaHint();
   const preview = document.getElementById('mov-new-preview');
   const body = document.getElementById('mov-new-preview-body');
   if(!preview||!body) return;
@@ -5683,7 +5747,7 @@ function _refRowHtml(r,i,tipoOpts,ivaOpts,allProduttori,allNomi){
   return `<tr data-ref-id="${r.id}" style="border-top:1px solid var(--border)">
     <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;min-width:110px;width:100%" list="omd-prod-dl" autocomplete="off" value="${h(r.produttore)}" placeholder="Produttore" onchange="_refChange('${r.id}','produttore',this.value)"></td>
     <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;min-width:110px;width:100%" list="omd-wine-dl" autocomplete="off" value="${h(r.nomeVino)}" placeholder="Nome vino" onchange="_refChange('${r.id}','nomeVino',this.value);_showRefGiacenza('${r.id}',this.value)"><div id="ref-giac-${r.id}" style="font-size:9px;margin-top:2px"></div></td>
-    <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;min-width:80px;width:100%" value="${h(r.vitigni||'')}" placeholder="es. Nebbiolo" onchange="_refChange('${r.id}','vitigni',this.value.trim())"></td>
+    <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;min-width:80px;width:100%" data-ac-src="vitigni" data-ac-multi="1" autocomplete="off" value="${h(r.vitigni||'')}" placeholder="es. Nebbiolo" onchange="_refChange('${r.id}','vitigni',this.value.trim())"></td>
     <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;text-align:center;min-width:52px;width:100%" value="${h(r.annata||'')}" placeholder="es. 2021" onchange="_refChange('${r.id}','annata',this.value.trim())"></td>
     <td style="padding:5px 6px"><select class="form-input" style="font-size:11px;min-width:80px;width:100%" data-prev="${h(r.tipologia)}" onchange="_addTipologiaInline(this,(v)=>_refChange('${r.id}','tipologia',v));if(this.value!=='__new__'){this.dataset.prev=this.value;_refChange('${r.id}','tipologia',this.value)}">${selTipo}</select></td>
     <td style="padding:5px 6px"><select class="form-input" style="font-size:11px;min-width:72px;width:100%" onchange="_refChange('${r.id}','formato',parseFloat(this.value)||0.75);_updateRefCartaSuggerita('${r.id}')">
@@ -5968,25 +6032,7 @@ function _renderRicezioneModalBody(ordine, allForn, allProd, allNomi){
   const tipoOpts=_tipoOptsHtml("");
   const ivaOpts=IVA_OPTIONS.map(v=>`<option value="${v}">${v}%</option>`).join("");
 
-  const righeHtml=ricezioneModalData.righe.map(r=>`
-    <tr data-ric-id="${r.id}" style="border-top:1px solid var(--border)">
-      <td style="padding:5px 8px;color:var(--txt3)">${h(r.produttore||'—')}</td>
-      <td style="padding:5px 8px">${h(r.nomeVino)}</td>
-      <td style="padding:5px 8px;color:var(--amber);font-family:'Montserrat',sans-serif;text-align:center;font-size:11px;white-space:nowrap">${r.annata?h(r.annata):'<span style="color:var(--txt4)">N.V.</span>'}</td>
-      <td style="padding:5px 8px;color:var(--txt4);font-size:10px;text-align:center;white-space:nowrap">${parseFloat(r.formato)||0.75}L</td>
-      <td style="padding:5px 8px;color:var(--txt3);font-size:10px">${h(r.vitigni||'—')}</td>
-      <td style="padding:5px 8px">${badge(r.tipologia)}</td>
-      <td style="padding:5px 8px;color:var(--txt2);text-align:center">${r.qty}</td>
-      <td style="padding:5px 8px">
-        <input type="number" class="form-input" style="font-size:11px;text-align:center" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" value="${r.qtyArr}" min="0" step="1"
-          onchange="ricezioneModalData.righe.find(x=>x.id==='${r.id}').qtyArr=parseInt(this.value)||0;_aggiornaRicTotale()" 
-          oninput="ricezioneModalData.righe.find(x=>x.id==='${r.id}').qtyArr=parseInt(this.value)||0;_aggiornaRicTotale()">
-      </td>
-      <td style="padding:5px 8px">
-        <input type="number" class="form-input" style="font-size:11px" value="${r.prezzoAcq||''}" step="0.01" min="0" placeholder="0.00"
-          onchange="ricezioneModalData.righe.find(x=>x.id==='${r.id}').prezzoAcq=parseFloat(this.value)||0;_aggiornaRicTotale()">
-      </td>
-    </tr>`).join("");
+  const righeHtml=ricezioneModalData.righe.map(r=>_ricRowHtml(r)).join("");
 
   document.getElementById("ricezione-modal-body").innerHTML=`
     <datalist id="ric-prod-dl">${allProd.map(v=>`<option value="${h(v)}">`).join("")}</datalist>
@@ -6014,6 +6060,7 @@ function _renderRicezioneModalBody(ordine, allForn, allProd, allNomi){
           <td style="padding:6px 8px;text-align:center">Ordinato</td>
           <td style="padding:6px 8px;text-align:center;color:var(--amber)">Arrivato ✏️</td>
           <td style="padding:6px 8px">P.Acq ✏️</td>
+          <td style="padding:6px 8px;width:64px"></td>
         </tr></thead>
         <tbody id="ric-righe-body">${righeHtml}</tbody>
       </table>
@@ -6031,29 +6078,149 @@ function _aggiornaRicTotale(){
   el.innerHTML=`Totale arrivo: <span style="color:var(--amber)">${fmt(totVal)}</span> IVA incl. · <span style="color:var(--txt2)">${totQty} bottiglie</span>`;
 }
 
-function _addRicezioneRow(){
-  const newR={id:uid(),produttore:"",nomeVino:"",tipologia:"Rosso",prezzoAcq:0,iva:22,qty:0,qtyArr:0,_extra:true};
-  ricezioneModalData.righe.push(newR);
+// Una sola fonte di verità per la riga di ricezione: le referenze non previste
+// usano lo stesso layout a 10 colonne delle righe d'ordine (prima venivano
+// inserite 6 celle in una tabella a 9 colonne ⇒ campi sotto le intestazioni
+// sbagliate). I dati completi si inseriscono nella scheda, non in linea.
+function _ricRowHtml(r){
+  const ex=!!r._extra;
+  return `
+    <tr data-ric-id="${r.id}" style="border-top:1px solid var(--border)${ex?";background:rgba(255,159,10,.05)":""}">
+      <td style="padding:5px 8px;color:var(--txt3)">${h(r.produttore||'—')}</td>
+      <td style="padding:5px 8px">${h(r.nomeVino||'—')}${ex?` <span style="font-size:9px;color:var(--amber3);letter-spacing:.1em">NON PREVISTA</span>`:""}</td>
+      <td style="padding:5px 8px;color:var(--amber);font-family:'Montserrat',sans-serif;text-align:center;font-size:11px;white-space:nowrap">${r.annata?h(r.annata):'<span style="color:var(--txt4)">N.V.</span>'}</td>
+      <td style="padding:5px 8px;color:var(--txt4);font-size:10px;text-align:center;white-space:nowrap">${parseFloat(r.formato)||0.75}L</td>
+      <td style="padding:5px 8px;color:var(--txt3);font-size:10px">${h(r.vitigni||'—')}</td>
+      <td style="padding:5px 8px">${badge(r.tipologia)}</td>
+      <td style="padding:5px 8px;color:var(--txt2);text-align:center">${ex?'<span style="color:var(--txt4)">—</span>':r.qty}</td>
+      <td style="padding:5px 8px">
+        <input type="number" class="form-input" style="font-size:11px;text-align:center" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" value="${r.qtyArr}" min="0" step="1"
+          onchange="_ricRefChange('${r.id}','qtyArr',parseInt(this.value)||0);_aggiornaRicTotale()"
+          oninput="_ricRefChange('${r.id}','qtyArr',parseInt(this.value)||0);_aggiornaRicTotale()">
+      </td>
+      <td style="padding:5px 8px">
+        <input type="number" class="form-input" style="font-size:11px" value="${r.prezzoAcq||''}" step="0.01" min="0" placeholder="0.00"
+          onchange="_ricRefChange('${r.id}','prezzoAcq',parseFloat(this.value)||0);_aggiornaRicTotale()">
+      </td>
+      <td style="padding:5px 4px;text-align:right;white-space:nowrap">${ex?`<button class="btn-outline btn-sm" style="padding:2px 6px;font-size:10px" onclick="_addRicezioneRow('${r.id}')" title="Modifica scheda">✏️</button> <button style="color:var(--txt4);font-size:13px;background:none;border:none;cursor:pointer" onclick="_ricRemoveRow('${r.id}')" title="Rimuovi">✕</button>`:""}</td>
+    </tr>`;
+}
+function _ricRenderRighe(){
   const tbody=document.getElementById("ric-righe-body");
-  if(!tbody) return;
-  const allProd=[...new Set([...wines.map(w=>w.produttore)].filter(Boolean))].sort();
-  const allNomi=[...new Set(wines.map(w=>w.nome).filter(Boolean))].sort();
-  const tipoOpts=_tipoOptsHtml("");
-  const ivaOpts=IVA_OPTIONS.map(v=>`<option value="${v}">${v}%</option>`).join("");
-  tbody.insertAdjacentHTML("beforeend",`
-    <tr data-ric-id="${newR.id}" style="border-top:1px solid var(--border);background:rgba(255,159,10,.05)">
-      <td style="padding:5px 6px"><input class="form-input" style="font-size:11px" list="ric-prod-dl" autocomplete="off" placeholder="Produttore"
-        oninput="_ricRefChange('${newR.id}','produttore',this.value)"></td>
-      <td style="padding:5px 6px"><input class="form-input" style="font-size:11px" list="ric-wine-dl" autocomplete="off" placeholder="Nome vino"
-        oninput="_ricRefChange('${newR.id}','nomeVino',this.value)"></td>
-      <td style="padding:5px 6px"><select class="form-input" style="font-size:11px" data-prev="Rosso" onchange="_addTipologiaInline(this,(v)=>_ricRefChange('${newR.id}','tipologia',v));if(this.value!=='__new__'){this.dataset.prev=this.value;_ricRefChange('${newR.id}','tipologia',this.value)}">${tipoOpts}</select></td>
-      <td style="padding:5px 8px;text-align:center;color:var(--txt4);font-size:11px">—</td>
-      <td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:11px;text-align:center" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" value="0" min="0"
-        oninput="_ricRefChange('${newR.id}','qtyArr',parseInt(this.value)||0);_aggiornaRicTotale()"></td>
-      <td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:11px" value="" step="0.01" min="0" placeholder="0.00"
-        oninput="_ricRefChange('${newR.id}','prezzoAcq',parseFloat(this.value)||0);_aggiornaRicTotale()"></td>
-    </tr>`);
+  if(tbody) tbody.innerHTML=ricezioneModalData.righe.map(r=>_ricRowHtml(r)).join("");
   _aggiornaRicTotale();
+}
+function _ricRemoveRow(id){
+  if(!ricezioneModalData) return;
+  ricezioneModalData.righe=ricezioneModalData.righe.filter(r=>r.id!==id);
+  _ricRenderRighe();
+}
+
+// Scheda referenza non prevista: stessi campi della composizione ordine, così il
+// vino creato in inventario nasce completo (annata, formato, vitigni, origine,
+// IVA, prezzo di carta) invece di ereditare i default.
+function _addRicezioneRow(editId){
+  if(!ricezioneModalData) return;
+  const r=editId?ricezioneModalData.righe.find(x=>x.id===editId):null;
+  const d=r||{id:"",produttore:"",nomeVino:"",annata:"",formato:0.75,vitigni:"",tipologia:"",
+    nazione:"Italia",regione:"",zona:"",prezzoAcq:"",iva:22,prezzoCarta:"",qtyArr:6};
+  const allProd=[...new Set(wines.map(w=>w.produttore).filter(Boolean))].sort();
+  const allNomi=[...new Set(wines.map(w=>w.nome).filter(Boolean))].sort();
+  const allNaz=[...new Set(wines.map(w=>w.nazione).filter(Boolean))].sort();
+  const ivaOpts=IVA_OPTIONS.map(v=>`<option value="${v}"${(parseInt(d.iva)||22)===v?" selected":""}>${v}%</option>`).join("");
+  document.getElementById("ric-newref-backdrop")?.remove();
+  const bd=document.createElement("div");
+  bd.id="ric-newref-backdrop"; bd.className="modal-backdrop";
+  bd.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(6px);z-index:46;display:flex;align-items:center;justify-content:center;padding:16px";
+  bd.innerHTML=`
+    <div class="modal" style="max-width:720px;width:100%" onclick="event.stopPropagation()">
+      <div class="modal-header"><h2>${r?"✏️ Modifica referenza non prevista":"➕ Referenza non prevista"}</h2>
+        <button style="font-size:18px;color:var(--txt3)" onclick="_ricNewRefChiudi()">✕</button></div>
+      <div class="modal-body">
+        <div style="font-size:11px;color:var(--txt3);margin-bottom:14px">Compila la scheda come in composizione ordine: questi dati creano la referenza in inventario.</div>
+        <datalist id="ricnr-prod-dl">${allProd.map(v=>`<option value="${h(v)}">`).join("")}</datalist>
+        <datalist id="ricnr-wine-dl">${allNomi.map(v=>`<option value="${h(v)}">`).join("")}</datalist>
+        <datalist id="ricnr-naz-dl">${allNaz.map(v=>`<option value="${h(v)}">`).join("")}</datalist>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div><label class="form-label">Nome vino *</label>
+            <input id="ricnr-nome" class="form-input" list="ricnr-wine-dl" autocomplete="off" value="${h(d.nomeVino)}" placeholder="es. Barolo Cannubi"></div>
+          <div><label class="form-label">Produttore</label>
+            <input id="ricnr-prod" class="form-input" list="ricnr-prod-dl" autocomplete="off" value="${h(d.produttore)}" placeholder="es. Sandrone"></div>
+          <div><label class="form-label">Annata</label>
+            <input id="ricnr-annata" class="form-input" value="${h(d.annata)}" placeholder="es. 2021 (vuoto = N.V.)"></div>
+          <div><label class="form-label">Formato</label>
+            <select id="ricnr-formato" class="form-input">${_formatoOptsHtml(d.formato)}</select></div>
+          <div><label class="form-label">Vitigni</label>
+            <input id="ricnr-vitigni" class="form-input" data-ac-src="vitigni" data-ac-multi="1" autocomplete="off" value="${h(d.vitigni)}" placeholder="es. Nebbiolo, Barbera"></div>
+          <div><label class="form-label">Tipologia</label>
+            <select id="ricnr-tipologia" class="form-input" data-prev="${h(d.tipologia)}" onchange="_addTipologiaInline(this)">${_tipoOptsHtml(d.tipologia)}</select></div>
+          <div><label class="form-label">Nazione</label>
+            <input id="ricnr-nazione" class="form-input" list="ricnr-naz-dl" autocomplete="off" value="${h(d.nazione)}" placeholder="es. Italia" oninput="_ricNewRefSyncRegioni(this.value)"></div>
+          <div><label class="form-label">Regione</label>
+            <input id="ricnr-regione" class="form-input" list="ricnr-reg-dl" autocomplete="off" value="${h(d.regione)}" placeholder="es. Piemonte">
+            <datalist id="ricnr-reg-dl">${_ordRegioniPer(d.nazione||"Italia").map(v=>`<option value="${h(v)}">`).join("")}</datalist></div>
+          <div><label class="form-label">Zona <span style="color:var(--txt4)">(opzionale)</span></label>
+            <input id="ricnr-zona" class="form-input" value="${h(d.zona)}" placeholder="es. Langhe"></div>
+          <div><label class="form-label">Bottiglie arrivate *</label>
+            <input id="ricnr-qty" type="number" class="form-input" min="1" step="1" inputmode="numeric" onfocus="this.select()" value="${parseInt(d.qtyArr)||6}"></div>
+          <div><label class="form-label">Prezzo acquisto (IVA escl.)</label>
+            <input id="ricnr-pacq" type="number" class="form-input" step="0.01" min="0" value="${d.prezzoAcq||''}" placeholder="0.00" oninput="_ricNewCartaHint()"></div>
+          <div><label class="form-label">IVA</label>
+            <select id="ricnr-iva" class="form-input" onchange="_ricNewCartaHint()">${ivaOpts}</select></div>
+          <div style="grid-column:span 2">
+            <div id="ricnr-carta-hint" style="display:none;align-items:center;gap:8px;padding:5px 8px;background:rgba(255,159,10,.08);border:1px solid rgba(255,159,10,.12);font-size:10px;color:var(--txt3)"></div>
+          </div>
+          <div><label class="form-label">Prezzo di carta <span style="color:var(--txt4)">(opzionale)</span></label>
+            <input id="ricnr-pcarta" type="number" class="form-input" step="1" min="0" value="${d.prezzoCarta||''}" placeholder="0"></div>
+        </div>
+      </div>
+      <div class="modal-footer" style="display:flex;justify-content:flex-end;gap:8px">
+        <button class="btn-outline" onclick="_ricNewRefChiudi()">Annulla</button>
+        <button class="btn-primary" onclick="_ricNewRefSalva('${r?r.id:""}')">${r?"Salva modifiche":"Aggiungi alla ricezione"}</button>
+      </div>
+    </div>`;
+  document.body.appendChild(bd);
+  document.getElementById("ricnr-nome")?.focus();
+}
+function _ricNewRefChiudi(){ document.getElementById("ric-newref-backdrop")?.remove(); }
+function _ricNewCartaHint(){
+  const box=document.getElementById("ricnr-carta-hint");
+  if(!box) return;
+  const v=id=>(document.getElementById(id)?.value||"").trim();
+  const base={prezzoAcq:parseFloat(v("ricnr-pacq"))||0,iva:parseInt(v("ricnr-iva"))||22,
+    nome:v("ricnr-nome"),formato:parseFloat(v("ricnr-formato"))||0.75};
+  const sug=_calcPrezzoCartaSuggerito(base);
+  if(!sug){ box.style.display="none"; return; }
+  box.style.display="flex";
+  box.innerHTML=_movCartaHintHtml(sug,_getMoltLabel(base),`_ricApplyCartaSuggerita(${sug})`);
+}
+function _ricApplyCartaSuggerita(val){
+  const inp=document.getElementById("ricnr-pcarta");
+  if(inp) inp.value=String(val);
+}
+function _ricNewRefSyncRegioni(naz){
+  const dl=document.getElementById("ricnr-reg-dl");
+  if(dl) dl.innerHTML=_ordRegioniPer(naz||"Italia").map(v=>`<option value="${h(v)}">`).join("");
+}
+function _ricNewRefSalva(editId){
+  if(!ricezioneModalData) return;
+  const val=id=>(document.getElementById(id)?.value||"").trim();
+  const nomeVino=val("ricnr-nome");
+  if(!nomeVino){ notify("⚠️ Il nome del vino è obbligatorio","err"); document.getElementById("ricnr-nome")?.focus(); return; }
+  const qtyArr=parseInt(val("ricnr-qty"))||0;
+  if(qtyArr<=0){ notify("⚠️ Indica quante bottiglie sono arrivate","err"); document.getElementById("ricnr-qty")?.focus(); return; }
+  const nazione=inferPaese(val("ricnr-nazione"),val("ricnr-regione"),val("ricnr-zona"))||val("ricnr-nazione")||"Italia";
+  const dati={produttore:val("ricnr-prod"),nomeVino,annata:val("ricnr-annata"),
+    formato:parseFloat(val("ricnr-formato"))||0.75,vitigni:_normVitigni(val("ricnr-vitigni")),
+    tipologia:val("ricnr-tipologia")||"Rosso",nazione,regione:val("ricnr-regione"),zona:val("ricnr-zona"),
+    prezzoAcq:parseFloat(val("ricnr-pacq"))||0,iva:parseInt(val("ricnr-iva"))||22,
+    prezzoCarta:parseFloat(val("ricnr-pcarta"))||0,qty:0,qtyArr,_extra:true};
+  const ex=editId?ricezioneModalData.righe.find(x=>x.id===editId):null;
+  if(ex) Object.assign(ex,dati);
+  else ricezioneModalData.righe.push({id:uid(),...dati});
+  _ricNewRefChiudi();
+  _ricRenderRighe();
+  notify(ex?`✔️ Referenza aggiornata: ${nomeVino}`:`➕ ${nomeVino} aggiunta alla ricezione (${qtyArr}bt)`);
 }
 
 function _ricRefChange(refId,field,value){
@@ -7276,7 +7443,7 @@ function renderModalBody(wine){
         <div><label class="form-label">Produttore *</label><input class="form-input" id="mf-produttore" list="mf-prod-dl" autocomplete="off" value="${h(f.produttore)}" placeholder="es. Giacomo Conterno"><datalist id="mf-prod-dl">${_dlOpts(_dlProd)}</datalist></div>
         <div><label class="form-label">Distributore</label><input class="form-input" id="mf-distributore" list="mf-distr-dl" autocomplete="off" value="${h(f.distributore)}" placeholder="es. Vini Italiani Srl"><datalist id="mf-distr-dl">${_dlOpts(_dlDistr)}</datalist></div>
         <div><label class="form-label">Annata</label><input class="form-input" id="mf-annata" value="${h(f.annata)}" placeholder="es. 2019 o N.V."></div>
-        <div><label class="form-label">Vitigni</label><input class="form-input" id="mf-vitigni" value="${h(f.vitigni)}" placeholder="es. Nebbiolo 100%"></div>
+        <div><label class="form-label">Vitigni</label><input class="form-input" id="mf-vitigni" data-ac-src="vitigni" data-ac-multi="1" autocomplete="off" value="${h(f.vitigni)}" placeholder="es. Nebbiolo, Barbera"></div>
         <div><label class="form-label">Tipologia</label><select class="form-select" id="mf-tipologia" data-prev="${f.tipologia}" onchange="_addTipologiaInline(this);if(this.value!=='__new__'){this.dataset.prev=this.value}">${TIPOLOGIE.map(t=>`<option value="${t}" ${f.tipologia===t?"selected":""}>${t}</option>`).join("")+'<option value="__new__">+ Nuova tipologia…</option>'}</select></div>
         <div><label class="form-label">Formato <span style="color:var(--txt4);font-size:9px;text-transform:none;letter-spacing:0">— lascia vuoto per 750ml standard</span></label><select class="form-select" id="mf-formato" onchange="updateModalCalc()">${FORMATI_OPTS}</select></div>
       </div>
@@ -7294,11 +7461,13 @@ function renderModalBody(wine){
       <div class="form-grid g2">
         <div><label class="form-label">Prezzo Acquisto (escl. IVA) €</label><input class="form-input" id="mf-prezzoAcq" type="number" inputmode="decimal" onfocus="this.select()" value="${f.prezzoAcq}" placeholder="0.00" oninput="updateModalCalc()"></div>
         <div><label class="form-label">IVA %</label><select class="form-select" id="mf-iva" onchange="updateModalCalc()">${IVA_OPTIONS.map(v=>`<option value="${v}" ${parseInt(f.iva)===v?"selected":""}>${v}%</option>`).join("")}</select></div>
-        <div><label class="form-label">Prezzo in Carta €</label><input class="form-input" id="mf-prezzoCarta" type="number" inputmode="decimal" onfocus="this.select()" value="${f.prezzoCarta}" placeholder="0.00" oninput="document.getElementById('mf-prezzoCarta')._userEdited=true;updateModalCalc()">
-          <div id="mc-carta-hint" style="display:none;align-items:center;gap:8px;margin-top:5px;padding:5px 8px;background:rgba(255,159,10,.08);border:1px solid rgba(255,159,10,.12);font-size:10px;color:var(--txt3)">
+        <div style="grid-column:span 2">
+          <div id="mc-carta-hint" style="display:none;align-items:center;gap:8px;padding:5px 8px;background:rgba(255,159,10,.08);border:1px solid rgba(255,159,10,.12);font-size:10px;color:var(--txt3)">
             <span>Suggerito (<span id="mc-carta-molt-label"></span>):</span><span class="mc-carta-val" style="color:var(--amber);font-family:'Montserrat',sans-serif"></span>
             <button type="button" onclick="applyCartaSuggerita()" style="margin-left:auto;font-size:9px;letter-spacing:.1em;text-transform:uppercase;padding:2px 8px;border:1px solid rgba(180,83,9,.5);color:var(--amber);background:rgba(255,159,10,.12);cursor:pointer;font-family:inherit">Usa →</button>
           </div>
+        </div>
+        <div><label class="form-label">Prezzo in Carta €</label><input class="form-input" id="mf-prezzoCarta" type="number" inputmode="decimal" onfocus="this.select()" value="${f.prezzoCarta}" placeholder="0.00" oninput="document.getElementById('mf-prezzoCarta')._userEdited=true;updateModalCalc()">
         </div>
         <div><label class="form-label">Prezzo al Calice € <span style="color:var(--txt4);font-size:9px;text-transform:none;letter-spacing:0">— opzionale</span></label><input class="form-input" id="mf-prezzoCalice" type="number" inputmode="decimal" onfocus="this.select()" value="${f.prezzoCalice||''}" placeholder="es. 8.00"></div>
         <div><label class="form-label">Giacenza (bottiglie)</label><input class="form-input" id="mf-giacenza" type="number" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" value="${f.giacenza||0}" placeholder="0" oninput="updateModalCalc()" ${wine&&(wine.lots||[]).some(l=>l.qtyRimanente>0)?'title="⚠️ Vino con lotti FIFO attivi: modifica tramite carico/scarico per non desincronizzare i lotti" style="border-color:rgba(180,83,9,.5)"':''} ><\/div>${wine&&(wine.lots||[]).some(l=>l.qtyRimanente>0)?'<div style="font-size:9px;color:rgba(251,146,60,.8);margin-top:3px;letter-spacing:.05em">⚠️ Lotti FIFO attivi — usa carico/scarico per aggiornare la giacenza<\/div>':''}
@@ -10432,7 +10601,28 @@ function _tfSetQty(id,v){
 function _tfStepQty(id,d){ const l=_tfCart.find(x=>x.wineId===id); if(!l) return; _tfSetQty(id,(parseInt(l.qty)||0)+d); }
 function _tfRemove(id){ _tfCart=_tfCart.filter(l=>l.wineId!==id); _tfRenderCart(); _tfRenderResults(); }
 function _tfClearCart(){ if(!_tfCart.length) return; _tfCart=[]; _tfRenderCart(); _tfRenderResults(); }
-function _tfMetaSet(k,v){ _tfMeta[k]=v; if(k==="dest") _tfRenderCart(); }
+// oninput su "destinazione" NON deve ri-renderare #tf-cart: l'input vive dentro
+// quel container e il re-render lo ricrea perdendo il focus a ogni lettera.
+// Si aggiorna il solo stato del pulsante Genera.
+function _tfMetaSet(k,v){ _tfMeta[k]=v; if(k==="dest") _tfSyncGenBtn(); }
+function _tfReady(){
+  const scheda=_tfMeta.mode==="scheda";
+  if(!(_tfMeta.dest||"").trim() || !_tfCart.length) return false;
+  if(scheda) return true;
+  let tot=0;
+  for(const l of _tfCart){
+    const g=parseInt(wines.find(x=>x.id===l.wineId)?.giacenza)||0, q=parseInt(l.qty)||0;
+    if(q<=0||q>g) return false;
+    tot+=q;
+  }
+  return tot>0;
+}
+function _tfSyncGenBtn(){
+  const b=document.getElementById("tf-genera"); if(!b) return;
+  const ok=_tfReady();
+  b.style.opacity=ok?"":"0.4";
+  b.style.pointerEvents=ok?"":"none";
+}
 
 // ── STORICO (derivato dai movimenti, nessuna tabella aggiuntiva) ─────────────
 function _tfHistory(){
@@ -10588,7 +10778,7 @@ function _tfCartHtml(){
       <td class="c" style="padding:6px 8px"><button class="btn-outline btn-sm" style="padding:2px 8px;border-color:rgba(255,69,58,.4);color:#FF6B6B" onclick="_tfRemove('${l.wineId}')">✕</button></td>
     </tr>`;
   }).join("");
-  const ready=(scheda?_tfCart.length>0:(!err&&tot>0))&&(_tfMeta.dest||"").trim().length>0;
+  const ready=_tfReady();
   const footer=scheda?`${_tfCart.length} schede · <b style="color:#5AC8FA">nessuno spostamento di giacenza</b> · clona la referenza completa`:(err?"Quantità non valida su una o più righe (max = giacenza).":`${_tfCart.length} referenze · <b style="color:#5AC8FA">${tot}bt</b> · costo lotti trasferito invariato (costo-neutro)`);
   return head+`
     <table style="width:100%;border-collapse:collapse;font-size:12px">
@@ -10609,13 +10799,13 @@ function _tfCartHtml(){
       <div style="font-size:11px;color:${err?"#FF453A":"var(--txt3)"}">${footer}</div>
       <div style="display:flex;gap:8px">
         <button class="btn-outline btn-sm" onclick="_tfClearCart()">Svuota</button>
-        <button class="btn-primary" style="${ready?"":"opacity:.4;pointer-events:none"}" onclick="_tfGenera()">${scheda?"📄 Genera manifesto schede":"📦 Genera manifesto"}</button>
+        <button class="btn-primary" id="tf-genera" style="${ready?"":"opacity:.4;pointer-events:none"}" onclick="_tfGenera()">${scheda?"📄 Genera manifesto schede":"📦 Genera manifesto"}</button>
       </div>
     </div>`;
 }
 function _tfRenderCart(){ const el=document.getElementById("tf-cart"); if(el) el.innerHTML=_tfCartHtml(); }
 // oninput non deve ri-renderare (perderebbe il focus): aggiorna solo il modello.
-function _tfSetQtySoft(id,v){ const l=_tfCart.find(x=>x.wineId===id); if(l) l.qty=parseInt(v)||0; }
+function _tfSetQtySoft(id,v){ const l=_tfCart.find(x=>x.wineId===id); if(l) l.qty=parseInt(v)||0; _tfSyncGenBtn(); }
 
 // ── GENERAZIONE MANIFESTO + USCITA ───────────────────────────────────────────
 function _tfLotsSnapshot(w,qty){
@@ -11639,3 +11829,175 @@ function amExportCSV(){
     return report;
   };
 })();
+
+// ─── AUTOCOMPLETE UNIFICATO ──────────────────────────────────────────────────
+// I <datalist> nativi hanno UI incoerente tra browser (e quasi inusabile su
+// Safari/iOS). Qui il datalist resta la sorgente dati, ma la tendina è nostra:
+// un solo pannello posizionato SOTTO la casella, con testo libero sempre
+// consentito (nessun valore imposto). Nessun markup esistente va cambiato:
+// _acInit() intercetta ogni input[list], memorizza l'id in data-ac-list e
+// rimuove l'attributo list per spegnere la tendina nativa.
+var _acPanel=null, _acInput=null, _acIdx=-1, _acObs=null;
+
+function _acNorm(s){ return String(s==null?"":s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,""); }
+// Vitigni: la sorgente è virtuale (nessun <datalist> da tenere aggiornato).
+// Base curata + tutti i vitigni già usati in cantina, spezzati uno per uno.
+var VITIGNI_BASE=["Aglianico","Albarossa","Albariño","Aleatico","Alicante","Ansonica","Arneis","Barbera","Bombino","Bonarda","Cabernet Franc","Cabernet Sauvignon","Cannonau","Carignano","Carmenère","Carricante","Catarratto","Chardonnay","Chenin Blanc","Ciliegiolo","Coda di Volpe","Corvina","Croatina","Dolcetto","Falanghina","Fiano","Frappato","Freisa","Friulano","Fumin","Gamay","Garganega","Gewürztraminer","Glera","Greco","Grenache","Grignolino","Grillo","Groppello","Inzolia","Lagrein","Lambrusco","Malbec","Malvasia","Marzemino","Merlot","Molinara","Monica","Montepulciano","Moscato","Müller Thurgau","Nebbiolo","Negroamaro","Nerello Cappuccio","Nerello Mascalese","Nero d'Avola","Nosiola","パ","Passerina","Pecorino","Pelaverga","Perricone","Petit Verdot","Petite Arvine","Picolit","Pigato","Pignolo","Pinot Bianco","Pinot Grigio","Pinot Nero","Primitivo","Prugnolo Gentile","Raboso","Refosco","Ribolla Gialla","Riesling","Rossese","Ruché","Sagrantino","Sangiovese","Sauvignon Blanc","Schiava","Schioppettino","Semillon","Sylvaner","Syrah","Tempranillo","Teroldego","Timorasso","Tocai","Traminer","Trebbiano","Uva di Troia","Verdeca","Verdicchio","Verduzzo","Vermentino","Vernaccia","Vespaiola","Vespolina","Viognier","Zibibbo","Zinfandel"].filter(v=>v!=="パ");
+function _vitigniNoti(){
+  const seen=new Map();
+  const push=v=>{ const s=String(v||"").trim().replace(/\s+/g," "); if(!s) return; const k=_acNorm(s); if(!seen.has(k)) seen.set(k,s); };
+  VITIGNI_BASE.forEach(push);
+  wines.forEach(w=>String(w.vitigni||"").split(/[,;/&+]+/).forEach(push));
+  return [...seen.values()].sort((a,b)=>a.localeCompare(b,"it"));
+}
+function _acListOf(inp){
+  if(inp.getAttribute("data-ac-src")==="vitigni") return _vitigniNoti();
+  const id=inp.getAttribute("data-ac-list");
+  const dl=id?document.getElementById(id):null;
+  if(!dl) return [];
+  return [...dl.querySelectorAll("option")].map(o=>o.getAttribute("value")||o.value||o.textContent||"").filter(Boolean);
+}
+// Modalità multi: si suggerisce SOLO il segmento dopo l'ultima virgola, così
+// ogni vitigno si inserisce uno alla volta e dopo la virgola la tendina ricompare.
+function _acIsMulti(inp){ return inp.getAttribute("data-ac-multi")==="1"; }
+function _acQuery(inp){
+  const v=String(inp.value||"");
+  return _acIsMulti(inp)?v.slice(v.lastIndexOf(",")+1):v;
+}
+function _acEnsurePanel(){
+  if(_acPanel && _acPanel.isConnected) return _acPanel;
+  const p=document.createElement("div");
+  p.id="ac-panel";
+  p.style.cssText="position:fixed;z-index:9999;display:none;max-height:240px;overflow-y:auto;background:var(--bg2,#1c1c1e);border:1px solid var(--border2,#3a3a3c);box-shadow:0 8px 28px rgba(0,0,0,.55);font-family:inherit;font-size:12px;border-radius:6px";
+  p.addEventListener("mousedown",e=>{
+    const it=e.target.closest?e.target.closest("[data-ac-val]"):null;
+    if(!it) return;
+    e.preventDefault();            // preventDefault: il blur chiuderebbe prima del click
+    _acPick(it.getAttribute("data-ac-val"));
+  });
+  document.body.appendChild(p);
+  _acPanel=p;
+  return p;
+}
+function _acPos(){
+  if(!_acPanel||!_acInput||_acPanel.style.display==="none") return;
+  const r=_acInput.getBoundingClientRect();
+  if(r.width===0&&r.height===0){ _acClose(); return; }
+  _acPanel.style.left=r.left+"px";
+  _acPanel.style.width=Math.max(160,r.width)+"px";
+  const sotto=window.innerHeight-r.bottom;
+  if(sotto<140 && r.top>sotto){ _acPanel.style.top=""; _acPanel.style.bottom=(window.innerHeight-r.top+2)+"px"; }
+  else { _acPanel.style.bottom=""; _acPanel.style.top=(r.bottom+2)+"px"; }
+}
+function _acClose(){
+  if(_acPanel) _acPanel.style.display="none";
+  _acInput=null; _acIdx=-1;
+}
+function _acOpen(inp){
+  const multi=_acIsMulti(inp);
+  const opts=_acListOf(inp);
+  const q=_acNorm(_acQuery(inp)).trim();
+  // In multi i termini già presenti non vengono riproposti.
+  const gia=multi?new Set(String(inp.value||"").split(",").slice(0,-1).map(s=>_acNorm(s.trim())).filter(Boolean)):null;
+  const start=[], contains=[];
+  opts.forEach(o=>{
+    const n=_acNorm(o);
+    if(gia&&gia.has(n)) return;
+    if(!q||n.startsWith(q)) start.push(o); else if(n.includes(q)) contains.push(o);
+  });
+  const list=[...start,...contains].slice(0,80);
+  if(!list.length){ _acClose(); return; }
+  const p=_acEnsurePanel();
+  _acInput=inp; _acIdx=-1;
+  p.innerHTML=list.map((o,i)=>`<div data-ac-val="${h(o)}" data-ac-i="${i}" style="padding:7px 10px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--txt2,#d1d1d6);border-bottom:1px solid var(--border,#2c2c2e)">${h(o)}</div>`).join("")
+    +`<div style="padding:5px 10px;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--txt4,#6b6b70)">↑↓ scegli · Invio conferma${multi?" · virgola = vitigno successivo":" · testo libero ammesso"}</div>`;
+  p.style.display="block";
+  _acPos();
+}
+function _acItems(){ return _acPanel?[..._acPanel.querySelectorAll("[data-ac-val]")]:[]; }
+function _acHighlight(){
+  _acItems().forEach((el,i)=>{
+    const on=i===_acIdx;
+    el.style.background=on?"rgba(255,159,10,.14)":"transparent";
+    el.style.color=on?"var(--amber,#FF9F0A)":"var(--txt2,#d1d1d6)";
+    if(on&&el.scrollIntoView) el.scrollIntoView({block:"nearest"});
+  });
+}
+function _acMove(d){
+  const items=_acItems();
+  if(!items.length) return;
+  _acIdx=_acIdx+d;
+  if(_acIdx<0) _acIdx=items.length-1;
+  if(_acIdx>=items.length) _acIdx=0;
+  _acHighlight();
+}
+function _acPick(val){
+  const inp=_acInput;
+  if(!inp) return;
+  const multi=_acIsMulti(inp);
+  if(multi){
+    const v=String(inp.value||"");
+    const i=v.lastIndexOf(",");
+    inp.value=(i<0?"":v.slice(0,i+1)+" ")+val+", ";
+  } else {
+    inp.value=val;
+  }
+  _acClose();
+  inp.dispatchEvent(new Event("input",{bubbles:true}));
+  inp.dispatchEvent(new Event("change",{bubbles:true}));
+  if(inp.isConnected){
+    inp.focus();
+    // In multi il cursore resta in coda e la tendina si riapre sul vitigno
+    // successivo: inserimento a catena senza toccare il mouse.
+    if(multi){ try{ inp.setSelectionRange(inp.value.length,inp.value.length); }catch(e){} _acOpen(inp); }
+  }
+}
+function _acBind(inp){
+  if(inp.getAttribute("data-ac-bound")) return;
+  const id=inp.getAttribute("list");
+  if(id){ inp.setAttribute("data-ac-list",id); inp.removeAttribute("list"); }
+  if(!inp.getAttribute("data-ac-list") && !inp.getAttribute("data-ac-src")) return;
+  inp.setAttribute("data-ac-bound","1");
+  inp.setAttribute("autocomplete","off");
+  inp.addEventListener("focus",()=>_acOpen(inp));
+  inp.addEventListener("click",()=>_acOpen(inp));
+  inp.addEventListener("input",()=>_acOpen(inp));
+  inp.addEventListener("blur",()=>{ setTimeout(()=>{ if(_acInput===inp) _acClose(); },120); });
+  inp.addEventListener("keydown",e=>{
+    if(_acInput!==inp||!_acPanel||_acPanel.style.display==="none"){
+      if(e.key==="ArrowDown"){ _acOpen(inp); e.preventDefault(); }
+      return;
+    }
+    if(e.key==="ArrowDown"){ e.preventDefault(); _acMove(1); }
+    else if(e.key==="ArrowUp"){ e.preventDefault(); _acMove(-1); }
+    else if(e.key==="Enter"){
+      // Invio senza riga evidenziata = conferma del testo libero.
+      if(_acIdx>=0){ e.preventDefault(); const it=_acItems()[_acIdx]; if(it) _acPick(it.getAttribute("data-ac-val")); }
+      else _acClose();
+    }
+    else if(e.key==="Escape"){ _acClose(); }
+    else if(e.key==="Tab"){ _acClose(); }
+  });
+}
+function _acInit(root){
+  const scope=root||document;
+  if(!scope.querySelectorAll) return;
+  scope.querySelectorAll("input[list],input[data-ac-src]:not([data-ac-bound]),input[data-ac-list]:not([data-ac-bound])").forEach(_acBind);
+  if(!_acObs && typeof MutationObserver!=="undefined" && document.body){
+    // I modali sono iniettati fuori dal ciclo di render: l'observer li copre
+    // senza dover agganciare _acInit a ogni punto di apertura.
+    _acObs=new MutationObserver(muts=>{
+      for(const m of muts){
+        if(!m.addedNodes||!m.addedNodes.length) continue;
+        for(const n of m.addedNodes){
+          if(n.nodeType!==1||n.id==="ac-panel") continue;
+          if(n.matches&&n.matches("input[list],input[data-ac-src]")) _acBind(n);
+          if(n.querySelectorAll) n.querySelectorAll("input[list],input[data-ac-src]").forEach(_acBind);
+        }
+      }
+    });
+    _acObs.observe(document.body,{childList:true,subtree:true});
+    window.addEventListener("scroll",()=>_acPos(),true);
+    window.addEventListener("resize",()=>_acPos());
+  }
+}
