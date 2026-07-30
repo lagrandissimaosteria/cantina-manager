@@ -193,10 +193,18 @@ function _getMoltLabel(w){
 let modalWine = null;
 let notifTimer = null;
 
+// ─── DEBUG LOGGING ───────────────────────────────────────────────────────────
+// Off in produzione: i log diagnostici passano da _dbg, console.warn/error restano
+// sempre attivi. Per attivarli a runtime: DEBUG_LOG=true da console.
+var DEBUG_LOG = false;
+function _dbg(){ if(DEBUG_LOG) console.log.apply(console, arguments); }
+
 // ─── MULTI-SELECT STATE ───────────────────────────────────────────────────────
 let _mobQuery = "";
 let _mobLog = []; // [{ts, desc}]
 let _mobUndoData = null; // {wineId, delta, movId, prevGiacenza, prevLots}
+let _mobUndoDeadline = 0;  // ts di scadenza reale della finestra di undo (guard anti-throttling)
+const MOB_UNDO_MS = 30000; // finestra utile di undo sul toast mobile (barra + auto-dismiss)
 let _mobToastTimer = null;
 let _mobToastBarTimer = null;
 let _mobAccordionOpen = {}; // { tipologia: true/false }
@@ -554,7 +562,11 @@ function calcValoreCarta(w){return (parseFloat(w.prezzoCarta)||0)*(parseInt(w.gi
 // di verita': ogni consumer (P&L, plancia, export) deve passare da qui.
 function costoCarico(m,w){ return parseFloat(m?.prezzoAcqLotto)||parseFloat(w?.prezzoAcq)||0; }
 function calcRicavoMovimento(m,w){
-  return m.qty*(parseFloat(w?.prezzoCarta)||0);
+  // Prezzo carta FOTOGRAFATO allo scarico (m.prezzoCartaSnap): i mesi già chiusi
+  // non si muovono se domani si ripreza il vino. Fallback al prezzo corrente solo
+  // per i movimenti storici privi dello snapshot.
+  const carta = (m && m.prezzoCartaSnap!=null) ? (parseFloat(m.prezzoCartaSnap)||0) : (parseFloat(w?.prezzoCarta)||0);
+  return (parseInt(m.qty)||0)*carta;
 }
 // ── SERVIZIO AL BANCO ────────────────────────────────────────────────────────
 // Ricavo accessorio (somministrazione), separato dal prezzo del vino. Regole:
@@ -575,6 +587,23 @@ function servizioUnit(m){
 function calcServizioMovimento(m){
   if(!m || m.tipo!=="scarico") return 0;
   return (parseInt(m.qty)||0) * servizioUnit(m);
+}
+// H2: snapshot servizio IN SCRITTURA. Simmetrico a servizioUnit: se la data
+// dello scarico precede CONFIG.servizioDal fotografa 0, così un movimento
+// retrodatato non introduce servizio dove i periodi chiusi ne sono privi.
+function _servizioSnap(data){
+  const base=parseFloat(CONFIG.servizioBottiglia)||0;
+  if(!base) return 0;
+  if(CONFIG.servizioDal && data && data < CONFIG.servizioDal) return 0;
+  return base;
+}
+// H1: coerenza FIFO. Se dopo una deplezione resta quantità non allocata ai lotti
+// (drift lotti↔giacenza) avvisa e logga wineId + qty mancante, senza bloccare.
+function _fifoShort(wineId, wineName, rem){
+  if(rem>0){
+    console.warn(`[FIFO] Copertura lotti insufficiente: wineId=${wineId} qtyMancante=${rem}`);
+    notify(`⚠️ Lotti FIFO incompleti per ${wineName||wineId}: ${rem} bt non tracciate`,"err");
+  }
 }
 // Ricavo complessivo incassato dal cliente = vino a prezzo carta + servizio.
 function calcRicavoTotaleMovimento(m,w){ return calcRicavoMovimento(m,w) + calcServizioMovimento(m); }
@@ -1408,6 +1437,40 @@ function _hasGiacChange(base, local){
 // da un blob remoto piu' vecchio. Se il remoto ha ANCH'ESSO ridotto la giacenza
 // (scarico da altra postazione), prende il minimo, cosi due scarichi concorrenti
 // non si annullano a vicenda.
+// ─── INVARIANTE giacenza === Σ lots[].qtyRimanente ──────────────────────────
+function _sumLots(lots){ return (lots||[]).reduce((s,l)=>s+(parseInt(l.qtyRimanente)||0),0); }
+
+// Applica un delta CON SEGNO ai lotti. Negativo → storno FIFO su qtyRimanente
+// (mai sotto zero). Positivo → aggiunge un lotto di rettifica (_reco). NUOVO array.
+function _applyDeltaToLots(lots, delta, meta){
+  let out=(lots||[]).map(l=>({...l}));
+  delta=Math.trunc(Number(delta)||0);
+  if(delta===0) return out;
+  if(delta<0){
+    let rem=-delta;
+    for(const l of out){ if(rem<=0)break; const q=parseInt(l.qtyRimanente)||0; if(q<=0)continue; const c=Math.min(rem,q); l.qtyRimanente=q-c; rem-=c; }
+  } else {
+    out.push({
+      id:((meta&&meta.id)||("reco_"+Date.now().toString(36)+Math.random().toString(36).slice(2,6)))+"_lot",
+      data:(meta&&meta.data)||new Date().toISOString().slice(0,10),
+      fattura:(meta&&meta.fattura)||"reco-inv",
+      fornitore:(meta&&meta.fornitore)||"",
+      prezzoAcq:(meta&&meta.prezzoAcq)||0,
+      iva:(meta&&meta.iva)||22,
+      qtyCaricata:delta, qtyRimanente:delta, _reco:true
+    });
+  }
+  return out;
+}
+
+// Forza l'invariante: Σlots === target. Riallinea i lotti al valore di giacenza
+// (storno FIFO se in eccesso, lotto _reco se in difetto). Elimina i _reco a zero.
+function _healLotsToGiac(lots, target, meta){
+  target=Math.max(0, Math.trunc(Number(target)||0));
+  let out=_applyDeltaToLots(lots, target-_sumLots(lots), meta);
+  return out.filter(l=> !(l._reco && (parseInt(l.qtyRimanente)||0)<=0));
+}
+
 function _mergePreserveGiac(remote, local, base){
   // Assorbe dal remoto tutti i campi (anagrafica, prezzi) ma la giacenza/lotti
   // partono dal LOCALE. Se anche il remoto ha modificato la giacenza rispetto
@@ -1415,11 +1478,25 @@ function _mergePreserveGiac(remote, local, base){
   // ENTRAMBI i delta: giacenza_finale = base + delta_locale + delta_remoto.
   // Cosi due scarichi su postazioni diverse si sommano invece di annullarsi,
   // e non si scende mai sotto zero.
-  const out={...remote, giacenza: local.giacenza, lots: local.lots};
+  // I local.lots contengono GIÀ il delta locale. Qui assorbiamo SOLO il delta
+  // remoto (scarico/carico da un'altra postazione) sui lotti, poi forziamo
+  // l'invariante giacenza === Σlots così i tre layer non divergono mai.
+  const out={...remote, giacenza: local.giacenza, lots:(local.lots||[]).map(l=>({...l}))};
   const rg=Number(remote.giacenza), lg=Number(local.giacenza), bg=Number(base.giacenza);
   if(Number.isFinite(rg)&&Number.isFinite(lg)&&Number.isFinite(bg)){
     const dLocal=lg-bg, dRemote=rg-bg;
-    out.giacenza = Math.max(0, bg + dLocal + dRemote);
+    const finale=Math.max(0, bg + dLocal + dRemote);
+    if(dRemote!==0){
+      out.lots=_applyDeltaToLots(out.lots, dRemote, {
+        prezzoAcq:parseFloat(remote.prezzoAcq)||0, iva:remote.iva||22,
+        fornitore:remote.fornitore||"", fattura:"reco-merge"
+      });
+    }
+    out.giacenza=finale;
+    out.lots=_healLotsToGiac(out.lots, finale, {prezzoAcq:parseFloat(remote.prezzoAcq)||0, iva:remote.iva||22});
+  } else {
+    // Giacenze non numeriche: allinea comunque i lotti alla giacenza locale.
+    out.lots=_healLotsToGiac(out.lots, parseInt(local.giacenza)||0, {prezzoAcq:parseFloat(remote.prezzoAcq)||0, iva:remote.iva||22});
   }
   return out;
 }
@@ -2726,9 +2803,38 @@ function _plDelta(cur,prev){
   return `<span style="color:${col}">${v>=0?"▲":"▼"} ${fmtN(Math.abs(v),1)}%</span> <span style="color:var(--txt4)">vs prec.</span>`;
 }
 
-// ─── DASHBOARD ────────────────────────────────────────────────────────────────
-function renderPlancia(){
-  // ══════════════════════════ COMPUTE PHASE ══════════════════════════
+// ─── PLANCIA · UI HELPERS ─────────────────────────────────────────────────────
+// Estratti da renderPlancia (M1): pura presentazione, nessuno stato locale.
+function _plPf(v){ return parseFloat(v)||0; }
+function _plKpiCard(k){
+  return `<div class="kpi-card"><div class="kpi-label">${k.label}</div><div class="kpi-val ${k.cls}">${k.value}</div><div class="kpi-sub">${k.sub}</div></div>`;
+}
+function _plBigCard(label,val,sub,color){
+  return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:18px 20px">
+    <div style="font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:10px">${label}</div>
+    <div style="font-family:'Montserrat',sans-serif;font-weight:300;font-size:1.9rem;line-height:1;color:${color||'var(--txt)'}">${val}</div>
+    <div style="font-size:11px;color:var(--txt4);margin-top:8px">${sub}</div>
+  </div>`;
+}
+function _plSegBtn(attivo,val,label,fn){
+  return `<button onclick="${fn}('${val}')" style="padding:6px 12px;font-size:11px;font-family:inherit;letter-spacing:.04em;cursor:pointer;border:1px solid ${attivo?"rgba(180,83,9,.55)":"var(--border)"};background:${attivo?"rgba(255,159,10,.14)":"transparent"};color:${attivo?"var(--amber)":"var(--txt3)"}">${label}</button>`;
+}
+// Tabella generica top-10 (dead stock, rotazione).
+function _plTbl(title,icon,rows,cols,empty){
+  return `<div class="card" style="padding:0">
+    <div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px"><span style="color:var(--amber3)">${icon}</span><span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">${title}</span>${rows.length>10?`<span style="margin-left:auto;font-size:10px;color:var(--txt4)">top 10 di ${rows.length}</span>`:""}</div>
+    ${rows.length===0?`<div style="padding:28px;text-align:center;color:#30D158;font-size:11px">${empty}</div>`:`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">
+      <thead><tr style="border-bottom:1px solid var(--border)">${cols.map(c=>`<th style="text-align:${c.r?'right':'left'};padding:7px ${c.r?'12px':'20px'};color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.08em;text-transform:uppercase">${c.h}</th>`).join("")}</tr></thead>
+      <tbody>${rows.slice(0,10).map(row=>`<tr style="border-bottom:1px solid var(--border)">${cols.map(c=>`<td style="padding:7px ${c.r?'12px':'20px'};text-align:${c.r?'right':'left'};${c.style||'color:var(--txt2)'}">${c.render(row)}</td>`).join("")}</tr>`).join("")}</tbody>
+    </table></div>`}
+  </div>`;
+}
+
+// ─── PLANCIA · COMPUTE ────────────────────────────────────────────────────────
+// Unico punto di calcolo della dashboard: restituisce il contesto D consumato
+// dalle sezioni di render e dai grafici. Effetti collaterali ammessi: clamp
+// delle pagine (planciaFornPage / planciaMagPage) sui totali correnti.
+function _plCompute(){
   const s=getStats();
   const wineMap=Object.fromEntries(wines.map(w=>[w.id,w]));
   const regioni=[...new Set(wines.map(w=>w.regione).filter(Boolean))].sort();
@@ -2740,15 +2846,7 @@ function renderPlancia(){
 
   const _EPOCH="2026-01-01";
   const _mov=movements.filter(m=>(m.data||"")>=_EPOCH);
-
-  // helpers
-  const _pf=v=>parseFloat(v)||0;
-  const _kpiCard=k=>`<div class="kpi-card"><div class="kpi-label">${k.label}</div><div class="kpi-val ${k.cls}">${k.value}</div><div class="kpi-sub">${k.sub}</div></div>`;
-  const _bigCard=(label,val,sub,color)=>`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:18px 20px">
-    <div style="font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:10px">${label}</div>
-    <div style="font-family:'Montserrat',sans-serif;font-weight:300;font-size:1.9rem;line-height:1;color:${color||'var(--txt)'}">${val}</div>
-    <div style="font-size:11px;color:var(--txt4);margin-top:8px">${sub}</div>
-  </div>`;
+  const _pf=_plPf;
 
   // ── VENDITE filtrate (periodo + regione/tipologia/nazione) ──
   const R=_plRange();
@@ -3000,74 +3098,75 @@ function renderPlancia(){
 
   const coperturaPct=s.refAttive?inCartaCount/s.refAttive*100:0;
 
-  // tabella generica (dead stock + rotazione)
-  const _tbl=(title,icon,rows,cols,empty)=>`<div class="card" style="padding:0">
-    <div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px"><span style="color:var(--amber3)">${icon}</span><span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">${title}</span>${rows.length>10?`<span style="margin-left:auto;font-size:10px;color:var(--txt4)">top 10 di ${rows.length}</span>`:""}</div>
-    ${rows.length===0?`<div style="padding:28px;text-align:center;color:#30D158;font-size:11px">${empty}</div>`:`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">
-      <thead><tr style="border-bottom:1px solid var(--border)">${cols.map(c=>`<th style="text-align:${c.r?'right':'left'};padding:7px ${c.r?'12px':'20px'};color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.08em;text-transform:uppercase">${c.h}</th>`).join("")}</tr></thead>
-      <tbody>${rows.slice(0,10).map(row=>`<tr style="border-bottom:1px solid var(--border)">${cols.map(c=>`<td style="padding:7px ${c.r?'12px':'20px'};text-align:${c.r?'right':'left'};${c.style||'color:var(--txt2)'}">${c.render(row)}</td>`).join("")}</tr>`).join("")}</tbody>
-    </table></div>`}
-  </div>`;
+  return {
+    s, wineMap, nazioni, regioniFiltrate, tipoList,
+    R, P, serviziPer, serviziPrev,
+    totQty, totRicavoVino, totServizio, totRicavo, totCosto, totMargine,
+    foodCostPct, ricavoPerServizio, ricavoPerBt, btPerServizio,
+    trendData, topMargin, bestSellers, maxQty, tipoPie,
+    acquistiData, periodoLabels,
+    ordiniOpen, ordiniPending, ordiniValTot, ordiniQtyTot,
+    kpiStato1, kpiStato2,
+    capImmob, valRealizzo, margAbs, margPct,
+    costo30, ricavo30, cQ30, sQ30, netto30,
+    fEpoch:_fEpoch, fCarichiLen:_fCarichi.length, fTot:_fTot, fBt:_fBt,
+    fManqBt:_fManqBt, fManqRighe:_fManqRighe, fManqImp:_fManqImp,
+    fRank:_fRank, fCostoMedio:_fCostoMedio, fDiary:_fDiary, nOrdiniPeriodo:_nOrdiniPeriodo,
+    totAcqQty, totAcqNetto, totAcqIva, totAcqConIva,
+    reportForn, pageForn, pageStart, FORN_PAGE, nPagesF, totSpesaForn, totBtForn, totValMag,
+    reportMag, pageMag, magStart, MAG_PAGE, nPagesM, totMagBt, totMagVal, totMagCarta,
+    deadStock, capitaleFermo, rotazione,
+    inCartaCount, frescoCount, cartaSenzaPrezzo, markupMed, paretoPct, top20n, coperturaPct,
+    cEsaur, cMin, cRiord, cashData,
+  };
+}
 
-  const _dsCard=_tbl("Capitale Fermo · nessuna vendita da 180+ gg","🧊",deadStock,[
-      {h:"Vino",render:r=>`<div style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(r.nome)}</div><div style="color:var(--txt4);font-size:10px">${h(r.produttore||'—')}</div>`},
-      {h:"Giac.",r:true,style:"color:var(--txt3)",render:r=>r.g},
-      {h:"Valore",r:true,style:"font-family:'Montserrat',sans-serif;color:#FF6B6B",render:r=>fmt(r.valore)},
-      {h:"Ferma da",r:true,style:"color:var(--txt3);font-size:10px",render:r=>r.giorni===null?"mai venduto":`${r.giorni} gg`},
-    ],"Nessun capitale immobilizzato");
-  const _dsFooter=deadStock.length?`<div style="padding:10px 20px;border-top:1px solid var(--border2);display:flex;justify-content:space-between;font-size:10px"><span style="color:var(--txt4);text-transform:uppercase;letter-spacing:.1em">Capitale fermo totale</span><span style="font-family:'Montserrat',sans-serif;color:#FF6B6B">${fmt(capitaleFermo)}</span></div>`:"";
-  const _dsCardWithFooter=_dsFooter?_dsCard.replace(/<\/div>\s*$/,_dsFooter+"</div>"):_dsCard;
-
-  const _rotCard=_tbl("Rotazione Lenta · giorni di giacenza (DIO, base 90 gg)","🐌",rotazione,[
-    {h:"Vino",render:r=>`<div style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(r.nome)}${r.annata?` <span style="color:var(--txt4);font-size:10px">${h(r.annata)}</span>`:""}</div><div style="color:var(--txt4);font-size:10px">${h(r.produttore||'—')}</div>`},
-    {h:"Giac.",r:true,style:"color:var(--txt3)",render:r=>r.g},
-    {h:"Venduti 90gg",r:true,style:"color:var(--txt3)",render:r=>r.venduti90},
-    {h:"Giorni stock",r:true,style:"font-family:'Montserrat',sans-serif;color:var(--amber)",render:r=>r.dio===Infinity?"∞":Math.round(r.dio)},
-  ],"Nessuna referenza in giacenza");
-
-  // ══════════════════════════ RENDER PHASE ══════════════════════════
-  // ─────────── §1 · DIREZIONE / PATRIMONIO ───────────
-  let html=`<div style="font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4);margin-bottom:10px">Direzione · Stato Patrimoniale</div>
+// ─── PLANCIA · SEZIONI DI RENDER ──────────────────────────────────────────────
+// §1 · DIREZIONE / PATRIMONIO
+function _plSec1Direzione(D){
+  return `<div style="font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4);margin-bottom:10px">Direzione · Stato Patrimoniale</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:16px">
-      ${_bigCard("Capitale Immobilizzato",fmt(capImmob),"costo inventario corrente (ex IVA)","var(--amber)")}
-      ${_bigCard("Valore Potenziale di Realizzo",fmt(valRealizzo),"prezzo carta × giacenza","#30D158")}
-      ${_bigCard("Margine Teorico Medio",fmtN(margPct,1)+"%","≈ "+fmt(margAbs)+" potenziale","#007AFF")}
-      ${_bigCard("Volume Fisico Totale",fmtN(s.refAttive,0)+" ref.",fmtN(s.giacenzaTot,0)+" bottiglie totali","var(--amber3)")}
+      ${_plBigCard("Capitale Immobilizzato",fmt(D.capImmob),"costo inventario corrente (ex IVA)","var(--amber)")}
+      ${_plBigCard("Valore Potenziale di Realizzo",fmt(D.valRealizzo),"prezzo carta × giacenza","#30D158")}
+      ${_plBigCard("Margine Teorico Medio",fmtN(D.margPct,1)+"%","≈ "+fmt(D.margAbs)+" potenziale","#007AFF")}
+      ${_plBigCard("Volume Fisico Totale",fmtN(D.s.refAttive,0)+" ref.",fmtN(D.s.giacenzaTot,0)+" bottiglie totali","var(--amber3)")}
     </div>
     <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px 20px;margin-bottom:22px">
       <div style="font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:12px">Conto Economico · Cassa ultimi 30 giorni</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px">
-        <div><div style="font-size:11px;color:var(--txt4);margin-bottom:4px">Costo Carichi</div><div style="font-family:'Montserrat',sans-serif;font-size:1.3rem;color:#FF453A">${fmt(costo30)}</div><div style="font-size:10px;color:var(--txt4)">${fmtN(cQ30,0)} bt · IVA incl. · ultimi 30 gg</div></div>
-        <div><div style="font-size:11px;color:var(--txt4);margin-bottom:4px">Ricavo Scarichi</div><div style="font-family:'Montserrat',sans-serif;font-size:1.3rem;color:#30D158">${fmt(ricavo30)}</div><div style="font-size:10px;color:var(--txt4)">${fmtN(sQ30,0)} bt · a carta · ultimi 30 gg</div></div>
-        <div><div style="font-size:11px;color:var(--txt4);margin-bottom:4px">Flusso Netto</div><div style="font-family:'Montserrat',sans-serif;font-size:1.3rem;color:${netto30>=0?'#30D158':'#FF453A'}">${netto30>=0?'+':''}${fmt(netto30)}</div><div style="font-size:10px;color:var(--txt4)">ricavo − costo carichi</div></div>
+        <div><div style="font-size:11px;color:var(--txt4);margin-bottom:4px">Costo Carichi</div><div style="font-family:'Montserrat',sans-serif;font-size:1.3rem;color:#FF453A">${fmt(D.costo30)}</div><div style="font-size:10px;color:var(--txt4)">${fmtN(D.cQ30,0)} bt · IVA incl. · ultimi 30 gg</div></div>
+        <div><div style="font-size:11px;color:var(--txt4);margin-bottom:4px">Ricavo Scarichi</div><div style="font-family:'Montserrat',sans-serif;font-size:1.3rem;color:#30D158">${fmt(D.ricavo30)}</div><div style="font-size:10px;color:var(--txt4)">${fmtN(D.sQ30,0)} bt · a carta · ultimi 30 gg</div></div>
+        <div><div style="font-size:11px;color:var(--txt4);margin-bottom:4px">Flusso Netto</div><div style="font-family:'Montserrat',sans-serif;font-size:1.3rem;color:${D.netto30>=0?'#30D158':'#FF453A'}">${D.netto30>=0?'+':''}${fmt(D.netto30)}</div><div style="font-size:10px;color:var(--txt4)">ricavo − costo carichi</div></div>
       </div>
     </div>`;
+}
 
-  // ─────────── §2 · VENDITE & ROTAZIONE ───────────
-  html+=`<div style="font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4);margin:28px 0 10px">Vendite & Rotazione</div>`;
+// §2 · VENDITE & ROTAZIONE (filtri, selettore periodo, KPI, grafici, best sellers)
+function _plSec2Vendite(D){
+  const {R,P}=D;
+  let html=`<div style="font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4);margin:28px 0 10px">Vendite & Rotazione</div>`;
   // Filtri performance
   html+=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
     <span style="font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4)">Performance</span>
     <select class="form-select" style="width:auto" onchange="analyticsNazione=this.value;analyticsRegione='';render()">
       <option value="">Tutte le nazioni</option>
-      ${nazioni.map(n=>`<option value="${h(n)}" ${analyticsNazione===n?"selected":""}>${h(n)}</option>`).join("")}
+      ${D.nazioni.map(n=>`<option value="${h(n)}" ${analyticsNazione===n?"selected":""}>${h(n)}</option>`).join("")}
     </select>
-    <select class="form-select" style="width:auto" onchange="analyticsRegione=this.value;render()"${regioniFiltrate.length===0?" disabled":""}>
+    <select class="form-select" style="width:auto" onchange="analyticsRegione=this.value;render()"${D.regioniFiltrate.length===0?" disabled":""}>
       <option value="">${analyticsNazione?"Tutte le regioni · "+h(analyticsNazione):"Tutte le regioni"}</option>
-      ${regioniFiltrate.map(r=>`<option value="${h(r)}" ${analyticsRegione===r?"selected":""}>${h(r)}</option>`).join("")}
+      ${D.regioniFiltrate.map(r=>`<option value="${h(r)}" ${analyticsRegione===r?"selected":""}>${h(r)}</option>`).join("")}
     </select>
     <select class="form-select" style="width:auto" onchange="analyticsTipo=this.value;render()">
       <option value="">Tutte le tipologie</option>
-      ${tipoList.map(t=>`<option value="${t}" ${analyticsTipo===t?"selected":""}>${h(t)}</option>`).join("")}
+      ${D.tipoList.map(t=>`<option value="${t}" ${analyticsTipo===t?"selected":""}>${h(t)}</option>`).join("")}
     </select>
     ${(analyticsNazione||analyticsRegione||analyticsTipo)?`<button class="btn-outline btn-sm" onclick="analyticsNazione='';analyticsRegione='';analyticsTipo='';render()">✕ Reset</button>`:""}
-    <span style="margin-left:auto;font-size:10px;color:var(--txt4)">${totQty} bottiglie vendute</span>
+    <span style="margin-left:auto;font-size:10px;color:var(--txt4)">${D.totQty} bottiglie vendute</span>
   </div>`;
   // ── SELETTORE PERIODO + GRANULARITÀ (pilota tutta la pagina) ──
-  const _segBtn=(attivo,val,label,fn)=>`<button onclick="${fn}('${val}')" style="padding:6px 12px;font-size:11px;font-family:inherit;letter-spacing:.04em;cursor:pointer;border:1px solid ${attivo?"rgba(180,83,9,.55)":"var(--border)"};background:${attivo?"rgba(255,159,10,.14)":"transparent"};color:${attivo?"var(--amber)":"var(--txt3)"}">${label}</button>`;
   html+=`<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
     <div style="display:flex;gap:1px">
-      ${[["oggi","Oggi"],["7g","7 giorni"],["mese","Mese corrente"],["meseScorso","Mese scorso"]].map(([v,l])=>_segBtn(_plPer===v,v,l,"_plSetPer")).join("")}
+      ${[["oggi","Oggi"],["7g","7 giorni"],["mese","Mese corrente"],["meseScorso","Mese scorso"]].map(([v,l])=>_plSegBtn(_plPer===v,v,l,"_plSetPer")).join("")}
     </div>
     <div style="display:flex;gap:6px;align-items:center">
       <input type="date" class="form-input" style="width:auto;font-size:11px;padding:4px 8px" value="${h(_plDa||R.da)}" onchange="_plSetData('da',this.value)">
@@ -3076,29 +3175,29 @@ function renderPlancia(){
     </div>
     <div style="display:flex;gap:1px;margin-left:auto">
       <span style="align-self:center;font-size:10px;color:var(--txt4);margin-right:8px;letter-spacing:.1em;text-transform:uppercase">Vista</span>
-      ${[["giorno","Giorno"],["settimana","Settimana"],["mese","Mese"]].map(([v,l])=>_segBtn(_plGran===v,v,l,"_plSetGran")).join("")}
+      ${[["giorno","Giorno"],["settimana","Settimana"],["mese","Mese"]].map(([v,l])=>_plSegBtn(_plGran===v,v,l,"_plSetGran")).join("")}
     </div>
   </div>
   <div style="font-size:10px;color:var(--txt4);margin-bottom:14px;letter-spacing:.04em">
-    ${h(R.label)} · ${h(R.dLabel)} · ${R.giorni} giorni di calendario · <span style="color:var(--amber3)">${serviziPer} servizi di apertura</span>
+    ${h(R.label)} · ${h(R.dLabel)} · ${R.giorni} giorni di calendario · <span style="color:var(--amber3)">${D.serviziPer} servizi di apertura</span>
     &nbsp;·&nbsp; confronto con ${h(_parseD(R.prevDa).toLocaleDateString("it-IT"))} → ${h(_parseD(R.prevA).toLocaleDateString("it-IT"))}
   </div>`;
   // KPI performance
   html+=`<div class="kpi-grid g4" style="margin-bottom:20px">
     ${[
-      {label:"Ricavo Totale",v:fmt(totRicavo),cls:"c-green",sub:_plDelta(totRicavo,P.ricavo)+(totServizio>0?`<br><span style="color:var(--txt4)">vino ${fmt(totRicavoVino)} + servizio ${fmt(totServizio)}</span>`:"")},
-      {label:"Bottiglie Vendute",v:totQty,cls:"c-amber",sub:_plDelta(totQty,P.qty)+`<br><span style="color:var(--txt4)">${fmtN(btPerServizio,1)} per servizio</span>`},
-      {label:"Costo Merce",v:`${fmtN(foodCostPct,1)}%`,cls:foodCostPct<=35?"c-blue":"c-red",sub:`${fmt(totCosto)} sul venduto<br><span style="color:var(--txt4)">obiettivo ≤ 35%</span>`},
-      {label:"Margine Realizzato",v:fmt(totMargine),cls:totMargine>=0?"c-blue":"c-red",sub:_plDelta(totMargine,P.margine)+`<br><span style="color:var(--txt4)">${totRicavo?fmtN(totMargine/totRicavo*100,1)+"% del ricavo":"—"}</span>`},
+      {label:"Ricavo Totale",v:fmt(D.totRicavo),cls:"c-green",sub:_plDelta(D.totRicavo,P.ricavo)+(D.totServizio>0?`<br><span style="color:var(--txt4)">vino ${fmt(D.totRicavoVino)} + servizio ${fmt(D.totServizio)}</span>`:"")},
+      {label:"Bottiglie Vendute",v:D.totQty,cls:"c-amber",sub:_plDelta(D.totQty,P.qty)+`<br><span style="color:var(--txt4)">${fmtN(D.btPerServizio,1)} per servizio</span>`},
+      {label:"Costo Merce",v:`${fmtN(D.foodCostPct,1)}%`,cls:D.foodCostPct<=35?"c-blue":"c-red",sub:`${fmt(D.totCosto)} sul venduto<br><span style="color:var(--txt4)">obiettivo ≤ 35%</span>`},
+      {label:"Margine Realizzato",v:fmt(D.totMargine),cls:D.totMargine>=0?"c-blue":"c-red",sub:_plDelta(D.totMargine,P.margine)+`<br><span style="color:var(--txt4)">${D.totRicavo?fmtN(D.totMargine/D.totRicavo*100,1)+"% del ricavo":"—"}</span>`},
     ].map(k=>`<div class="kpi-card"><div class="kpi-label">${k.label}</div><div class="kpi-val ${k.cls}">${k.v}</div><div class="kpi-sub">${k.sub}</div></div>`).join("")}
   </div>`;
   // KPI operativi: la lettura "per servizio" è quella che conta in un wine bar
   html+=`<div class="kpi-grid g4" style="margin-bottom:20px">
     ${[
-      {label:"Ricavo per Servizio",v:fmt(ricavoPerServizio),cls:"c-green",sub:_plDelta(ricavoPerServizio,P.ricavo/serviziPrev)},
-      {label:"Ricavo Medio/Bottiglia",v:fmt(ricavoPerBt),cls:"c-amber",sub:`<span style="color:var(--txt4)">servizio incluso</span>`},
-      {label:"Peso del Servizio",v:`${fmtN(totRicavo?totServizio/totRicavo*100:0,1)}%`,cls:"c-orange",sub:`${fmt(totServizio)} sull'incasso<br><span style="color:var(--txt4)">margine 100%</span>`},
-      {label:"Servizi nel Periodo",v:serviziPer,cls:"c-blue",sub:`<span style="color:var(--txt4)">${R.giorni} giorni di calendario</span>`},
+      {label:"Ricavo per Servizio",v:fmt(D.ricavoPerServizio),cls:"c-green",sub:_plDelta(D.ricavoPerServizio,P.ricavo/D.serviziPrev)},
+      {label:"Ricavo Medio/Bottiglia",v:fmt(D.ricavoPerBt),cls:"c-amber",sub:`<span style="color:var(--txt4)">servizio incluso</span>`},
+      {label:"Peso del Servizio",v:`${fmtN(D.totRicavo?D.totServizio/D.totRicavo*100:0,1)}%`,cls:"c-orange",sub:`${fmt(D.totServizio)} sull'incasso<br><span style="color:var(--txt4)">margine 100%</span>`},
+      {label:"Servizi nel Periodo",v:D.serviziPer,cls:"c-blue",sub:`<span style="color:var(--txt4)">${R.giorni} giorni di calendario</span>`},
     ].map(k=>`<div class="kpi-card"><div class="kpi-label">${k.label}</div><div class="kpi-val ${k.cls}">${k.v}</div><div class="kpi-sub">${k.sub}</div></div>`).join("")}
   </div>`;
   // Trend | Top 10 margine
@@ -3109,49 +3208,59 @@ function renderPlancia(){
     </div>
     <div class="card">
       <div class="section-label"><span>💰 Top 10 per Margine Realizzato</span></div>
-      ${topMargin.length===0?`<div style="text-align:center;padding:24px;color:var(--txt4);font-size:11px">Nessuna vendita registrata</div>`:`<div class="chart-container" style="height:300px"><canvas id="ch-topmargin"></canvas></div>`}
+      ${D.topMargin.length===0?`<div style="text-align:center;padding:24px;color:var(--txt4);font-size:11px">Nessuna vendita registrata</div>`:`<div class="chart-container" style="height:300px"><canvas id="ch-topmargin"></canvas></div>`}
     </div>
   </div>`;
   // Best Sellers Top 5
   html+=`<div class="card" style="padding:0;margin-bottom:12px">
     <div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px"><span style="color:var(--amber3)">🏆</span><span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Best Sellers — Top 5 per Bottiglie</span></div>
     <div style="padding:16px;display:flex;flex-direction:column;gap:12px">
-      ${bestSellers.length===0?`<div style="text-align:center;padding:24px;color:var(--txt4);font-size:11px">Nessuna vendita registrata</div>`:
-      bestSellers.map((b,i)=>{const marg=b.ricavo-b.costo;const mp=b.ricavo?(marg/b.ricavo*100):0;return `<div>
+      ${D.bestSellers.length===0?`<div style="text-align:center;padding:24px;color:var(--txt4);font-size:11px">Nessuna vendita registrata</div>`:
+      D.bestSellers.map((b,i)=>{const marg=b.ricavo-b.costo;const mp=b.ricavo?(marg/b.ricavo*100):0;return `<div>
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
           <span style="font-size:10px;color:var(--txt4);width:16px">#${i+1}</span>
           <div style="flex:1;min-width:0"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px">${h(b.wineName)}</div><div style="color:var(--txt4);font-size:10px">${h(b.produttore)}</div></div>
           <div style="text-align:right"><div style="color:var(--amber);font-family:'Montserrat',sans-serif;font-size:1rem">${b.qty} bt</div><div style="color:${mp>=0?"#30D158":"#FF453A"};font-size:10px">${fmtN(mp,1)}% marg.</div></div>
         </div>
         <div style="display:flex;align-items:center;gap:8px;padding-left:26px">
-          <div class="mini-bar"><div class="mini-bar-fill" style="width:${Math.min(100,(b.qty/maxQty)*100)}%"></div></div>
+          <div class="mini-bar"><div class="mini-bar-fill" style="width:${Math.min(100,(b.qty/D.maxQty)*100)}%"></div></div>
           <span style="font-size:10px;color:#30D158;width:72px;text-align:right">${fmt(marg)}</span>
         </div>
       </div>`}).join("")}
     </div>
   </div>`;
-  // Rotazione Lenta (spostata qui, subito dopo Best Sellers)
-  html+=`<div style="margin-bottom:20px">${_rotCard}</div>`;
+  // Rotazione Lenta (subito dopo Best Sellers)
+  const rotCard=_plTbl("Rotazione Lenta · giorni di giacenza (DIO, base 90 gg)","🐌",D.rotazione,[
+    {h:"Vino",render:r=>`<div style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(r.nome)}${r.annata?` <span style="color:var(--txt4);font-size:10px">${h(r.annata)}</span>`:""}</div><div style="color:var(--txt4);font-size:10px">${h(r.produttore||'—')}</div>`},
+    {h:"Giac.",r:true,style:"color:var(--txt3)",render:r=>r.g},
+    {h:"Venduti 90gg",r:true,style:"color:var(--txt3)",render:r=>r.venduti90},
+    {h:"Giorni stock",r:true,style:"font-family:'Montserrat',sans-serif;color:var(--amber)",render:r=>r.dio===Infinity?"∞":Math.round(r.dio)},
+  ],"Nessuna referenza in giacenza");
+  html+=`<div style="margin-bottom:20px">${rotCard}</div>`;
+  return html;
+}
 
-  // ─────────── §3 · APPROVVIGIONAMENTO & FORNITORI (+ cash flow uscite) ───────────
-  html+=`<style>@media(max-width:640px){.pl-forn-grid{grid-template-columns:1fr!important}}</style>
+// §3 · APPROVVIGIONAMENTO & FORNITORI (+ cash flow uscite)
+function _plSec3Fornitori(D){
+  const {wineMap,periodoLabels,acquistiData}=D;
+  let html=`<style>@media(max-width:640px){.pl-forn-grid{grid-template-columns:1fr!important}}</style>
   <div style="font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4);margin:28px 0 8px">Approvvigionamento & Fornitori · da gen 2026</div>
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:14px">
-    ${_bigCard("Totale Speso",fmt(_fTot),"carichi IVA incl. · da gen 2026","#30D158")}
-    ${_bigCard("Bottiglie Comprate",fmtN(_fBt,0),"volume acquistato · da gen 2026","var(--amber)")}
-    ${_bigCard("Ordini Effettuati",fmtN(_nOrdiniPeriodo,0),"ordini dal 2026","#007AFF")}
-    ${_bigCard("Costo Medio / bt",fmt(_fCostoMedio),"IVA incl. per bottiglia","var(--amber3)")}
+    ${_plBigCard("Totale Speso",fmt(D.fTot),"carichi IVA incl. · da gen 2026","#30D158")}
+    ${_plBigCard("Bottiglie Comprate",fmtN(D.fBt,0),"volume acquistato · da gen 2026","var(--amber)")}
+    ${_plBigCard("Ordini Effettuati",fmtN(D.nOrdiniPeriodo,0),"ordini dal 2026","#007AFF")}
+    ${_plBigCard("Costo Medio / bt",fmt(D.fCostoMedio),"IVA incl. per bottiglia","var(--amber3)")}
   </div>
   <div class="pl-forn-grid" style="display:grid;grid-template-columns:3fr 2fr;gap:14px;margin-bottom:24px">
     <div class="card" style="padding:0">
       <div style="padding:12px 18px;border-bottom:1px solid var(--border);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--txt2)">🏭 Classifica Fornitori · spesa</div>
-      ${_fManqRighe>0?`<div style="margin:8px 12px;padding:9px 12px;background:rgba(255,159,10,.12);border:1px solid rgba(180,83,9,.5);border-radius:8px;font-size:11px;color:var(--amber);line-height:1.45">
-        ⚠️ <b>${fmtN(_fManqRighe,0)}</b> carich${_fManqRighe===1?'i':'i'} su <b>${fmtN(_fCarichi.length,0)}</b> (<b>${fmtN(_fManqBt,0)}</b> bt) senza <code>prezzoAcqLotto</code> → stimati sul costo corrente della scheda, potenzialmente svalutato.
-        <span style="color:var(--txt3)">Valore su fallback: <b style="color:var(--amber)">${fmt(_fManqImp)}</b> · ${_fTot>0?fmtN(_fManqImp/_fTot*100,0):0}% del totale poggia su costi non affidabili.</span>
+      ${D.fManqRighe>0?`<div style="margin:8px 12px;padding:9px 12px;background:rgba(255,159,10,.12);border:1px solid rgba(180,83,9,.5);border-radius:8px;font-size:11px;color:var(--amber);line-height:1.45">
+        ⚠️ <b>${fmtN(D.fManqRighe,0)}</b> carich${D.fManqRighe===1?'i':'i'} su <b>${fmtN(D.fCarichiLen,0)}</b> (<b>${fmtN(D.fManqBt,0)}</b> bt) senza <code>prezzoAcqLotto</code> → stimati sul costo corrente della scheda, potenzialmente svalutato.
+        <span style="color:var(--txt3)">Valore su fallback: <b style="color:var(--amber)">${fmt(D.fManqImp)}</b> · ${D.fTot>0?fmtN(D.fManqImp/D.fTot*100,0):0}% del totale poggia su costi non affidabili.</span>
       </div>`:""}
       <div style="padding:4px 0">
-        ${_fRank.length===0?`<div style="padding:24px;text-align:center;color:var(--txt4);font-size:11px">Nessun carico dal ${_fEpoch}</div>`:
-        _fRank.slice(0,12).map((r,i)=>`<div onclick="drillFornitore('${encodeURIComponent(r.forn)}')" title="Vedi i carichi e gli ordini di ${h(r.forn)}" style="display:flex;align-items:center;gap:12px;padding:9px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(255,159,10,.06)'" onmouseout="this.style.background='none'">
+        ${D.fRank.length===0?`<div style="padding:24px;text-align:center;color:var(--txt4);font-size:11px">Nessun carico dal ${D.fEpoch}</div>`:
+        D.fRank.slice(0,12).map((r,i)=>`<div onclick="drillFornitore('${encodeURIComponent(r.forn)}')" title="Vedi i carichi e gli ordini di ${h(r.forn)}" style="display:flex;align-items:center;gap:12px;padding:9px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(255,159,10,.06)'" onmouseout="this.style.background='none'">
           <span style="font-size:11px;color:var(--txt4);width:18px;font-family:'Montserrat',sans-serif">${i+1}</span>
           <div style="flex:1;min-width:0">
             <div style="font-size:13px;color:var(--txt1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${h(r.forn)}${r.manqBt>0?` <span title="${fmtN(r.manqRighe,0)} carichi senza costo lotto · ${fmt(r.manqImp)} su fallback" style="display:inline-block;font-size:9px;color:var(--amber);border:1px solid rgba(180,83,9,.5);background:rgba(255,159,10,.12);border-radius:4px;padding:0 5px;vertical-align:middle;font-family:'Montserrat',sans-serif">⚠ ${fmtN(r.manqBt,0)}</span>`:""}</div>
@@ -3164,8 +3273,8 @@ function renderPlancia(){
     <div class="card" style="padding:0">
       <div style="padding:12px 18px;border-bottom:1px solid var(--border);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--txt2)">🗓 Ultimi Carichi</div>
       <div style="padding:4px 0">
-        ${_fDiary.length===0?`<div style="padding:24px;text-align:center;color:var(--txt4);font-size:11px">—</div>`:
-        _fDiary.map(m=>{const w=wineMap[m.wineId];const key=((m.fornitore||w?.distributore||"").trim())||"Fornitore Sconosciuto";const p=costoCarico(m,w);const iva=(parseInt(w?.iva)||22)/100;const q=parseInt(m.qty)||0;const imp=p*(1+iva)*q;return `<div style="display:flex;align-items:center;gap:10px;padding:9px 18px;border-bottom:1px solid var(--border)">
+        ${D.fDiary.length===0?`<div style="padding:24px;text-align:center;color:var(--txt4);font-size:11px">—</div>`:
+        D.fDiary.map(m=>{const w=wineMap[m.wineId];const key=((m.fornitore||w?.distributore||"").trim())||"Fornitore Sconosciuto";const p=costoCarico(m,w);const iva=(parseInt(w?.iva)||22)/100;const q=parseInt(m.qty)||0;const imp=p*(1+iva)*q;return `<div style="display:flex;align-items:center;gap:10px;padding:9px 18px;border-bottom:1px solid var(--border)">
           <div style="flex:1;min-width:0">
             <div style="font-size:12px;color:var(--txt1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${h(key)}</div>
             <div style="font-size:10px;color:var(--txt4)">${_fmtDataIT(m.data)||'—'} · ${fmtN(q,0)} bt</div>
@@ -3176,21 +3285,21 @@ function renderPlancia(){
     </div>
   </div>`;
   // widget ordini aperti
-  const owColor=ordiniOpen.length>0?"rgba(255,159,10,.15)":"rgba(20,83,45,.2)";
-  const owBorder=ordiniOpen.length>0?"rgba(180,83,9,.5)":"rgba(21,128,61,.4)";
+  const owColor=D.ordiniOpen.length>0?"rgba(255,159,10,.15)":"rgba(20,83,45,.2)";
+  const owBorder=D.ordiniOpen.length>0?"rgba(180,83,9,.5)":"rgba(21,128,61,.4)";
   html+=`<div style="background:${owColor};border:1px solid ${owBorder};padding:14px 20px;margin-bottom:24px;display:flex;align-items:center;gap:20px;flex-wrap:wrap">
-    <div style="font-size:1.6rem">${ordiniOpen.length>0?"📦":"✅"}</div>
+    <div style="font-size:1.6rem">${D.ordiniOpen.length>0?"📦":"✅"}</div>
     <div style="flex:1;min-width:0">
       <div style="font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt3);margin-bottom:4px">Ordini Fornitore Aperti</div>
-      ${ordiniOpen.length===0
+      ${D.ordiniOpen.length===0
         ? `<div style="font-family:'Montserrat',sans-serif;font-weight:300;font-size:1.15rem;color:#30D158">Nessun ordine in sospeso</div>`
         : `<div style="display:flex;align-items:baseline;gap:16px;flex-wrap:wrap">
-            <div style="font-family:'Montserrat',sans-serif;font-weight:300;font-size:1.5rem;color:var(--amber)">${ordiniOpen.length} <span style="font-size:.85rem;color:var(--txt3)">ordini</span></div>
-            <div style="font-size:11px;color:var(--txt2)">${ordiniQtyTot} bottiglie · <span style="color:var(--amber)">${fmt(ordiniValTot)}</span> stimato IVA incl.</div>
-            ${ordiniPending.length>0?`<div style="font-size:10px;padding:2px 8px;background:#16a34a22;border:1px solid #16a34a55;color:#30D158">${ordiniPending.length} ricevut${ordiniPending.length===1?"o":"i"}, da caricare</div>`:""}
+            <div style="font-family:'Montserrat',sans-serif;font-weight:300;font-size:1.5rem;color:var(--amber)">${D.ordiniOpen.length} <span style="font-size:.85rem;color:var(--txt3)">ordini</span></div>
+            <div style="font-size:11px;color:var(--txt2)">${D.ordiniQtyTot} bottiglie · <span style="color:var(--amber)">${fmt(D.ordiniValTot)}</span> stimato IVA incl.</div>
+            ${D.ordiniPending.length>0?`<div style="font-size:10px;padding:2px 8px;background:#16a34a22;border:1px solid #16a34a55;color:#30D158">${D.ordiniPending.length} ricevut${D.ordiniPending.length===1?"o":"i"}, da caricare</div>`:""}
           </div>`}
     </div>
-    <button class="btn-outline btn-sm" onclick="go('ordini')" style="${ordiniOpen.length>0?"border-color:var(--amber3);color:var(--amber)":"border-color:rgba(21,128,61,.5);color:#30D158"}">${ordiniOpen.length>0?"Vai agli ordini →":"Crea ordine →"}</button>
+    <button class="btn-outline btn-sm" onclick="go('ordini')" style="${D.ordiniOpen.length>0?"border-color:var(--amber3);color:var(--amber)":"border-color:rgba(21,128,61,.5);color:#30D158"}">${D.ordiniOpen.length>0?"Vai agli ordini →":"Crea ordine →"}</button>
   </div>`;
   // Acquisti per periodo (chart, splittato)
   html+=`<div class="card" style="padding:0;margin-bottom:20px">
@@ -3203,11 +3312,11 @@ function renderPlancia(){
   // Storico Acquisti (KPI + dettaglio)
   html+=`<div class="kpi-grid g4" style="margin-bottom:16px">
     ${[
-      {label:"Bottiglie Acquistate",value:fmtN(totAcqQty,0),sub:"totale carichi",cls:"c-amber"},
-      {label:"Spesa Netta (ex IVA)",value:fmt(totAcqNetto),sub:"imponibile totale",cls:"c-blue"},
-      {label:"IVA Assolta",value:fmt(totAcqIva),sub:"IVA su acquisti",cls:"c-orange"},
-      {label:"Spesa Totale (IVA incl.)",value:fmt(totAcqConIva),sub:"esborso effettivo",cls:"c-green"},
-    ].map(_kpiCard).join("")}
+      {label:"Bottiglie Acquistate",value:fmtN(D.totAcqQty,0),sub:"totale carichi",cls:"c-amber"},
+      {label:"Spesa Netta (ex IVA)",value:fmt(D.totAcqNetto),sub:"imponibile totale",cls:"c-blue"},
+      {label:"IVA Assolta",value:fmt(D.totAcqIva),sub:"IVA su acquisti",cls:"c-orange"},
+      {label:"Spesa Totale (IVA incl.)",value:fmt(D.totAcqConIva),sub:"esborso effettivo",cls:"c-green"},
+    ].map(_plKpiCard).join("")}
   </div>`;
   html+=`<div class="card" style="padding:0;margin-bottom:20px">
     <div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
@@ -3228,10 +3337,10 @@ function renderPlancia(){
       </tr>`).join("")}</tbody>
       <tfoot><tr style="border-top:2px solid var(--border2)">
         <td style="padding:10px 20px;color:var(--txt3);font-size:9px;letter-spacing:.1em;text-transform:uppercase">Totale</td>
-        <td style="padding:10px 12px;text-align:right;color:var(--amber)">${fmtN(totAcqQty,0)}</td>
-        <td style="padding:10px 12px;text-align:right;color:var(--txt2)">${fmt(totAcqNetto)}</td>
-        <td style="padding:10px 12px;text-align:right;color:var(--txt3)">${fmt(totAcqIva)}</td>
-        <td style="padding:10px 12px;text-align:right;color:#30D158;font-weight:600">${fmt(totAcqConIva)}</td>
+        <td style="padding:10px 12px;text-align:right;color:var(--amber)">${fmtN(D.totAcqQty,0)}</td>
+        <td style="padding:10px 12px;text-align:right;color:var(--txt2)">${fmt(D.totAcqNetto)}</td>
+        <td style="padding:10px 12px;text-align:right;color:var(--txt3)">${fmt(D.totAcqIva)}</td>
+        <td style="padding:10px 12px;text-align:right;color:#30D158;font-weight:600">${fmt(D.totAcqConIva)}</td>
       </tr></tfoot>
     </table></div>`}
   </div>`;
@@ -3240,9 +3349,9 @@ function renderPlancia(){
     <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap">
       <span style="color:#007AFF">🏭</span>
       <span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Ordini per Fornitore · gen→oggi</span><span style="font-size:9px;color:var(--txt4)">solo fornitori con acquisti nel periodo</span>
-      <span style="margin-left:auto;text-align:right"><span style="font-family:'Montserrat',sans-serif;color:#30D158;font-size:.95rem">${fmt(totSpesaForn)}</span><span style="color:var(--txt4);font-size:9px;letter-spacing:.1em;text-transform:uppercase;margin-left:6px">${fmtN(totBtForn,0)} bt · ${reportForn.length} fornitori</span></span>
+      <span style="margin-left:auto;text-align:right"><span style="font-family:'Montserrat',sans-serif;color:#30D158;font-size:.95rem">${fmt(D.totSpesaForn)}</span><span style="color:var(--txt4);font-size:9px;letter-spacing:.1em;text-transform:uppercase;margin-left:6px">${fmtN(D.totBtForn,0)} bt · ${D.reportForn.length} fornitori</span></span>
     </div>
-    ${reportForn.length===0?`<div style="padding:32px;text-align:center;color:var(--txt4);font-size:11px">Nessun carico registrato</div>`:`
+    ${D.reportForn.length===0?`<div style="padding:32px;text-align:center;color:var(--txt4);font-size:11px">Nessun carico registrato</div>`:`
     <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">
       <thead><tr style="border-bottom:1px solid var(--border)">
         <th style="text-align:left;padding:9px 20px;color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase">#</th>
@@ -3251,8 +3360,8 @@ function renderPlancia(){
         <th style="text-align:right;padding:9px 12px;color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase">Importo Pagato</th>
         <th style="text-align:right;padding:9px 20px;color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase">Valore a Magazzino</th>
       </tr></thead>
-      <tbody>${pageForn.map((r,i)=>`<tr style="border-bottom:1px solid var(--border)">
-        <td style="padding:9px 20px;color:var(--txt4);font-family:'Montserrat',sans-serif;font-size:10px">${pageStart+i+1}</td>
+      <tbody>${D.pageForn.map((r,i)=>`<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:9px 20px;color:var(--txt4);font-family:'Montserrat',sans-serif;font-size:10px">${D.pageStart+i+1}</td>
         <td style="padding:9px 12px;color:var(--txt1);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(r.forn)}</td>
         <td style="padding:9px 12px;text-align:right;color:var(--txt3)">${fmtN(r.bottiglie,0)}</td>
         <td style="padding:9px 12px;text-align:right;font-family:'Montserrat',sans-serif;color:var(--amber)">${fmt(r.spesa)}</td>
@@ -3260,15 +3369,15 @@ function renderPlancia(){
       </tr>`).join("")}</tbody>
       <tfoot><tr style="border-top:2px solid var(--border2)">
         <td colspan="2" style="padding:11px 20px;color:var(--txt3);font-size:9px;letter-spacing:.1em;text-transform:uppercase">Totale (tutti)</td>
-        <td style="padding:11px 12px;text-align:right;color:var(--txt2)">${fmtN(totBtForn,0)}</td>
-        <td style="padding:11px 12px;text-align:right;font-family:'Montserrat',sans-serif;color:#30D158;font-weight:600">${fmt(totSpesaForn)}</td>
-        <td style="padding:11px 20px;text-align:right;font-family:'Montserrat',sans-serif;color:var(--txt2)">${fmt(totValMag)}</td>
+        <td style="padding:11px 12px;text-align:right;color:var(--txt2)">${fmtN(D.totBtForn,0)}</td>
+        <td style="padding:11px 12px;text-align:right;font-family:'Montserrat',sans-serif;color:#30D158;font-weight:600">${fmt(D.totSpesaForn)}</td>
+        <td style="padding:11px 20px;text-align:right;font-family:'Montserrat',sans-serif;color:var(--txt2)">${fmt(D.totValMag)}</td>
       </tr></tfoot>
     </table></div>
-    ${nPagesF>1?`<div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:10px">
+    ${D.nPagesF>1?`<div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:10px">
       <button class="btn-outline btn-sm" ${planciaFornPage===0?"disabled style=\"opacity:.35;cursor:default\"":""} onclick="planciaFornPage--;render()">‹ Prec</button>
-      <span style="font-size:10px;color:var(--txt4);letter-spacing:.08em">${pageStart+1}–${Math.min(pageStart+FORN_PAGE,reportForn.length)} di ${reportForn.length} · pag. ${planciaFornPage+1}/${nPagesF}</span>
-      <button class="btn-outline btn-sm" ${planciaFornPage>=nPagesF-1?"disabled style=\"opacity:.35;cursor:default\"":""} onclick="planciaFornPage++;render()">Succ ›</button>
+      <span style="font-size:10px;color:var(--txt4);letter-spacing:.08em">${D.pageStart+1}–${Math.min(D.pageStart+D.FORN_PAGE,D.reportForn.length)} di ${D.reportForn.length} · pag. ${planciaFornPage+1}/${D.nPagesF}</span>
+      <button class="btn-outline btn-sm" ${planciaFornPage>=D.nPagesF-1?"disabled style=\"opacity:.35;cursor:default\"":""} onclick="planciaFornPage++;render()">Succ ›</button>
     </div>`:""}`}
   </div>`;
   // Valore a Magazzino per Fornitore (tutti i fornitori, indipendente dal periodo)
@@ -3277,9 +3386,9 @@ function renderPlancia(){
       <span style="color:var(--amber)">\u{1F3F7}\u{FE0F}</span>
       <span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Valore a Magazzino per Fornitore</span>
       <span style="font-size:9px;color:var(--txt4)">tutti i fornitori \u00b7 giacenza attuale</span>
-      <span style="margin-left:auto;text-align:right"><span style="font-family:'Montserrat',sans-serif;color:var(--txt2);font-size:.95rem">${fmt(totMagVal)}</span><span style="color:var(--txt4);font-size:9px;letter-spacing:.1em;text-transform:uppercase;margin-left:6px">${fmtN(totMagBt,0)} bt \u00b7 ${reportMag.length} fornitori</span></span>
+      <span style="margin-left:auto;text-align:right"><span style="font-family:'Montserrat',sans-serif;color:var(--txt2);font-size:.95rem">${fmt(D.totMagVal)}</span><span style="color:var(--txt4);font-size:9px;letter-spacing:.1em;text-transform:uppercase;margin-left:6px">${fmtN(D.totMagBt,0)} bt \u00b7 ${D.reportMag.length} fornitori</span></span>
     </div>
-    ${reportMag.length===0?`<div style="padding:32px;text-align:center;color:var(--txt4);font-size:11px">Nessuna giacenza</div>`:`
+    ${D.reportMag.length===0?`<div style="padding:32px;text-align:center;color:var(--txt4);font-size:11px">Nessuna giacenza</div>`:`
     <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">
       <thead><tr style="border-bottom:1px solid var(--border)">
         <th style="text-align:left;padding:9px 20px;color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase">#</th>
@@ -3289,8 +3398,8 @@ function renderPlancia(){
         <th style="text-align:right;padding:9px 12px;color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase">Val. Costo</th>
         <th style="text-align:right;padding:9px 20px;color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase">Val. Carta</th>
       </tr></thead>
-      <tbody>${pageMag.map((r,i)=>`<tr style="border-bottom:1px solid var(--border)">
-        <td style="padding:9px 20px;color:var(--txt4);font-family:'Montserrat',sans-serif;font-size:10px">${magStart+i+1}</td>
+      <tbody>${D.pageMag.map((r,i)=>`<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:9px 20px;color:var(--txt4);font-family:'Montserrat',sans-serif;font-size:10px">${D.magStart+i+1}</td>
         <td style="padding:9px 12px;color:var(--txt1);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(r.forn)}</td>
         <td style="padding:9px 12px;text-align:right;color:var(--txt4)">${fmtN(r.referenze,0)}</td>
         <td style="padding:9px 12px;text-align:right;color:var(--txt3)">${fmtN(r.bottiglie,0)}</td>
@@ -3299,61 +3408,86 @@ function renderPlancia(){
       </tr>`).join("")}</tbody>
       <tfoot><tr style="border-top:2px solid var(--border2)">
         <td colspan="3" style="padding:11px 20px;color:var(--txt3);font-size:9px;letter-spacing:.1em;text-transform:uppercase">Totale (tutti)</td>
-        <td style="padding:11px 12px;text-align:right;color:var(--txt2)">${fmtN(totMagBt,0)}</td>
-        <td style="padding:11px 12px;text-align:right;font-family:'Montserrat',sans-serif;color:var(--txt2);font-weight:600">${fmt(totMagVal)}</td>
-        <td style="padding:11px 20px;text-align:right;font-family:'Montserrat',sans-serif;color:var(--amber);font-weight:600">${fmt(totMagCarta)}</td>
+        <td style="padding:11px 12px;text-align:right;color:var(--txt2)">${fmtN(D.totMagBt,0)}</td>
+        <td style="padding:11px 12px;text-align:right;font-family:'Montserrat',sans-serif;color:var(--txt2);font-weight:600">${fmt(D.totMagVal)}</td>
+        <td style="padding:11px 20px;text-align:right;font-family:'Montserrat',sans-serif;color:var(--amber);font-weight:600">${fmt(D.totMagCarta)}</td>
       </tr></tfoot>
     </table></div>
-    ${nPagesM>1?`<div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:10px">
+    ${D.nPagesM>1?`<div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:10px">
       <button class="btn-outline btn-sm" ${planciaMagPage===0?"disabled style=\"opacity:.35;cursor:default\"":""} onclick="planciaMagPage--;render()">\u2039 Prec</button>
-      <span style="font-size:10px;color:var(--txt4);letter-spacing:.08em">${magStart+1}\u2013${Math.min(magStart+MAG_PAGE,reportMag.length)} di ${reportMag.length} \u00b7 pag. ${planciaMagPage+1}/${nPagesM}</span>
-      <button class="btn-outline btn-sm" ${planciaMagPage>=nPagesM-1?"disabled style=\"opacity:.35;cursor:default\"":""} onclick="planciaMagPage++;render()">Succ \u203a</button>
+      <span style="font-size:10px;color:var(--txt4);letter-spacing:.08em">${D.magStart+1}\u2013${Math.min(D.magStart+D.MAG_PAGE,D.reportMag.length)} di ${D.reportMag.length} \u00b7 pag. ${planciaMagPage+1}/${D.nPagesM}</span>
+      <button class="btn-outline btn-sm" ${planciaMagPage>=D.nPagesM-1?"disabled style=\"opacity:.35;cursor:default\"":""} onclick="planciaMagPage++;render()">Succ \u203a</button>
     </div>`:""}`}
   </div>`;
-  // Cash Flow (uscite) — spostato in Approvvigionamento
+  // Cash Flow (uscite)
   html+=`<div class="card" style="margin-bottom:16px">
     <div class="section-label"><span>💶 Cash Flow Mensile · Incassi stimati vs Uscite · da gen 2026</span></div>
     <div class="chart-container" style="height:240px"><canvas id="ch-cashflow"></canvas></div>
   </div>`;
+  return html;
+}
 
-  // ─────────── §4 · STATO CANTINA / ALERT ───────────
-  html+=`<div style="font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4);margin:28px 0 8px">Stato Cantina</div>
-    <div class="kpi-grid g3" style="margin-bottom:12px">${kpiStato1.map(_kpiCard).join("")}</div>
-    <div class="kpi-grid g3" style="margin-bottom:20px">${kpiStato2.map(_kpiCard).join("")}</div>`;
+// §4 · STATO CANTINA / ALERT
+function _plSec4Cantina(D){
+  let html=`<div style="font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4);margin:28px 0 8px">Stato Cantina</div>
+    <div class="kpi-grid g3" style="margin-bottom:12px">${D.kpiStato1.map(_plKpiCard).join("")}</div>
+    <div class="kpi-grid g3" style="margin-bottom:20px">${D.kpiStato2.map(_plKpiCard).join("")}</div>`;
   // Alert riordino
   html+=`<div class="kpi-grid g3" style="margin-bottom:16px">
-    ${[{l:"Esaurite",v:cEsaur,c:"#FF453A"},{l:"Sotto minimo",v:cMin,c:"#fb923c"},{l:"Da riordinare",v:cRiord,c:"#fbbf24"}].map(a=>`<div class="kpi-card" style="cursor:pointer" onclick="go('inventario')"><div class="kpi-label">${a.l}</div><div class="kpi-val" style="color:${a.c}">${a.v}</div><div class="kpi-sub">referenze · vai all'inventario →</div></div>`).join("")}
+    ${[{l:"Esaurite",v:D.cEsaur,c:"#FF453A"},{l:"Sotto minimo",v:D.cMin,c:"#fb923c"},{l:"Da riordinare",v:D.cRiord,c:"#fbbf24"}].map(a=>`<div class="kpi-card" style="cursor:pointer" onclick="go('inventario')"><div class="kpi-label">${a.l}</div><div class="kpi-val" style="color:${a.c}">${a.v}</div><div class="kpi-sub">referenze · vai all'inventario →</div></div>`).join("")}
   </div>`;
-  // Giacenza per Tipologia (pie, spostata qui)
+  // Giacenza per Tipologia (pie)
   html+=`<div class="card" style="margin-bottom:16px">
     <div class="section-label"><span>🎯 Giacenza per Tipologia</span></div>
-    ${tipoPie.length===0?`<div style="text-align:center;padding:24px;color:var(--txt4);font-size:11px">Nessun dato</div>`:`
+    ${D.tipoPie.length===0?`<div style="text-align:center;padding:24px;color:var(--txt4);font-size:11px">Nessun dato</div>`:`
     <div style="display:flex;align-items:center;gap:16px">
       <div style="width:52%;min-width:130px;height:220px;position:relative"><canvas id="ch-pie"></canvas></div>
-      <div class="pie-legend" style="flex:1">${tipoPie.map((d,i)=>`<div class="pie-row"><div style="display:flex;align-items:center;gap:6px"><div class="pie-dot" style="background:${PIE_COLORS[i%PIE_COLORS.length]}"></div><span style="color:var(--txt2);text-transform:uppercase">${h(d.name)}</span></div><span style="color:var(--amber)">${d.value} bt</span></div>`).join("")}</div>
+      <div class="pie-legend" style="flex:1">${D.tipoPie.map((d,i)=>`<div class="pie-row"><div style="display:flex;align-items:center;gap:6px"><div class="pie-dot" style="background:${PIE_COLORS[i%PIE_COLORS.length]}"></div><span style="color:var(--txt2);text-transform:uppercase">${h(d.name)}</span></div><span style="color:var(--amber)">${d.value} bt</span></div>`).join("")}</div>
     </div>`}
   </div>`;
-  // Dead stock
-  html+=`<div style="margin-bottom:20px">${_dsCardWithFooter}</div>`;
-
-  // ─────────── §5 · CARTA / COPERTURA ───────────
-  html+=`<div style="font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4);margin:28px 0 10px">Carta & Copertura</div>`;
-  html+=`<div class="kpi-grid g4" style="margin-bottom:8px">
-    ${[
-      {label:"Copertura Carta",value:`${fmtN(coperturaPct,0)}%`,sub:`${inCartaCount} in carta su ${s.refAttive} attive`,cls:"c-amber"},
-      {label:"In Fresco ❄",value:frescoCount,sub:cartaSenzaPrezzo?`${cartaSenzaPrezzo} attive senza prezzo carta`:"referenze refrigerate",cls:"c-blue"},
-      {label:"Ricarico Medio",value:`${fmtN(markupMed,1)}×`,sub:"prezzo carta / costo+IVA",cls:"c-green"},
-      {label:"Pareto Margine",value:`${fmtN(paretoPct,0)}%`,sub:`generato dal top ${top20n} (20%)`,cls:"c-orange"},
-    ].map(_kpiCard).join("")}
-  </div>`;
-
-  // ── window state per initPlanciaCharts (invariato) ──
-  window._plCash={labels:cashData.map(d=>d.label),ricavo:cashData.map(d=>Math.round(d.ricavo*100)/100),spesa:cashData.map(d=>Math.round(d.spesa*100)/100),saldo:cashData.map(d=>Math.round((d.ricavo-d.spesa)*100)/100)};
-  window._plTrend=trendData;
-  window._plTopMargin=topMargin;
-  window._plPie=tipoPie;
-  window._plAcquisti={labels:acquistiData.map(d=>d.key),qty:acquistiData.map(d=>d.qty),spesa:acquistiData.map(d=>Math.round(d.costoConIva*100)/100)};
+  // Dead stock (+ footer capitale fermo)
+  const dsCard=_plTbl("Capitale Fermo · nessuna vendita da 180+ gg","🧊",D.deadStock,[
+      {h:"Vino",render:r=>`<div style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(r.nome)}</div><div style="color:var(--txt4);font-size:10px">${h(r.produttore||'—')}</div>`},
+      {h:"Giac.",r:true,style:"color:var(--txt3)",render:r=>r.g},
+      {h:"Valore",r:true,style:"font-family:'Montserrat',sans-serif;color:#FF6B6B",render:r=>fmt(r.valore)},
+      {h:"Ferma da",r:true,style:"color:var(--txt3);font-size:10px",render:r=>r.giorni===null?"mai venduto":`${r.giorni} gg`},
+    ],"Nessun capitale immobilizzato");
+  const dsFooter=D.deadStock.length?`<div style="padding:10px 20px;border-top:1px solid var(--border2);display:flex;justify-content:space-between;font-size:10px"><span style="color:var(--txt4);text-transform:uppercase;letter-spacing:.1em">Capitale fermo totale</span><span style="font-family:'Montserrat',sans-serif;color:#FF6B6B">${fmt(D.capitaleFermo)}</span></div>`:"";
+  const dsCardFull=dsFooter?dsCard.replace(/<\/div>\s*$/,dsFooter+"</div>"):dsCard;
+  html+=`<div style="margin-bottom:20px">${dsCardFull}</div>`;
   return html;
+}
+
+// §5 · CARTA / COPERTURA
+function _plSec5Carta(D){
+  return `<div style="font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4);margin:28px 0 10px">Carta & Copertura</div><div class="kpi-grid g4" style="margin-bottom:8px">
+    ${[
+      {label:"Copertura Carta",value:`${fmtN(D.coperturaPct,0)}%`,sub:`${D.inCartaCount} in carta su ${D.s.refAttive} attive`,cls:"c-amber"},
+      {label:"In Fresco ❄",value:D.frescoCount,sub:D.cartaSenzaPrezzo?`${D.cartaSenzaPrezzo} attive senza prezzo carta`:"referenze refrigerate",cls:"c-blue"},
+      {label:"Ricarico Medio",value:`${fmtN(D.markupMed,1)}×`,sub:"prezzo carta / costo+IVA",cls:"c-green"},
+      {label:"Pareto Margine",value:`${fmtN(D.paretoPct,0)}%`,sub:`generato dal top ${D.top20n} (20%)`,cls:"c-orange"},
+    ].map(_plKpiCard).join("")}
+  </div>`;
+}
+
+// Stato esposto a initPlanciaCharts (contratto invariato).
+function _plPublishChartState(D){
+  window._plCash={labels:D.cashData.map(d=>d.label),ricavo:D.cashData.map(d=>Math.round(d.ricavo*100)/100),spesa:D.cashData.map(d=>Math.round(d.spesa*100)/100),saldo:D.cashData.map(d=>Math.round((d.ricavo-d.spesa)*100)/100)};
+  window._plTrend=D.trendData;
+  window._plTopMargin=D.topMargin;
+  window._plPie=D.tipoPie;
+  window._plAcquisti={labels:D.acquistiData.map(d=>d.key),qty:D.acquistiData.map(d=>d.qty),spesa:D.acquistiData.map(d=>Math.round(d.costoConIva*100)/100)};
+}
+
+// ─── DASHBOARD ────────────────────────────────────────────────────────────────
+function renderPlancia(){
+  const D=_plCompute();
+  _plPublishChartState(D);
+  return _plSec1Direzione(D)
+    + _plSec2Vendite(D)
+    + _plSec3Fornitori(D)
+    + _plSec4Cantina(D)
+    + _plSec5Carta(D);
 }
 
 function initPlanciaCharts(){
@@ -3856,6 +3990,7 @@ function registraScaricaSerata(){
       rem -= c;
       return {...l, qtyRimanente: l.qtyRimanente - c};
     });
+    _fifoShort(w.id, w.nome, rem);
     return {...w, giacenza: w.giacenza - sc.qty, lots: updLots};
   });
 
@@ -3863,7 +3998,8 @@ function registraScaricaSerata(){
     id: uid(), wineId: r.wine.id, wineName: r.wine.nome, produttore: r.wine.produttore, nazione: r.wine.nazione||"",
     tipo: "scarico", qty: r.qty, data, fattura: "", fornitore: "",
     costoUnitarioIva: calcCostoIvaBottiglia(r.wine),
-    servizio: parseFloat(CONFIG.servizioBottiglia)||0, // snapshot servizio al banco
+    servizio: _servizioSnap(data), // snapshot servizio al banco (0 se pre servizioDal)
+    prezzoCartaSnap: parseFloat(r.wine.prezzoCarta)||0, // snapshot ricavo
     note: note || "Scarico serata", ts: Date.now()
   }));
   movements = [...newMovs, ...movements];
@@ -3897,6 +4033,7 @@ function registraScaricaSingoloVino(wineId){
       const c = Math.min(rem,l.qtyRimanente); rem-=c;
       return {...l, qtyRimanente:l.qtyRimanente-c};
     });
+    _fifoShort(w.id, w.nome, rem);
     return {...w, giacenza:w.giacenza-qty, lots:updLots};
   });
 
@@ -3904,7 +4041,8 @@ function registraScaricaSingoloVino(wineId){
     id:uid(), wineId, wineName:wine.nome, produttore:wine.produttore, nazione:wine.nazione||"",
     tipo:"scarico", qty, data, fattura:"", fornitore:"",
     costoUnitarioIva: calcCostoIvaBottiglia(wine),
-    servizio: parseFloat(CONFIG.servizioBottiglia)||0, // snapshot servizio al banco
+    servizio: _servizioSnap(data), // snapshot servizio al banco (0 se pre servizioDal)
+    prezzoCartaSnap: parseFloat(wine.prezzoCarta)||0, // snapshot ricavo
     note:note||"Scarico serata", ts:Date.now()
   }, ...movements];
 
@@ -4639,6 +4777,7 @@ function registraMovimento(){
       // scarico OPPURE rettifica −: consuma FIFO
       let rem=q;
       const updLots=(w.lots||[]).map(l=>{if(rem<=0||l.qtyRimanente<=0)return l;const c=Math.min(rem,l.qtyRimanente);rem-=c;return{...l,qtyRimanente:l.qtyRimanente-c}});
+      _fifoShort(w.id, w.nome, rem);
       return{...w,giacenza:Math.max(0,w.giacenza-q),lots:updLots};
     }
   });
@@ -4647,7 +4786,7 @@ function registraMovimento(){
   const _movEntry = {id:uid(),wineId,wineName:wine.nome,produttore:wine.produttore,nazione:wine.nazione||"",tipo,qty:q,data,fattura,fornitore,note,origine:"manuale",ts:Date.now()};
   if(_isRettifica(tipo)) _movEntry.segno = segno;
   if(_costoSnap) _movEntry.costoUnitarioIva = _costoSnap;
-  if(tipo==="scarico") _movEntry.servizio = parseFloat(CONFIG.servizioBottiglia)||0; // snapshot servizio
+  if(tipo==="scarico"){ _movEntry.servizio = _servizioSnap(data); _movEntry.prezzoCartaSnap = parseFloat(wine.prezzoCarta)||0; } // snapshot servizio (0 se pre servizioDal) + ricavo
   movements=[_movEntry,...movements];
   movForm={...movForm,wineId:"",_wineText:"",_newProduttore:"",_newTipologia:"Rosso",_newPrezzoCarta:"",_newVitigni:"",_newZona:"",_newAnnata:"",_newRegione:"",_newNazione:"Italia",_newIva:22,_newDistributore:"",_newFormato:"0.75",_tipologia:"",_newMode:false,qty:1,fattura:"",fornitore:"",note:"",prezzoAcqLotto:"",segno:"+"};
   scheduleSave();
@@ -4745,6 +4884,7 @@ function registraFallata(){
     if(w.id!==wineId) return w;
     let rem=q;
     const updLots=(w.lots||[]).map(l=>{if(rem<=0||l.qtyRimanente<=0)return l;const c=Math.min(rem,l.qtyRimanente);rem-=c;return{...l,qtyRimanente:l.qtyRimanente-c}});
+    _fifoShort(w.id, w.nome, rem);
     return{...w,giacenza:w.giacenza-q,lots:updLots};
   });
   fallate=[{id:uid(),wineId,wineName:wine.nome,produttore:wine.produttore,qty:q,motivo,data,note,ts:Date.now()},...fallate];
@@ -5950,7 +6090,7 @@ function confermaRicezioneOrdine(){
     const sameFmt=w=>String(parseFloat(w.formato)||0.75)===rFmt;
     const sameAnnata=w=>(w.annata||"").toLowerCase().trim()===(r.annata||"").toLowerCase().trim();
 
-    console.log(`[Ricezione] matching "${r.nomeVino}" annata="${r.annata||'NV'}" prod="${r.produttore||''}" fmt=${rFmt} wineId="${r.wineId||'—'}"`);
+    _dbg(`[Ricezione] matching "${r.nomeVino}" annata="${r.annata||'NV'}" prod="${r.produttore||''}" fmt=${rFmt} wineId="${r.wineId||'—'}"`);
 
     // Prima cerca per wineId — ma valida ANCHE annata e formato per evitare di caricare
     // su un vino omonimo di annata diversa (es. ordine Syrah 2023 con wineId che punta a Syrah 2021)
@@ -8515,7 +8655,8 @@ function registraMovimentoMobileQty(wineId, delta){
     }
   });
   const newMov = {id:movId, wineId, wineName:wine.nome, produttore:wine.produttore,
-    tipo, qty, data:dateStr, fattura, fornitore:"", note:"[mobile]", ts:Date.now()};
+    tipo, qty, data:dateStr, fattura, fornitore:"", note:"[mobile]", ts:Date.now(),
+    ...(tipo==="scarico" ? {costoUnitarioIva:calcCostoIvaBottiglia(wine), servizio:parseFloat(CONFIG.servizioBottiglia)||0, prezzoCartaSnap:parseFloat(wine.prezzoCarta)||0} : {})};
   movements = [newMov, ...movements];
 
   // 2. Aggiornamento ottimistico UI (solo il valore giacenza, senza re-render completo)
@@ -8605,7 +8746,8 @@ async function registraMovimentoMobile(wineId, delta){
 
   const movId = uid();
   const newMov = {id:movId, wineId, wineName:wine.nome, produttore:wine.produttore,
-    tipo, qty, data:dateStr, fattura, fornitore:"", note:"[mobile]", ts:Date.now()};
+    tipo, qty, data:dateStr, fattura, fornitore:"", note:"[mobile]", ts:Date.now(),
+    ...(tipo==="scarico" ? {costoUnitarioIva:calcCostoIvaBottiglia(wine), servizio:parseFloat(CONFIG.servizioBottiglia)||0, prezzoCartaSnap:parseFloat(wine.prezzoCarta)||0} : {})};
   movements = [newMov, ...movements];
 
   // Persistenza tramite il path sicuro condiviso `_flushSave`:
@@ -8647,28 +8789,30 @@ function _showMobToast(msg){
   msgEl.textContent = (msg.startsWith("Scaricato") ? "⬇ " : "⬆ ") + msg;
   toast.classList.add("visible");
 
-  // Animate bar from 100% to 0 over 4s
+  // Barra da 100% a 0 sulla finestra di undo (MOB_UNDO_MS)
   bar.style.transition = "none";
   bar.style.width = "100%";
   requestAnimationFrame(()=>{
     requestAnimationFrame(()=>{
-      bar.style.transition = "width 4s linear";
+      bar.style.transition = `width ${MOB_UNDO_MS/1000}s linear`;
       bar.style.width = "0%";
     });
   });
 
   clearTimeout(_mobToastTimer);
-  _mobToastTimer = setTimeout(()=>{ _hideMobToast(); _mobUndoData = null; }, 4000);
+  _mobUndoDeadline = Date.now() + MOB_UNDO_MS;
+  _mobToastTimer = setTimeout(()=>{ _hideMobToast(); _mobUndoData = null; }, MOB_UNDO_MS);
 }
 
 function _hideMobToast(){
   clearTimeout(_mobToastTimer);
+  _mobToastTimer = null;
   const toast = document.getElementById("mob-toast");
   if(toast) toast.classList.remove("visible");
 }
 
 async function mobUndo(){
-  if(!_mobUndoData){ _hideMobToast(); return; }
+  if(!_mobUndoData || Date.now() > _mobUndoDeadline){ _mobUndoData = null; _hideMobToast(); return; }
   _hideMobToast();
   const {wineId, prevGiacenza, prevLots, movId} = _mobUndoData;
   _mobUndoData = null;
@@ -10261,16 +10405,22 @@ function _tfAddSelected(){
   _tfAddIds(ids);
 }
 function _tfAddIds(ids){
-  let added=0;
+  // In modalità "solo scheda" la giacenza è irrilevante (si clona la referenza,
+  // nessuna bottiglia si muove): il guard su g<=0 vale solo per le bottiglie.
+  const scheda=_tfMeta.mode==="scheda";
+  let added=0, skipped=0;
   ids.forEach(id=>{
     const w=wines.find(x=>x.id===id); if(!w) return;
-    const g=parseInt(w.giacenza)||0; if(g<=0) return;
+    const g=parseInt(w.giacenza)||0;
+    if(!scheda && g<=0){ skipped++; return; }
     const ex=_tfCart.find(l=>l.wineId===id);
     if(ex){ ex.qty=Math.min(g,(parseInt(ex.qty)||0)+1); }
-    else { _tfCart.push({wineId:id,qty:1}); added++; }
+    else { _tfCart.push({wineId:id,qty:Math.min(g,1)}); added++; }
     _tfSel.delete(id);
   });
-  notify(added?`➕ ${added} referenz${added===1?"a aggiunta":"e aggiunte"} all'invio`:"➕ Quantità aggiornata");
+  if(added) notify(`➕ ${added} referenz${added===1?"a aggiunta":"e aggiunte"} all'invio`);
+  else if(skipped) notify(`⚠️ ${skipped} referenz${skipped===1?"a senza giacenza":"e senza giacenza"}: usa "📄 Solo scheda" per inviare la sola anagrafica`,"err");
+  else notify("➕ Quantità aggiornata");
   _tfRenderResults(); _tfRenderCart();
 }
 function _tfSetQty(id,v){
@@ -10367,9 +10517,10 @@ function renderTrasferimenti(){
 }
 
 function _tfResultsHtml(){
-  if(!_tfQ.trim()) return `<div style="font-size:11px;color:var(--txt4);padding:6px 0">Scrivi almeno una parola per cercare tra le referenze con giacenza disponibile.</div>`;
+  const schedaMode=_tfMeta.mode==="scheda";
+  if(!_tfQ.trim()) return `<div style="font-size:11px;color:var(--txt4);padding:6px 0">Scrivi almeno una parola per cercare ${schedaMode?"tra tutte le referenze in anagrafica (anche esaurite)":"tra le referenze con giacenza disponibile"}.</div>`;
   const res=_tfResults();
-  if(!res.length) return `<div style="font-size:11px;color:#fb923c;padding:6px 0">Nessuna referenza disponibile per «${h(_tfQ)}».</div>`;
+  if(!res.length) return `<div style="font-size:11px;color:#fb923c;padding:6px 0">Nessuna referenza ${schedaMode?"in anagrafica":"disponibile"} per «${h(_tfQ)}».</div>`;
   const nSel=res.filter(w=>_tfSel.has(w.id)).length;
   const rows=res.map(w=>{
     const g=parseInt(w.giacenza)||0;
@@ -10411,7 +10562,13 @@ function _tfSchedaCreate(line){
     prezzoCarta:parseFloat(line.prezzoCarta)||0,prezzoCalice:parseFloat(line.prezzoCalice)||0,
     sku:_nextSku(),giacenza:0,lots:[]};
 }
-function _tfSetMode(m){ _tfMeta.mode=(m==="scheda"?"scheda":"bottiglie"); _tfRenderResults(); _tfRenderCart(); }
+function _tfSetMode(m){
+  _tfMeta.mode=(m==="scheda"?"scheda":"bottiglie");
+  if(_tfMeta.mode==="bottiglie"){ // tornando alle bottiglie riporta le righe a una qty sensata
+    _tfCart.forEach(l=>{ const g=parseInt(wines.find(x=>x.id===l.wineId)?.giacenza)||0; l.qty=Math.min(g,Math.max(1,parseInt(l.qty)||0)); });
+  }
+  _tfRenderResults(); _tfRenderCart();
+}
 function _tfCartHtml(){
   const dl=_tfDestKnown();
   const scheda=_tfMeta.mode==="scheda";
@@ -10528,7 +10685,7 @@ function _tfGenera(){
   scheduleSave(); clearTimeout(saveTimer); _flushSave();
   const manifest={v:TRANSFER_MANIFEST_V,type:"cantina-transfer",transferId,
     from:NOME_LOCALE,fromDbUser:_effectiveDbUser(),dest,data,note,lines};
-  _tfCart=[]; _tfMeta={dest:"",data:today(),note:""}; _tfSel.clear(); _tfQ="";
+  _tfCart=[]; _tfMeta={dest:"",data:today(),note:"",mode:"bottiglie"}; _tfSel.clear(); _tfQ="";
   notify(`📤 Trasferimento registrato: ${tot}bt → ${dest}`);
   render();
   _tfShowManifesto(manifest);
@@ -11382,4 +11539,103 @@ function amExportCSV(){
   const st=document.createElement("style");
   st.textContent=".t9-box .t9-row:last-child{border-bottom:none}.t9-box{scrollbar-width:thin}";
   document.head.appendChild(st);
+})();
+
+// ═══════════════════════════════════════════════════════════════════════════
+// STRUMENTI DI BONIFICA GIACENZE (console) — dry-run di default.
+//   window.__cmAuditGiac()            → elenca divergenze giacenza vs Σlots
+//   window.__cmAuditGiac({fix:true})  → riallinea TUTTI i lotti alla giacenza + flush
+//   window.__cmFixGiac()              → dry-run delle 12 correzioni confermate
+//   window.__cmFixGiac(null,{apply:true})     → applica le confermate + flush
+//   window.__cmFixGiac([...],{apply:true})    → applica una lista custom (dry-run del resto)
+// ═══════════════════════════════════════════════════════════════════════════
+(function(){
+  const _norm = s => String(s||"").toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\s+/g," ").trim();
+  const _fmt = f => { const v=parseFloat(f); return Number.isFinite(v)?v:0.75; };
+
+  function _resolve(c){
+    const nN=_norm(c.nome), nP=_norm(c.produttore);
+    return (typeof wines!=="undefined"?wines:[]).filter(w=>{
+      if(c.nome      && !_norm(w.nome).includes(nN)) return false;
+      if(c.produttore&& !_norm(w.produttore).includes(nP)) return false;
+      if(c.annata    && String(w.annata||"")!==String(c.annata)) return false;
+      if(c.formato   && _fmt(w.formato)!==_fmt(c.formato)) return false;
+      return true;
+    });
+  }
+
+  const CONFERMATE = [
+    {nome:"Les Hautes Terres", produttore:"Cèleste", annata:"2023", formato:"0.75", giac:6},
+    {nome:"Les Hautes Terres", produttore:"Cèleste", annata:"2023", formato:"1.5",  giac:1},
+    {nome:"Les Hautes Terres", produttore:"Louis",   annata:"2024", formato:"0.75", giac:0},
+    {nome:"Les Hautes Terres", produttore:"Louis",   annata:"2024", formato:"1.5",  giac:2},
+    {nome:"Syrah",          annata:"2023", produttore:"Amerighi",         giac:18},
+    {nome:"Syrah",          annata:"2023", produttore:"Souhaut",          giac:1},
+    {nome:"Chablis",        annata:"2024", produttore:"Laurent Tribut",   giac:3},
+    {nome:"Chablis",        annata:"2024", produttore:"Solange Tribut",   giac:2},
+    {nome:"Barbera d'Asti", annata:"2021", produttore:"Sette",            giac:0},
+    {nome:"Langhe Freisa",  annata:"2024", produttore:"Cascina Fontana",  giac:5},
+    {nome:"Langhe Nebbiolo",annata:"2023", produttore:"Cascina Fontana",  giac:4},
+    {nome:"Barbaresco",     annata:"2021", produttore:"Cantina del Pino", giac:2},
+    // Scanzonato 2023 Le Driadi → gestito in [2] (doppione): NON correggere qui.
+  ];
+
+  function _backup(){
+    try{
+      const ts=new Date().toISOString().replace(/[:.]/g,"-");
+      localStorage.setItem(_lsKey("wines_backup_"+ts), JSON.stringify(wines));
+      console.log("💾 backup salvato:", _lsKey("wines_backup_"+ts));
+    }catch(e){ console.warn("backup fallito", e); }
+  }
+  function _flush(){
+    try{ scheduleSave(); if(typeof saveTimer!=="undefined") clearTimeout(saveTimer); _flushSave(); }
+    catch(e){ console.warn("flush fallito", e); }
+  }
+
+  window.__cmAuditGiac = function(opts){
+    opts=opts||{};
+    const bad=[];
+    (wines||[]).forEach(w=>{
+      const g=parseInt(w.giacenza)||0, s=_sumLots(w.lots);
+      if(g!==s) bad.push({sku:w.sku||"—", ref:`${w.produttore||""} ${w.nome||""} ${w.annata||""}`.trim(), giacenza:g, sommaLotti:s, delta:g-s});
+    });
+    console.table(bad);
+    console.log(`⚠️ ${bad.length} referenze con giacenza ≠ Σlots (su ${(wines||[]).length}).`);
+    if(opts.fix && bad.length){
+      _backup();
+      wines.forEach(w=>{ const g=parseInt(w.giacenza)||0; if(g!==_sumLots(w.lots)) w.lots=_healLotsToGiac(w.lots,g,{prezzoAcq:parseFloat(w.prezzoAcq)||0,iva:w.iva||22}); });
+      _flush();
+      console.log("✅ invariante ripristinata su tutte le referenze + flush.");
+    }
+    return bad;
+  };
+
+  window.__cmFixGiac = function(list, opts){
+    opts=opts||{}; const apply=!!opts.apply;
+    const corr = list || CONFERMATE;
+    const report=[]; const targets=[];
+    corr.forEach(c=>{
+      const m=_resolve(c);
+      if(m.length!==1){
+        report.push({ref:`${c.produttore||""} ${c.nome||""} ${c.annata||""} ${c.formato||""}`.trim(), esito:m.length===0?"❌ non trovato":`⚠️ ambiguo (${m.length})`, da:"—", a:c.giac});
+        return;
+      }
+      const w=m[0], g0=parseInt(w.giacenza)||0, s0=_sumLots(w.lots);
+      report.push({ref:`${w.produttore||""} ${w.nome||""} ${w.annata||""}`.trim(), sku:w.sku||"—", giacPrima:g0, lotPrima:s0, giacDopo:c.giac, deltaLotti:c.giac-s0, esito:"✅ ok"});
+      targets.push({w, giac:c.giac});
+    });
+    console.table(report);
+    const ok=targets.length, ko=report.length-ok;
+    console.log(`${apply?"APPLICO":"DRY-RUN"} — ${ok} risolte, ${ko} da rivedere.`);
+    if(apply && ok){
+      _backup();
+      targets.forEach(({w,giac})=>{ w.giacenza=giac; w.lots=_healLotsToGiac(w.lots, giac, {prezzoAcq:parseFloat(w.prezzoAcq)||0, iva:w.iva||22}); });
+      _flush();
+      console.log("✅ correzioni applicate + flush. Verifica con __cmAuditGiac().");
+    } else if(!apply){
+      console.log("Nessuna modifica scritta. Per applicare: __cmFixGiac(null,{apply:true})");
+    }
+    return report;
+  };
 })();
