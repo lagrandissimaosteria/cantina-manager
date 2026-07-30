@@ -90,7 +90,7 @@ function _tipoOptsHtml(selected){
 function _addTipologiaInline(sel, onNewTipo){
   if(sel.value !== "__new__") return;
   const nuova = (prompt("Nome nuova tipologia:") || "").trim();
-  if(!nuova){ sel.value = sel.dataset.prev || TIPOLOGIE[0]; return; }
+  if(!nuova){ sel.value = sel.dataset.prev || ""; return; }
   if(!TIPOLOGIE.includes(nuova)){ TIPOLOGIE.push(nuova); _saveTipologie(); }
   const newOpt = document.createElement("option");
   newOpt.value = nuova; newOpt.textContent = nuova;
@@ -130,7 +130,7 @@ let filterVitigni = new Set(); // multi-select vitigni (chiavi lowercase); Set v
 let analyticsRegione = "", analyticsNazione = "", analyticsTipo = "", analyticsAcquistiPeriodo = "mese";
 let planciaFornPage = 0; // paginazione tabella fornitori (Plancia)
 let planciaMagPage = 0;  // paginazione tabella valore magazzino per fornitore (Plancia)
-let movForm = {wineId:"",tipo:"carico",qty:1,data:today(),fattura:"",fornitore:"",note:"",prezzoAcqLotto:"",_wineText:"",_newProduttore:"",_newTipologia:"Rosso",_newPrezzoCarta:"",_newVitigni:"",_newZona:"",_newAnnata:"",_newRegione:"",_newNazione:"Italia",_newIva:22,_newDistributore:"",_newFormato:"0.75",_tipologia:"",_newMode:false};
+let movForm = {wineId:"",tipo:"carico",qty:1,data:today(),fattura:"",fornitore:"",note:"",prezzoAcqLotto:"",_wineText:"",_newProduttore:"",_newTipologia:"",_newPrezzoCarta:"",_newVitigni:"",_newZona:"",_newAnnata:"",_newRegione:"",_newNazione:"Italia",_newIva:22,_newDistributore:"",_newFormato:"0.75",_tipologia:"",_newMode:false};
 let fallForm = {wineId:"",_wineText:"",qty:1,motivo:"Tappo difettoso (TCA)",data:today(),note:""};
 // ─── PRICE SUGGESTION (FASCE PREZZO CARTA) ───────────────────────────────────
 // Fascia su prezzoAcq (ex IVA):
@@ -4103,7 +4103,8 @@ function renderMovimenti(){
       <div class="form-grid g2" style="margin-bottom:8px">
         <div>
           <label class="form-label">Fornitore <span style="color:var(--txt4);font-size:9px;text-transform:none;letter-spacing:0">— opzionale</span></label>
-          <input class="form-input" value="${h(movForm.fornitore)}" placeholder="es. Vini Italiani Srl" oninput="movForm.fornitore=this.value">
+          <datalist id="mov-forn-dl">${[...new Set([...wines.map(w=>w.distributore),...orders.map(o=>o.fornitore)].filter(Boolean))].sort().map(v=>`<option value="${h(v)}">`).join("")}</datalist>
+          <input class="form-input" list="mov-forn-dl" autocomplete="off" value="${h(movForm.fornitore)}" placeholder="es. Vini Italiani Srl" oninput="movForm.fornitore=this.value">
         </div>
         ${!selW?`<div>
           <label class="form-label">Produttore <span style="color:var(--amber3)">*</span></label>
@@ -4165,9 +4166,9 @@ function renderMovimenti(){
             <input class="form-input" placeholder="es. 2025 o N.V." value="${h(movForm._newAnnata||'')}"
               oninput="movForm._newAnnata=this.value;_movUpdateCartaPreview()">
           </div>
-          <div><label class="form-label">Tipologia *</label>
-            <select class="form-select" data-prev="Rosso" onchange="_addTipologiaInline(this,(v)=>_movTipologiaChange(v));if(this.value!=='__new__'){this.dataset.prev=this.value;_movTipologiaChange(this.value)}">
-              ${_tipoOptsHtml(movForm._newTipologia||'Rosso')}
+          <div><label class="form-label">Tipologia <span style="color:var(--amber3)">*</span></label>
+            <select class="form-select" id="mov-new-tipologia" data-prev="" onchange="_addTipologiaInline(this,(v)=>_movTipologiaChange(v));if(this.value!=='__new__'){this.dataset.prev=this.value;_movTipologiaChange(this.value)}">
+              ${_tipoOptsHtml(movForm._newTipologia||'')}
             </select>
           </div>
           <div><label class="form-label">Formato *</label>
@@ -4210,7 +4211,8 @@ function renderMovimenti(){
               value="${movForm._newPrezzoCarta||''}" oninput="movForm._newPrezzoCarta=this.value;_movUpdateCartaPreview()">
           </div>
           <div><label class="form-label">Distributore</label>
-            <input class="form-input" placeholder="es. Vini Italiani Srl"
+            <datalist id="mov-new-distr-dl">${[...new Set([...wines.map(w=>w.distributore),...orders.map(o=>o.fornitore)].filter(Boolean))].sort().map(v=>`<option value="${h(v)}">`).join("")}</datalist>
+            <input class="form-input" list="mov-new-distr-dl" autocomplete="off" placeholder="es. Vini Italiani Srl"
               value="${h(movForm._newDistributore||'')}" oninput="movForm._newDistributore=this.value">
           </div>
           <div style="grid-column:span 2">
@@ -4747,7 +4749,7 @@ function _movUpdateCartaPreview(){
   const nome = (document.querySelector('#mov-wine-input') ? movForm._wineText : movForm._wineText) || '';
   const prod = movForm._newProduttore||'';
   const annata = movForm._newAnnata||'';
-  const tipo = movForm._newTipologia||'Rosso';
+  const tipo = movForm._newTipologia||'';
   const vitigni = movForm._newVitigni||'';
   const zona = movForm._newZona||'';
   const regione = movForm._newRegione||'';
@@ -4794,12 +4796,18 @@ function registraMovimento(){
     const prodTrimmed=(movForm._newProduttore||"").trim();
     if(!nomeTrimmed){ notify("⚠️ Inserisci il nome del vino","err"); return; }
     if(!prodTrimmed){ notify("⚠️ Inserisci il produttore","err"); return; }
+    // Tipologia obbligatoria: nessun default silenzioso (prima nasceva "Rosso").
+    if(!(movForm._newTipologia||"").trim()){
+      notify("⚠️ Scegli la tipologia del vino","err");
+      document.getElementById("mov-new-tipologia")?.focus();
+      return;
+    }
     const newWine={
       id:uid(), nome:nomeTrimmed, produttore:prodTrimmed,
       distributore:(movForm._newDistributore||fornitore||"").trim(),
       annata:(movForm._newAnnata||"").trim(),
       vitigni:_normVitigni(movForm._newVitigni),
-      tipologia:movForm._newTipologia||"Rosso",
+      tipologia:movForm._newTipologia,
       regione:(movForm._newRegione||"").trim(),
       nazione:(movForm._newNazione||"Italia").trim(),
       zona:(movForm._newZona||"").trim(),
@@ -4852,7 +4860,7 @@ function registraMovimento(){
   if(_costoSnap) _movEntry.costoUnitarioIva = _costoSnap;
   if(tipo==="scarico"){ _movEntry.servizio = _servizioSnap(data); _movEntry.prezzoCartaSnap = parseFloat(wine.prezzoCarta)||0; } // snapshot servizio (0 se pre servizioDal) + ricavo
   movements=[_movEntry,...movements];
-  movForm={...movForm,wineId:"",_wineText:"",_newProduttore:"",_newTipologia:"Rosso",_newPrezzoCarta:"",_newVitigni:"",_newZona:"",_newAnnata:"",_newRegione:"",_newNazione:"Italia",_newIva:22,_newDistributore:"",_newFormato:"0.75",_tipologia:"",_newMode:false,qty:1,fattura:"",fornitore:"",note:"",prezzoAcqLotto:"",segno:"+"};
+  movForm={...movForm,wineId:"",_wineText:"",_newProduttore:"",_newTipologia:"",_newPrezzoCarta:"",_newVitigni:"",_newZona:"",_newAnnata:"",_newRegione:"",_newNazione:"Italia",_newIva:22,_newDistributore:"",_newFormato:"0.75",_tipologia:"",_newMode:false,qty:1,fattura:"",fornitore:"",note:"",prezzoAcqLotto:"",segno:"+"};
   scheduleSave();
   // PATCH: flush immediato per carichi/scarichi — modificano giacenza
   clearTimeout(saveTimer); _flushSave();
