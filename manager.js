@@ -5015,6 +5015,7 @@ function renderOrdini(){
       <td style="display:flex;gap:6px;align-items:center;padding:6px 14px">
         <button class="btn-outline btn-sm" onclick="apriModalRicezione('${o.id}')" title="Conferma arrivo" style="border-color:rgba(22,163,74,.4);color:#30D158">📦 Ricevi</button>
         <button class="btn-outline btn-sm" onclick="apriOrdineModal('${o.id}')" title="Modifica ordine">✏️</button>
+        <button class="btn-outline btn-sm" onclick="esportaOrdineTrasferimento('${o.id}')" title="Esporta manifesto per un altro locale" style="color:#5AC8FA;border-color:rgba(90,200,250,.25)">🔄</button>
         <button class="btn-outline btn-sm" onclick="duplicaOrdine('${o.id}')" title="Duplica ordine" style="border-color:rgba(191,95,255,.35);color:#bf5fff">⧉</button>
         <button class="btn-outline btn-sm" onclick="stampaOrdine('${o.id}')" title="Stampa / Salva PDF" style="border-color:rgba(0,122,255,.3);color:#007AFF">🖨️</button>
         <button class="btn-outline btn-sm" onclick="emailOrdine('${o.id}')" title="Invia via email" style="border-color:rgba(255,159,10,.3);color:var(--amber)">✉️</button>
@@ -5066,6 +5067,7 @@ function renderOrdini(){
         <button class="btn-outline btn-sm" onclick="mostraDettaglioOrdine('${o.id}')" style="font-size:9px;padding:2px 8px;color:var(--txt4)">dettaglio</button>
         <button class="btn-outline btn-sm" onclick="apriOrdineEvasoModal('${o.id}')" style="font-size:9px;padding:2px 8px;color:var(--amber);border-color:rgba(255,159,10,.25)">✏️</button>
         <button class="btn-outline btn-sm" onclick="duplicaOrdine('${o.id}')" style="font-size:9px;padding:2px 8px;color:#bf5fff;border-color:rgba(191,95,255,.25)" title="Duplica in nuovo ordine">⧉</button>
+        <button class="btn-outline btn-sm" onclick="esportaOrdineTrasferimento('${o.id}')" style="font-size:9px;padding:2px 8px;color:#5AC8FA;border-color:rgba(90,200,250,.25)" title="Esporta manifesto ordine">🔄</button>
         <button class="btn-outline btn-sm" onclick="annullaRicezione('${o.id}')" style="font-size:9px;padding:2px 8px;color:#30D158;border-color:rgba(22,163,74,.3)" title="Annulla ricezione e rimetti in attesa">↩︎ ricezione</button>
         <button onclick="deleteEvaso('${o.id}')" style="color:#FF453A;font-size:12px;background:none;border:none;cursor:pointer;margin-left:4px;padding:2px 4px" title="Elimina ordine evaso">🗑️</button>
       </td>
@@ -5445,7 +5447,7 @@ function apriOrdineEvasoModal(id){
     </div>
     <button onclick="_addEvasoRefRow()" class="btn-outline btn-sm" style="margin-bottom:8px">+ Aggiungi referenza</button>
     <div style="padding:10px;background:rgba(28,28,30,.6);border:1px solid var(--border);font-size:10px;color:var(--txt4)">
-      ⚠️ Modificare quantità arrivate aggiorna lo storico ma <strong style="color:var(--amber3)">non ricalcola automaticamente le giacenze</strong>. Per correggere le giacenze usa un movimento manuale.
+      ✅ Le quantità arrivate vengono <strong style="color:var(--amber3)">riallineate automaticamente</strong> su movimenti, lotti e giacenze al salvataggio.
     </div>`;
 
   document.getElementById("ordine-evaso-modal-backdrop").classList.remove("hidden");
@@ -5474,46 +5476,285 @@ function chiudiOrdineEvasoModal(e){
   _editOrdineEvasoId = null;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// PATCH — Riconciliazione carico ↔ inventario su modifica ordine evaso
+// Sostituisce integralmente: salvaOrdineEvaso()  (riga ~5477)
+// Aggiunge: _resolveWineForRef, _lotDelMov, _riconciliaCaricoOrdine,
+//           verificaCarichiOrdini
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ─── RESOLVER VINO ↔ REFERENZA (fonte unica) ────────────────────────────────
+// Stessa cascata usata da confermaRicezioneOrdine: wineId → nome+prod+annata →
+// nome+prod (solo NV) → nome. Il formato è sempre vincolante.
+// create=true crea il vino se non esiste (referenza aggiunta a posteriori).
+function _resolveWineForRef(r, fornitore, create){
+  const rFmt=String(parseFloat(r.formato)||0.75);
+  const sameFmt=w=>String(parseFloat(w.formato)||0.75)===rFmt;
+  const ra=(r.annata||"").toLowerCase().trim();
+  const sameAnnata=w=>(w.annata||"").toLowerCase().trim()===ra;
+
+  let wine = r.wineId ? wines.find(w=>w.id===r.wineId&&sameFmt(w)&&sameAnnata(w)) : null;
+  if(!wine && r.wineId && !ra) wine = wines.find(w=>w.id===r.wineId&&sameFmt(w));
+  if(!wine){
+    const nn=(r.nomeVino||"").toLowerCase().trim(), rp=(r.produttore||"").toLowerCase().trim();
+    if(rp&&ra) wine=wines.find(w=>w.nome.toLowerCase()===nn&&(w.produttore||"").toLowerCase()===rp&&(w.annata||"").toLowerCase().trim()===ra&&sameFmt(w));
+    if(!wine&&rp&&!ra) wine=wines.find(w=>w.nome.toLowerCase()===nn&&(w.produttore||"").toLowerCase()===rp&&!(w.annata||"").trim()&&sameFmt(w));
+    if(!wine&&!rp&&!ra) wine=wines.find(w=>w.nome.toLowerCase()===nn&&sameFmt(w));
+  }
+  if(wine || !create) return wine||null;
+
+  const newWine={id:uid(),nome:r.nomeVino||"",produttore:r.produttore||"",distributore:fornitore||"",
+    annata:r.annata||"",vitigni:r.vitigni||"",tipologia:r.tipologia||"Rosso",regione:r.regione||"",
+    nazione:r.nazione||"Italia",zona:r.zona||"",formato:parseFloat(r.formato)||0.75,
+    prezzoAcq:parseFloat(r.prezzoAcq)||0,iva:parseInt(r.iva)||22,prezzoCarta:parseFloat(r.prezzoCarta)||0,
+    giacenza:0,lots:[],sku:_nextSku()};
+  wines=[...wines,newWine];
+  console.warn(`[Riconcilia] creato nuovo vino "${newWine.nome}" ${newWine.annata||'NV'} (nessun match in anagrafica)`);
+  return newWine;
+}
+
+// Lotto associato a un movimento d'ordine: per lotId se presente, altrimenti
+// euristica data+fattura+qtyCaricata+prezzo (storico pre-patch).
+function _lotDelMov(wine, mov){
+  const lots=wine.lots||[];
+  if(mov.lotId){ const l=lots.find(x=>x.id===mov.lotId); if(l) return l; }
+  const q=parseInt(mov.qty)||0, p=parseFloat(mov.prezzoAcqLotto)||0;
+  return lots.find(l=>l.data===mov.data && (l.fattura||"")===(mov.fattura||"")
+    && (parseInt(l.qtyCaricata)||0)===q && Math.abs((parseFloat(l.prezzoAcq)||0)-p)<0.005) || null;
+}
+
+// Movimenti di carico appartenenti a un ordine. Lo storico pre-tracciamento non
+// ha ordineId: si recupera per nota "Da ordine <data>" + fornitore (stessa
+// euristica di _rollbackOrdine). Senza questo aggancio una modifica su ordini
+// vecchi DUPLICHEREBBE i carichi invece di aggiornarli.
+function _movimentiOrdine(ordine){
+  const nota = "Da ordine "+(ordine.dataOrdine||"");
+  const forn = String(ordine.fornitore||"").toLowerCase().trim();
+  return movements.filter(m=> m.tipo==="carico" && !m.deleted && (
+    m.ordineId===ordine.id ||
+    (!m.ordineId && String(m.note||"").trim()===nota && String(m.fornitore||"").toLowerCase().trim()===forn)
+  ));
+}
+
+// ─── RICONCILIAZIONE ORDINE CARICATO → MOVIMENTI/GIACENZE ───────────────────
+// Idempotente: allinea i movimenti di carico dell'ordine alle qtyArr correnti.
+// • referenza nuova            → crea movimento + lotto (+ vino se assente)
+// • qtyArr o prezzo cambiati   → aggiorna movimento, lotto e giacenza del delta
+// • referenza rimossa / qtyArr 0 → elimina movimento e lotto, scala la giacenza
+// Restituisce un riepilogo, oppure null se l'ordine non è caricato.
+function _riconciliaCaricoOrdine(ordine){
+  if(!ordine || ordine.stato!=="caricato") return null;
+
+  const forn        = ordine.fornitore||"";
+  const dataArrivo  = ordine.dataArrivo||ordine.dataCarico||today();
+  const fattura     = (ordine.numeroFattura||ordine.fattura||"").trim();
+  const refs        = ordine.referenze||[];
+  const norm        = s=>String(s||"").toLowerCase().trim();
+  const out         = {creati:0, aggiornati:0, rimossi:0, delta:0, dettagli:[]};
+
+  // Movimenti di quest'ordine, agganciati alle referenze
+  const mine   = _movimentiOrdine(ordine);
+  const byRef  = new Map();
+  const orfani = [];
+  mine.forEach(m=> m.refId ? byRef.set(m.refId,m) : orfani.push(m));
+
+  // Storico pre-patch: nessun refId → aggancio per wineId, altrimenti per
+  // nome+prezzo d'acquisto (discrimina omonimi con cuvée/prezzi diversi).
+  // Nome senza annata in coda: nell'anagrafica capita "Barolo Angela", nella
+  // referenza "Barolo Angela 2022" — stesso vino.
+  const nomeKey = s=>norm(s).replace(/\s+(19|20)\d{2}$/,"");
+  const prezzoOk = (m,r)=>Math.abs((parseFloat(m.prezzoAcqLotto)||0)-(parseFloat(r.prezzoAcq)||0))<0.005;
+  const attacca=(r,i)=>{ if(i<0) return false; const m=orfani.splice(i,1)[0]; m.refId=r.id; byRef.set(r.id,m); return true; };
+
+  refs.forEach(r=>{
+    if(byRef.has(r.id)) return;
+    if(r.wineId && attacca(r, orfani.findIndex(m=>m.wineId===r.wineId))) return;
+    if(attacca(r, orfani.findIndex(m=>nomeKey(m.wineName)===nomeKey(r.nomeVino) && prezzoOk(m,r)))) return;
+    const w=_resolveWineForRef(r, forn, false);
+    if(w && attacca(r, orfani.findIndex(m=>m.wineId===w.id))) return;
+    attacca(r, orfani.findIndex(m=>nomeKey(m.wineName)===nomeKey(r.nomeVino)));
+  });
+
+  const applicaDelta=(wineId, diff, lotPatch)=>{
+    wines=wines.map(w=>{
+      if(w.id!==wineId) return w;
+      return {...w,
+        giacenza: Math.max(0,(parseInt(w.giacenza)||0)+diff),
+        lots: lotPatch ? lotPatch(w.lots||[]) : (w.lots||[])};
+    });
+  };
+
+  refs.forEach(r=>{
+    const target = parseInt(r.qtyArr ?? r.qty)||0;
+    const mov    = byRef.get(r.id);
+    const pAcq   = parseFloat(r.prezzoAcq) || (mov?parseFloat(mov.prezzoAcqLotto):0) || 0;
+
+    // ── nessun movimento: referenza aggiunta dopo il carico ──
+    if(!mov){
+      if(target<=0) return;
+      const wine=_resolveWineForRef(r, forn, true);
+      const lotId=uid();
+      const newLot={id:lotId,data:dataArrivo,fattura,fornitore:forn||wine.distributore||"",
+        prezzoAcq:pAcq,iva:parseInt(r.iva)||parseInt(wine.iva)||22,qtyCaricata:target,qtyRimanente:target};
+      const tracked=_trackPriceChange(wine, pAcq, null, 'riconciliazione_ordine');
+      wines=wines.map(w=>w.id===wine.id?{...tracked,
+        distributore:w.distributore||forn,
+        giacenza:(parseInt(w.giacenza)||0)+target,
+        prezzoAcq:pAcq,
+        lots:[...(w.lots||[]),newLot]}:w);
+      movements.unshift({id:uid(),wineId:wine.id,wineName:wine.nome,produttore:wine.produttore,
+        nazione:wine.nazione||"",tipo:"carico",qty:target,data:dataArrivo,fattura,prezzoAcqLotto:pAcq,
+        origine:"ordine",ordineId:ordine.id,refId:r.id,lotId,fornitore:forn,
+        note:"Da ordine "+(ordine.dataOrdine||""),ts:Date.now()});
+      out.creati++; out.delta+=target;
+      out.dettagli.push(`+ ${r.nomeVino} ${r.annata||'NV'}: nuovo carico ${target} bt`);
+      return;
+    }
+
+    const prev = parseInt(mov.qty)||0;
+    const wine = wines.find(w=>w.id===mov.wineId);
+    if(!wine){ console.error("[Riconcilia] vino non trovato per movimento",mov.id); return; }
+
+    // ── qtyArr azzerata: annulla il carico ──
+    if(target<=0){
+      const lot=_lotDelMov(wine,mov);
+      applicaDelta(wine.id, -prev, lots=>lot?lots.filter(l=>l.id!==lot.id):lots);
+      movements=movements.filter(m=>m.id!==mov.id);
+      out.rimossi++; out.delta-=prev;
+      out.dettagli.push(`− ${r.nomeVino} ${r.annata||'NV'}: carico annullato (−${prev} bt)`);
+      return;
+    }
+
+    const diff       = target-prev;
+    const prezzoCamb = Math.abs(pAcq-(parseFloat(mov.prezzoAcqLotto)||0))>=0.005;
+    if(!diff && !prezzoCamb) return;
+
+    const lot=_lotDelMov(wine,mov);
+    applicaDelta(wine.id, diff, lots=>lot?lots.map(l=>l.id===lot.id?{...l,
+      qtyCaricata:target,
+      qtyRimanente:Math.max(0,(parseInt(l.qtyRimanente)||0)+diff),
+      prezzoAcq:pAcq, data:dataArrivo, fattura}:l):lots);
+    if(prezzoCamb){
+      const w2=wines.find(w=>w.id===wine.id);
+      const tracked=_trackPriceChange(w2, pAcq, null, 'riconciliazione_ordine');
+      wines=wines.map(w=>w.id===wine.id?{...tracked,prezzoAcq:pAcq}:w);
+    }
+    movements=movements.map(m=>m.id===mov.id?{...m,qty:target,prezzoAcqLotto:pAcq,
+      data:dataArrivo,fattura,origine:"ordine",ordineId:ordine.id,refId:r.id,
+      lotId:lot?lot.id:m.lotId,ts:Date.now()}:m);
+    out.aggiornati++; out.delta+=diff;
+    out.dettagli.push(`~ ${r.nomeVino} ${r.annata||'NV'}: ${prev} → ${target} bt${prezzoCamb?` · €${pAcq.toFixed(2)}`:''}`);
+  });
+
+  // Movimenti rimasti senza referenza: la riga è stata cancellata dall'ordine
+  orfani.forEach(mov=>{
+    const wine=wines.find(w=>w.id===mov.wineId);
+    const prev=parseInt(mov.qty)||0;
+    if(wine){
+      const lot=_lotDelMov(wine,mov);
+      applicaDelta(wine.id, -prev, lots=>lot?lots.filter(l=>l.id!==lot.id):lots);
+    }
+    movements=movements.filter(m=>m.id!==mov.id);
+    out.rimossi++; out.delta-=prev;
+    out.dettagli.push(`− ${mov.wineName}: referenza rimossa dall'ordine (−${prev} bt)`);
+  });
+
+  if(out.dettagli.length) console.info("[Riconcilia] "+ordine.fornitore+" "+ordine.dataOrdine+"\n"+out.dettagli.join("\n"));
+  return out;
+}
+
+// ─── SALVATAGGIO ORDINE EVASO ───────────────────────────────────────────────
 function salvaOrdineEvaso(){
   if(!_editOrdineEvasoId) return;
   const tbody = document.getElementById("oev-refs-body");
   if(!tbody){ notify("Errore: tabella non trovata","err"); return; }
 
+  const ordinePrec = orders.find(o=>o.id===_editOrdineEvasoId);
+  if(!ordinePrec){ notify("Ordine non trovato","err"); return; }
+  const eraCaricato = ordinePrec.stato==="caricato";
+  if(eraCaricato && !_syncGate("Modifica ordine caricato")) return;
+
+  // Le referenze preesistenti conservano i campi non esposti nella modale
+  // (wineId, formato, vitigni, regione, nazione, prezzoCarta): ricostruirle
+  // dal solo DOM spezzava il collegamento stabile con l'anagrafica.
+  const prevById = new Map((ordinePrec.referenze||[]).map(r=>[r.id,r]));
+
   const refs = [];
   tbody.querySelectorAll("tr[data-evaso-ref-id]").forEach(row => {
     const inps = row.querySelectorAll("input");
     const sels = row.querySelectorAll("select");
+    const id   = row.dataset.evasoRefId || uid();
+    const base = prevById.get(id) || {};
     refs.push({
-      id: row.dataset.evasoRefId || uid(),
+      ...base,
+      id,
       produttore: inps[0]?.value.trim() || "",
       nomeVino:   inps[1]?.value.trim() || "",
       annata:     inps[2]?.value.trim() || "",
-      tipologia:  sels[0]?.value || "Rosso",
+      tipologia:  sels[0]?.value || base.tipologia || "Rosso",
       qty:        parseInt(inps[3]?.value)||0,
       qtyArr:     parseInt(inps[4]?.value)||0,
       prezzoAcq:  parseFloat(inps[5]?.value)||0,
-      iva: 22
+      iva:        parseInt(base.iva)||22
     });
   });
 
-  orders = orders.map(o => {
-    if(o.id !== _editOrdineEvasoId) return o;
-    return {
-      ...o,
-      fornitore:    (document.getElementById("oev-fornitore")?.value||"").trim(),
-      dataOrdine:   document.getElementById("oev-dataOrdine")?.value || o.dataOrdine,
-      dataArrivo:   document.getElementById("oev-dataArrivo")?.value || o.dataArrivo,
-      numeroFattura:document.getElementById("oev-fattura")?.value.trim() || "",
-      note:         document.getElementById("oev-note")?.value.trim() || "",
-      referenze:    refs
-    };
-  });
+  const ordineAgg = {
+    ...ordinePrec,
+    fornitore:    (document.getElementById("oev-fornitore")?.value||"").trim(),
+    dataOrdine:   document.getElementById("oev-dataOrdine")?.value || ordinePrec.dataOrdine,
+    dataArrivo:   document.getElementById("oev-dataArrivo")?.value || ordinePrec.dataArrivo,
+    numeroFattura:document.getElementById("oev-fattura")?.value.trim() || "",
+    note:         document.getElementById("oev-note")?.value.trim() || "",
+    referenze:    refs
+  };
+  orders = orders.map(o => o.id===_editOrdineEvasoId ? ordineAgg : o);
+
+  const esito = eraCaricato ? _riconciliaCaricoOrdine(ordineAgg) : null;
 
   document.getElementById("ordine-evaso-modal-backdrop").classList.add("hidden");
   _editOrdineEvasoId = null;
   scheduleSave();
-  notify("✅ Ordine aggiornato");
+  if(esito && (esito.creati||esito.aggiornati||esito.rimossi)){
+    clearTimeout(saveTimer); _flushSave();   // tocca le giacenze: flush immediato
+    const segno = esito.delta>0?"+":"";
+    notify(`✅ Ordine aggiornato · inventario riallineato (${segno}${esito.delta} bt · ${esito.creati} nuovi, ${esito.aggiornati} modificati, ${esito.rimossi} rimossi)`);
+  } else {
+    notify("✅ Ordine aggiornato");
+  }
   render();
+}
+
+// ─── AUDIT: ordini caricati non allineati all'inventario ────────────────────
+// Da console: verificaCarichiOrdini()  → tabella delle discrepanze residue.
+function verificaCarichiOrdini(){
+  const norm=s=>String(s||"").toLowerCase().trim();
+  const key=s=>norm(s).replace(/\s+(19|20)\d{2}$/,"");
+  const rows=[];
+  orders.filter(o=>o.stato==="caricato").forEach(o=>{
+    const mine=_movimentiOrdine(o);
+    const usati=new Set();
+    (o.referenze||[]).forEach(r=>{
+      const target=parseInt(r.qtyArr??r.qty)||0;
+      const w=_resolveWineForRef(r,o.fornitore,false);
+      let m = mine.find(x=>!usati.has(x.id)&&x.refId===r.id)
+           || (r.wineId?mine.find(x=>!usati.has(x.id)&&x.wineId===r.wineId):null)
+           || mine.find(x=>!usati.has(x.id)&&key(x.wineName)===key(r.nomeVino)
+                && Math.abs((parseFloat(x.prezzoAcqLotto)||0)-(parseFloat(r.prezzoAcq)||0))<0.005)
+           || (w?mine.find(x=>!usati.has(x.id)&&x.wineId===w.id):null)
+           || mine.find(x=>!usati.has(x.id)&&key(x.wineName)===key(r.nomeVino));
+      if(m) usati.add(m.id);
+      const reale=m?parseInt(m.qty)||0:0;
+      if(reale!==target) rows.push({fornitore:o.fornitore,ordine:o.dataOrdine,
+        vino:r.nomeVino,annata:r.annata||"NV",ordinate:r.qty,arrivate:target,inMovimenti:reale,gap:target-reale});
+    });
+    mine.filter(m=>!usati.has(m.id)).forEach(m=>rows.push({fornitore:o.fornitore,ordine:o.dataOrdine,
+      vino:m.wineName,annata:"—",ordinate:"—",arrivate:0,inMovimenti:parseInt(m.qty)||0,gap:-(parseInt(m.qty)||0)}));
+  });
+  if(!rows.length){ console.info("✅ Nessuna discrepanza: ordini e movimenti allineati."); return []; }
+  console.warn(`⚠️ ${rows.length} discrepanze ordine ↔ inventario`);
+  console.table(rows);
+  return rows;
 }
 
 
@@ -10614,6 +10855,9 @@ function _tfClearCart(){ if(!_tfCart.length) return; _tfCart=[]; _tfRenderCart()
 // Si aggiorna il solo stato del pulsante Genera.
 function _tfMetaSet(k,v){ _tfMeta[k]=v; if(k==="dest") _tfSyncGenBtn(); }
 function _tfReady(){
+  // In modalità ordini il carrello è _tfOrdCart: senza questo ramo il pulsante
+  // Genera resterebbe disattivato mentre si digita la destinazione.
+  if(_tfMeta.mode==="ordine") return !!(_tfMeta.dest||"").trim() && _tfOrdCart.length>0;
   const scheda=_tfMeta.mode==="scheda";
   if(!(_tfMeta.dest||"").trim() || !_tfCart.length) return false;
   if(scheda) return true;
@@ -10715,6 +10959,7 @@ function renderTrasferimenti(){
 }
 
 function _tfResultsHtml(){
+  if(_tfMeta.mode==="ordine") return _tfOrdResultsHtml();
   const schedaMode=_tfMeta.mode==="scheda";
   if(!_tfQ.trim()) return `<div style="font-size:11px;color:var(--txt4);padding:6px 0">Scrivi almeno una parola per cercare ${schedaMode?"tra tutte le referenze in anagrafica (anche esaurite)":"tra le referenze con giacenza disponibile"}.</div>`;
   const res=_tfResults();
@@ -10761,7 +11006,7 @@ function _tfSchedaCreate(line){
     sku:_nextSku(),giacenza:0,lots:[]};
 }
 function _tfSetMode(m){
-  _tfMeta.mode=(m==="scheda"?"scheda":"bottiglie");
+  _tfMeta.mode=(m==="scheda"?"scheda":m==="ordine"?"ordine":"bottiglie");
   if(_tfMeta.mode==="bottiglie"){ // tornando alle bottiglie riporta le righe a una qty sensata
     _tfCart.forEach(l=>{ const g=parseInt(wines.find(x=>x.id===l.wineId)?.giacenza)||0; l.qty=Math.min(g,Math.max(1,parseInt(l.qty)||0)); });
   }
@@ -10770,7 +11015,9 @@ function _tfSetMode(m){
 function _tfCartHtml(){
   const dl=_tfDestKnown();
   const scheda=_tfMeta.mode==="scheda";
-  const modeSw=`<div style="display:flex;gap:6px;margin-bottom:12px"><button class="btn-outline btn-sm" style="${!scheda?"border-color:#5AC8FA;color:#5AC8FA":""}" onclick="_tfSetMode('bottiglie')">📦 Bottiglie</button><button class="btn-outline btn-sm" style="${scheda?"border-color:#5AC8FA;color:#5AC8FA":""}" onclick="_tfSetMode('scheda')">📄 Solo scheda</button></div>`;
+  const _bt=(m,l)=>`<button class="btn-outline btn-sm" style="${_tfMeta.mode===m?"border-color:#5AC8FA;color:#5AC8FA":""}" onclick="_tfSetMode('${m}')">${l}</button>`;
+  const modeSw=`<div style="display:flex;gap:6px;margin-bottom:12px">${_bt("bottiglie","📦 Bottiglie")}${_bt("scheda","📄 Solo scheda")}${_bt("ordine","📋 Ordini")}</div>`;
+  if(_tfMeta.mode==="ordine") return _tfOrdCartHtml(modeSw);
   const head=`<div style="font-size:10px;letter-spacing:.25em;text-transform:uppercase;color:var(--txt2);margin-bottom:8px">📦 Invio in preparazione</div>`+modeSw;
   if(!_tfCart.length) return head+`<div style="font-size:11px;color:var(--txt4)">Nessuna referenza nell'invio. Cerca qui sopra e aggiungi con ＋ o in blocco.</div>`;
   let tot=0, err=false;
@@ -10836,6 +11083,7 @@ function _tfManifestLine(w,qty,snap){
 }
 function _tfGenera(){
   if(!_syncGate("Carico da fattura")) return;
+  if(_tfMeta.mode==="ordine"){ _tfGeneraOrdini(); return; }
   const dest=(_tfMeta.dest||"").trim();
   if(!dest){ notify("⚠️ Indica il locale destinazione","err"); return; }
   if(!_tfCart.length){ notify("⚠️ Nessuna referenza nell'invio","err"); return; }
@@ -10961,6 +11209,11 @@ function _tfRicevPreview(){
   const enable=b=>{ if(!btn)return; btn.disabled=!b; btn.style.opacity=b?"1":".4"; btn.style.pointerEvents=b?"auto":"none"; };
   const man=_parseManifesto(raw);
   if(!man){ if(el) el.innerHTML=raw.trim()?`<span style="color:#FF453A">Manifesto non valido o illeggibile</span>`:""; enable(false); return; }
+  if(man.mode==="ordine"){
+    const self=man.fromDbUser && man.fromDbUser===_effectiveDbUser();
+    if(el) el.innerHTML=_tfOrdPreviewHtml(man);
+    enable(!self && man.lines.some(l=>!_tfOrdGiaImportato(l.srcId))); return;
+  }
   if(man.mode==="scheda"){
     const self=man.fromDbUser && man.fromDbUser===_effectiveDbUser();
     const rows=man.lines.map(l=>{
@@ -10997,6 +11250,7 @@ function _tfConfermaRicevi(){
   if(movements.some(m=>m.tipo==="trasferimento-entrata"&&m.transferId===man.transferId)){
     notify("⚠️ Trasferimento già ricevuto","err"); return;
   }
+  if(man.mode==="ordine"){ _tfImportaOrdini(man); return; }
   if(man.mode==="scheda"){
     let clonate=0, presenti=0;
     man.lines.forEach(line=>{
@@ -11074,6 +11328,276 @@ function _tfHistHtml(){
   }).join("");
 }
 function _tfRenderHist(){ const el=document.getElementById("tf-hist"); if(el) el.innerHTML=_tfHistHtml(); }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PATCH 2 — Trasferimento ORDINI tra locali (manifesto .json)
+// Additivo: incollare in fondo al blocco Trasferimenti (dopo _tfRenderHist).
+// Richiede la PATCH 1 (_riconciliaCaricoOrdine, _resolveWineForRef) solo per
+// l'opzione "carica anche in inventario" in fase di import.
+//
+// Modello: stesso manifesto di schede/bottiglie (type "cantina-transfer"),
+// mode:"ordine". L'ordine viaggia INTERO — testata, referenze, qty ordinate e
+// arrivate, prezzi, IVA, sconto, fattura, note, date, stato — più uno snapshot
+// dell'anagrafica di ogni referenza, così il locale ricevente ricostruisce
+// tutto anche se quel vino da lui non esiste.
+// L'export NON tocca giacenze né movimenti: è una copia.
+// ═══════════════════════════════════════════════════════════════════════════
+
+var _tfOrdSel  = new Set();   // ordini spuntati nei risultati
+var _tfOrdCart = [];          // ordini in preparazione (array di id)
+
+// ── SNAPSHOT ORDINE → RIGA MANIFESTO ────────────────────────────────────────
+// Ogni referenza porta con sé i campi d'anagrafica del vino sorgente: sono gli
+// stessi che _resolveWineForRef usa per il match e per l'eventuale creazione.
+// Anagrafica sorgente per una referenza priva di wineId. Tra omonimi della
+// stessa annata (le due cuvée "Pèpin Riesling 2025") vince quello il cui prezzo
+// d'acquisto coincide con la riga d'ordine: senza questo passaggio entrambe le
+// righe esporterebbero il prezzo di carta della prima e a destinazione si
+// fonderebbero in una scheda sola.
+function _tfWineExportRef(r, fornitore){
+  const pa=parseFloat(r.prezzoAcq)||0;
+  if(pa>0){
+    const nn=_tfNorm(r.nomeVino).trim(), pn=_tfNorm(r.produttore).trim(), ann=_tfNorm(r.annata).trim();
+    const cand=wines.filter(w=>_tfNorm(w.nome).trim()===nn
+      && _tfNorm(w.produttore).trim()===pn && _tfNorm(w.annata).trim()===ann);
+    if(cand.length>1){
+      const exact=cand.find(w=>Math.abs((parseFloat(w.prezzoAcq)||0)-pa)<0.005)
+        || cand.find(w=>(w.lots||[]).some(l=>Math.abs((parseFloat(l.prezzoAcq)||0)-pa)<0.005));
+      if(exact) return exact;
+    }
+  }
+  return _resolveWineForRef(r, fornitore, false);
+}
+
+function _tfOrdineLine(o){
+  const refs=(o.referenze||[]).map(r=>{
+    const w=wines.find(x=>x.id===r.wineId) || _tfWineExportRef(r, o.fornitore);
+    const pick=(a,b)=>{ const v=(a===undefined||a===null||a==="")?b:a; return (v===undefined||v===null)?"":v; };
+    return {
+      ...r,
+      wineId:      undefined,                       // id locale: non ha senso altrove
+      srcWineId:   r.wineId||(w?w.id:"")||"",       // tracciabilità, non usato per il match
+      nomeVino:    pick(r.nomeVino,   w&&w.nome),
+      produttore:  pick(r.produttore, w&&w.produttore),
+      annata:      pick(r.annata,     w&&w.annata),
+      tipologia:   pick(r.tipologia,  w&&w.tipologia),
+      vitigni:     pick(r.vitigni,    w&&w.vitigni),
+      regione:     pick(r.regione,    w&&w.regione),
+      zona:        pick(r.zona,       w&&w.zona),
+      nazione:     pick(r.nazione,    w&&w.nazione),
+      formato:     parseFloat(pick(r.formato, w&&w.formato))||0.75,
+      prezzoAcq:   parseFloat(r.prezzoAcq)||0,
+      prezzoCarta: parseFloat(pick(r.prezzoCarta, w&&w.prezzoCarta))||0,
+      iva:         parseInt(pick(r.iva, w&&w.iva))||22,
+      qty:         parseInt(r.qty)||0,
+      qtyArr:      r.qtyArr===undefined?undefined:(parseInt(r.qtyArr)||0)
+    };
+  });
+  return {
+    srcId:o.id, fornitore:o.fornitore||"", stato:o.stato||"attesa",
+    dataOrdine:o.dataOrdine||"", dataArrivo:o.dataArrivo||"", dataCarico:o.dataCarico||"",
+    numeroFattura:o.numeroFattura||o.fattura||"", sconto:parseFloat(o.sconto)||0,
+    note:o.note||"", referenze:refs,
+    totBt:refs.reduce((s,r)=>s+(parseInt(r.qtyArr??r.qty)||0),0),
+    totEuro:refs.reduce((s,r)=>s+((parseInt(r.qtyArr??r.qty)||0)*(parseFloat(r.prezzoAcq)||0)),0)
+  };
+}
+
+// ── SELEZIONE ───────────────────────────────────────────────────────────────
+function _tfOrdResults(){
+  const q=_tfNorm(_tfQ).trim();
+  const toks=q?q.split(/\s+/).filter(Boolean):[];
+  const _bz=(typeof _bozzeSb!=="undefined"?_bozzeSb:[])
+    .filter(b=>!(orders||[]).some(o=>o._sbTestataId===b.id))
+    .map(_ordineFromBozzaSb).filter(Boolean);
+  const out=[..._bz,...(orders||[])].filter(o=>{
+    if(!toks.length) return true;
+    const hay=_tfNorm([o.fornitore,o.dataOrdine,o.dataArrivo,o.numeroFattura,o.note,o.stato,
+      ...(o.referenze||[]).map(r=>r.nomeVino+" "+r.produttore+" "+r.annata)].join(" "));
+    return toks.every(t=>hay.includes(t));
+  });
+  return out.sort((a,b)=>String(b.dataOrdine||"").localeCompare(String(a.dataOrdine||""))).slice(0,60);
+}
+function _tfOrdToggleSel(id){ if(_tfOrdSel.has(id)) _tfOrdSel.delete(id); else _tfOrdSel.add(id); _tfRenderResults(); }
+function _tfOrdSelAll(on){ _tfOrdResults().forEach(o=> on?_tfOrdSel.add(o.id):_tfOrdSel.delete(o.id)); _tfRenderResults(); }
+function _tfOrdAdd(ids){
+  let n=0;
+  ids.forEach(id=>{ if(!_tfOrdCart.includes(id)){ _tfOrdCart.push(id); n++; } _tfOrdSel.delete(id); });
+  notify(n?`➕ ${n} ordin${n===1?"e aggiunto":"i aggiunti"} all'invio`:"➕ Già nell'invio");
+  _tfRenderResults(); _tfRenderCart();
+}
+function _tfOrdAddSelected(){
+  const ids=_tfOrdResults().filter(o=>_tfOrdSel.has(o.id)).map(o=>o.id);
+  if(!ids.length){ notify("⚠️ Nessun ordine selezionato","err"); return; }
+  _tfOrdAdd(ids);
+}
+function _tfOrdRemove(id){ _tfOrdCart=_tfOrdCart.filter(x=>x!==id); _tfRenderCart(); _tfRenderResults(); }
+
+// ── UI: risultati ───────────────────────────────────────────────────────────
+function _tfOrdResultsHtml(){
+  const res=_tfOrdResults();
+  if(!res.length) return `<div style="font-size:11px;color:var(--txt4);padding:6px 0">Nessun ordine${_tfQ?" per «"+h(_tfQ)+"»":""}.</div>`;
+  const nSel=res.filter(o=>_tfOrdSel.has(o.id)).length;
+  return `
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
+    <label style="font-size:11px;color:var(--txt3);display:flex;align-items:center;gap:5px;cursor:pointer">
+      <input type="checkbox" ${nSel===res.length?"checked":""} onchange="_tfOrdSelAll(this.checked)"> Seleziona tutti (${res.length})</label>
+    ${nSel?`<button class="btn-outline btn-sm" style="font-size:10px;padding:3px 10px" onclick="_tfOrdAddSelected()">＋ Aggiungi ${nSel} all'invio</button>`:""}
+  </div>
+  ${res.map(o=>{
+    const tot=(o.referenze||[]).reduce((s,r)=>s+(parseInt(r.qtyArr??r.qty)||0),0);
+    const inCart=_tfOrdCart.includes(o.id);
+    return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);font-size:11px">
+      <input type="checkbox" ${_tfOrdSel.has(o.id)?"checked":""} onchange="_tfOrdToggleSel('${o.id}')">
+      <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+        <b>${h(o.fornitore||"—")}</b> <span style="color:var(--txt4)">${h(_fmtDataIT(o.dataOrdine||""))}</span>
+        <span style="color:${o.stato==="caricato"?"#30D158":"var(--amber)"};font-size:9px"> · ${h(o.stato||"")}</span>
+        <span style="color:var(--txt3)"> · ${(o.referenze||[]).length} ref · ${tot}bt</span></span>
+      ${inCart?`<span style="color:#5AC8FA;font-size:10px">nell'invio</span>`
+        :`<button class="btn-outline btn-sm" style="font-size:10px;padding:2px 8px" onclick="_tfOrdAdd(['${o.id}'])">＋</button>`}
+    </div>`;}).join("")}`;
+}
+
+// ── UI: carrello ────────────────────────────────────────────────────────────
+function _tfOrdCartHtml(modeSw){
+  const head=`<div style="font-size:10px;letter-spacing:.25em;text-transform:uppercase;color:var(--txt2);margin-bottom:8px">📋 Invio in preparazione</div>`+modeSw;
+  if(!_tfOrdCart.length) return head+`<div style="font-size:11px;color:var(--txt4)">Nessun ordine nell'invio. Cerca qui sopra e aggiungi con ＋.</div>`;
+  const dl=_tfDestKnown();
+  const righe=_tfOrdCart.map(id=>{
+    const o=orders.find(x=>x.id===id)||_resolveOrdine(id);
+    if(!o) return `<div style="padding:4px 0;color:#FF453A;font-size:11px">Ordine non trovato <button class="btn-outline btn-sm" onclick="_tfOrdRemove('${id}')">✕</button></div>`;
+    const tot=(o.referenze||[]).reduce((s,r)=>s+(parseInt(r.qtyArr??r.qty)||0),0);
+    return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);font-size:11px">
+      <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><b>${h(o.fornitore||"—")}</b>
+        <span style="color:var(--txt4)">${h(_fmtDataIT(o.dataOrdine||""))}</span>
+        <span style="color:var(--txt3)"> · ${(o.referenze||[]).length} ref · ${tot}bt · ${h(o.stato||"")}</span></span>
+      <button onclick="_tfOrdRemove('${o.id}')" style="background:none;border:none;color:#FF453A;cursor:pointer">✕</button></div>`;
+  }).join("");
+  const ready=!!(_tfMeta.dest||"").trim() && _tfOrdCart.length>0;
+  return head+righe+`
+    <div class="form-row" style="display:grid;grid-template-columns:1fr 160px;gap:12px;margin-top:14px">
+      <div><label class="form-label">Locale destinazione</label>
+        <input class="form-input" list="tf-dest-list" placeholder="es. Palinurobar" value="${h(_tfMeta.dest)}" oninput="_tfMetaSet('dest',this.value)">
+        <datalist id="tf-dest-list">${dl.map(d=>`<option value="${h(d)}">`).join("")}</datalist></div>
+      <div><label class="form-label">Data invio</label>
+        <input class="form-input" type="date" value="${h(_tfMeta.data||today())}" onchange="_tfMetaSet('data',this.value)"></div>
+    </div>
+    <div class="form-row" style="margin-top:10px"><label class="form-label">Nota (opzionale)</label>
+      <input class="form-input" placeholder="es. copia ordini fornitore comune" value="${h(_tfMeta.note)}" oninput="_tfMetaSet('note',this.value)"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:14px">
+      <div style="font-size:11px;color:var(--txt3)">${_tfOrdCart.length} ordini · <b style="color:#5AC8FA">copia integrale</b> · nessuno spostamento di giacenza</div>
+      <div style="display:flex;gap:8px">
+        <button class="btn-outline btn-sm" onclick="_tfOrdCart=[];_tfRenderCart();_tfRenderResults()">Svuota</button>
+        <button class="btn-primary" id="tf-genera" style="${ready?"":"opacity:.4;pointer-events:none"}" onclick="_tfGenera()">📋 Genera manifesto ordini</button>
+      </div>
+    </div>`;
+}
+
+// ── GENERAZIONE ─────────────────────────────────────────────────────────────
+function _tfGeneraOrdini(){
+  const dest=(_tfMeta.dest||"").trim();
+  if(!dest){ notify("⚠️ Indica il locale destinazione","err"); return; }
+  if(!_tfOrdCart.length){ notify("⚠️ Nessun ordine nell'invio","err"); return; }
+  const lines=[];
+  for(const id of _tfOrdCart){
+    const o=orders.find(x=>x.id===id)||_resolveOrdine(id);
+    if(!o){ notify("⚠️ Ordine non trovato, rimuovilo dall'invio","err"); return; }
+    lines.push(_tfOrdineLine(o));
+  }
+  const manifest={v:TRANSFER_MANIFEST_V,type:"cantina-transfer",mode:"ordine",transferId:uid(),
+    from:NOME_LOCALE,fromDbUser:_effectiveDbUser(),dest,data:_tfMeta.data||today(),note:(_tfMeta.note||"").trim(),lines};
+  _tfOrdCart=[]; _tfOrdSel.clear(); _tfQ="";
+  _tfMeta={dest:"",data:today(),note:"",mode:"ordine"};
+  notify(`📋 ${lines.length} ordini pronti per ${dest} (nessuna bottiglia spostata)`);
+  render(); _tfShowManifesto(manifest);
+}
+
+// Export diretto di un singolo ordine dalla lista Ordini.
+function esportaOrdineTrasferimento(id){
+  const o=orders.find(x=>x.id===id)||(typeof _resolveOrdine==="function"?_resolveOrdine(id):null);
+  if(!o){ notify("Ordine non trovato","err"); return; }
+  const manifest={v:TRANSFER_MANIFEST_V,type:"cantina-transfer",mode:"ordine",transferId:uid(),
+    from:NOME_LOCALE,fromDbUser:_effectiveDbUser(),dest:"",data:today(),note:"",lines:[_tfOrdineLine(o)]};
+  _tfShowManifesto(manifest);
+}
+
+// ── IMPORT ──────────────────────────────────────────────────────────────────
+function _tfOrdGiaImportato(srcId){
+  return (orders||[]).some(o=>o._srcId && o._srcId===srcId);
+}
+function _tfOrdPreviewHtml(man){
+  const self=man.fromDbUser && man.fromDbUser===_effectiveDbUser();
+  const rows=man.lines.map(l=>{
+    const dup=_tfOrdGiaImportato(l.srcId);
+    const nuovi=(l.referenze||[]).filter(r=>!_resolveWineForRef(r,l.fornitore,false)).length;
+    return `<div style="padding:4px 0;border-bottom:1px solid var(--border)">
+      <b>${h(l.fornitore||"—")}</b> ${h(_fmtDataIT(l.dataOrdine||""))} · ${(l.referenze||[]).length} ref · ${l.totBt}bt · ${h(l.stato||"")}
+      <span style="color:${dup?"#fb923c":"#30D158"};font-size:10px"> ${dup?"· già importato":"· nuovo"}</span>
+      ${nuovi?`<span style="color:var(--txt4);font-size:10px"> · ${nuovi} vin${nuovi===1?"o":"i"} non in anagrafica</span>`:""}</div>`;
+  }).join("");
+  const caricabili=man.lines.some(l=>l.stato==="caricato");
+  return `
+    <div style="margin-bottom:8px">📋 Ordini · da <b>${h(man.from||"?")}</b> · ${h(_fmtDataIT(man.data||""))} · ${man.lines.length} ordini${man.note?" · "+h(man.note):""}</div>
+    ${rows}
+    ${caricabili?`<label style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:11px;color:var(--txt2);cursor:pointer">
+      <input type="checkbox" id="tf-ord-carica"> Carica anche le bottiglie in inventario (solo ordini già «caricato»)</label>`:""}
+    ${self?`<div style="margin-top:10px;color:#FF453A">⚠️ Manifesto generato da questa stessa cantina</div>`:""}`;
+}
+// Il match standard (_resolveWineForRef) chiude su nome+produttore+annata+formato:
+// due cuvée omonime della stessa annata — nel caso reale i due "Pèpin Riesling
+// 2025" da 38 € e da 80 € — verrebbero fuse in una sola scheda. Qui il prezzo di
+// carta fa da discriminante: se nessun candidato lo rispetta, la scheda si crea.
+function _tfEnsureWineForRef(r, fornitore){
+  const fmt=String(parseFloat(r.formato)||0.75);
+  const nn=_tfNorm(r.nomeVino).trim(), pn=_tfNorm(r.produttore).trim(), ann=_tfNorm(r.annata).trim();
+  const cand=wines.filter(w=>_tfNorm(w.nome).trim()===nn && _tfNorm(w.produttore).trim()===pn
+    && _tfNorm(w.annata).trim()===ann && String(parseFloat(w.formato)||0.75)===fmt);
+  if(!cand.length) return _resolveWineForRef({...r, wineId:undefined}, fornitore, true);
+  const pc=parseFloat(r.prezzoCarta)||0;
+  if(!pc) return cand[0];
+  const exact=cand.find(w=>Math.abs((parseFloat(w.prezzoCarta)||0)-pc)<0.005);
+  if(exact) return exact;
+  const nuovo={id:uid(),nome:r.nomeVino||"",produttore:r.produttore||"",distributore:fornitore||"",
+    annata:r.annata||"",vitigni:r.vitigni||"",tipologia:r.tipologia||"Rosso",regione:r.regione||"",
+    nazione:r.nazione||"Italia",zona:r.zona||"",formato:parseFloat(r.formato)||0.75,
+    prezzoAcq:parseFloat(r.prezzoAcq)||0,iva:parseInt(r.iva)||22,prezzoCarta:pc,
+    giacenza:0,lots:[],sku:_nextSku()};
+  wines=[...wines,nuovo];
+  console.warn(`[Import ordini] "${nuovo.nome}" ${nuovo.annata||'NV'}: omonimo con prezzo carta diverso (€${pc}) — creata scheda separata`);
+  return nuovo;
+}
+
+function _tfImportaOrdini(man){
+  const carica=!!document.getElementById("tf-ord-carica")?.checked;
+  let creati=0, saltati=0, caricati=0, deltaBt=0;
+  man.lines.forEach(l=>{
+    if(!l||!l.fornitore&&!(l.referenze||[]).length) return;
+    if(_tfOrdGiaImportato(l.srcId)){ saltati++; return; }
+    // id nuovi: quelli di origine appartengono all'altro database
+    const refs=(l.referenze||[]).map(r=>{
+      const {srcWineId,...rest}=r;
+      const w=_tfEnsureWineForRef(r, l.fornitore);
+      return {...rest, id:uid(), wineId:w?w.id:undefined};
+    });
+    const nuovo={id:uid(), _srcId:l.srcId||"", _srcFrom:man.from||"",
+      fornitore:l.fornitore||"", stato:l.stato||"attesa",
+      dataOrdine:l.dataOrdine||"", dataArrivo:l.dataArrivo||"", dataCarico:l.dataCarico||"",
+      numeroFattura:l.numeroFattura||"", sconto:parseFloat(l.sconto)||0,
+      note:[l.note,`↩︎ importato da ${man.from||"?"}`].filter(Boolean).join(" · "),
+      referenze:refs};
+    orders=[...orders,nuovo];
+    creati++;
+    if(carica && nuovo.stato==="caricato" && typeof _riconciliaCaricoOrdine==="function"){
+      const esito=_riconciliaCaricoOrdine(nuovo);
+      if(esito){ caricati++; deltaBt+=esito.delta; }
+    }
+  });
+  if(!creati){ notify(`⚠️ Nessun ordine importato${saltati?` · ${saltati} già presenti`:""}`,"err"); return; }
+  scheduleSave(); clearTimeout(saveTimer); _flushSave();
+  notify(`📋 ${creati} ordini importati${saltati?` · ${saltati} già presenti`:""}${caricati?` · ${caricati} caricati in inventario (+${deltaBt}bt)`:""}`);
+  render();
+}
+
 
 function _tfExportStoricoCSV(){
   const gs=_tfHistFiltered();
