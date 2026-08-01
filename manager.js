@@ -16,7 +16,10 @@ const CONFIG = (() => {
     skuPrefix:  "PB-",                     // prefisso codice referenza
     lsPrefix:   "cm_",                     // namespace localStorage (origine dedicata)
     theme:      "amber",                   // accent token (le CSS var vivono nell'host HTML)
-    trasferimenti: false,                  // feature Spedisci/Ricevi via manifesto (Osteria ↔ Portland)
+    trasferimenti: true,                   // feature Spedisci/Ricevi via manifesto (bottiglie, schede, ordini)
+                                           // Attiva su tutti i locali: serve a spedire ordini e referenze
+                                           // tra le cantine. Per spegnerla su un host: trasferimenti:false
+                                           // nel suo window.CM_CONFIG (che va dichiarato PRIMA di questo file).
     // ── SERVIZIO AL BANCO ──────────────────────────────────────────────────
     // Importo fisso applicato a ogni bottiglia stappata e consumata in loco.
     // È un ricavo da SOMMINISTRAZIONE separato dal prezzo del vino: viene
@@ -5015,7 +5018,7 @@ function renderOrdini(){
       <td style="display:flex;gap:6px;align-items:center;padding:6px 14px">
         <button class="btn-outline btn-sm" onclick="apriModalRicezione('${o.id}')" title="Conferma arrivo" style="border-color:rgba(22,163,74,.4);color:#30D158">📦 Ricevi</button>
         <button class="btn-outline btn-sm" onclick="apriOrdineModal('${o.id}')" title="Modifica ordine">✏️</button>
-        <button class="btn-outline btn-sm" onclick="esportaOrdineTrasferimento('${o.id}')" title="Esporta manifesto per un altro locale" style="color:#5AC8FA;border-color:rgba(90,200,250,.25)">🔄</button>
+        ${CONFIG.trasferimenti?`<button class="btn-outline btn-sm" onclick="esportaOrdineTrasferimento('${o.id}')" title="Esporta manifesto per un altro locale" style="color:#5AC8FA;border-color:rgba(90,200,250,.25)">🔄</button>`:""}
         <button class="btn-outline btn-sm" onclick="duplicaOrdine('${o.id}')" title="Duplica ordine" style="border-color:rgba(191,95,255,.35);color:#bf5fff">⧉</button>
         <button class="btn-outline btn-sm" onclick="stampaOrdine('${o.id}')" title="Stampa / Salva PDF" style="border-color:rgba(0,122,255,.3);color:#007AFF">🖨️</button>
         <button class="btn-outline btn-sm" onclick="emailOrdine('${o.id}')" title="Invia via email" style="border-color:rgba(255,159,10,.3);color:var(--amber)">✉️</button>
@@ -5067,7 +5070,7 @@ function renderOrdini(){
         <button class="btn-outline btn-sm" onclick="mostraDettaglioOrdine('${o.id}')" style="font-size:9px;padding:2px 8px;color:var(--txt4)">dettaglio</button>
         <button class="btn-outline btn-sm" onclick="apriOrdineEvasoModal('${o.id}')" style="font-size:9px;padding:2px 8px;color:var(--amber);border-color:rgba(255,159,10,.25)">✏️</button>
         <button class="btn-outline btn-sm" onclick="duplicaOrdine('${o.id}')" style="font-size:9px;padding:2px 8px;color:#bf5fff;border-color:rgba(191,95,255,.25)" title="Duplica in nuovo ordine">⧉</button>
-        <button class="btn-outline btn-sm" onclick="esportaOrdineTrasferimento('${o.id}')" style="font-size:9px;padding:2px 8px;color:#5AC8FA;border-color:rgba(90,200,250,.25)" title="Esporta manifesto ordine">🔄</button>
+        ${CONFIG.trasferimenti?`<button class="btn-outline btn-sm" onclick="esportaOrdineTrasferimento('${o.id}')" style="font-size:9px;padding:2px 8px;color:#5AC8FA;border-color:rgba(90,200,250,.25)" title="Esporta manifesto ordine">🔄</button>`:""}
         <button class="btn-outline btn-sm" onclick="annullaRicezione('${o.id}')" style="font-size:9px;padding:2px 8px;color:#30D158;border-color:rgba(22,163,74,.3)" title="Annulla ricezione e rimetti in attesa">↩︎ ricezione</button>
         <button onclick="deleteEvaso('${o.id}')" style="color:#FF453A;font-size:12px;background:none;border:none;cursor:pointer;margin-left:4px;padding:2px 4px" title="Elimina ordine evaso">🗑️</button>
       </td>
