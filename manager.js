@@ -2986,7 +2986,15 @@ function _plBucketLabel(key, gran){
 // Elenco ordinato dei bucket che coprono l'intervallo (anche quelli a zero).
 function _plBuckets(daISO,aISO,gran){
   const out=[], seen=new Set(); let d=_parseD(daISO); const fine=_parseD(aISO);
-  while(d<=fine){ const k=_plBucket(_isoD(d),gran); if(!seen.has(k)){ seen.add(k); out.push(k); } d=_shiftD(d,1); }
+  // I giorni di chiusura non generano bucket: sulla granularita' giornaliera
+  // producevano una lunga linea piatta a zero, indistinguibile da giorni aperti
+  // senza incasso. Su settimana/mese il bucket resta se almeno un giorno e'
+  // aperto, altrimenti sparisce.
+  while(d<=fine){
+    const g=_isoD(d);
+    if(!_isChiuso(g)){ const k=_plBucket(g,gran); if(!seen.has(k)){ seen.add(k); out.push(k); } }
+    d=_shiftD(d,1);
+  }
   return out;
 }
 // Delta % vs periodo precedente, già formattato.
