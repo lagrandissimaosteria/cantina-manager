@@ -583,6 +583,13 @@ td[ondblclick]:hover{background:rgba(255,159,10,.06)!important}
     ivaSomministrazione: 10,
     // mar–dom. Sabato pranzo+cena, domenica solo pranzo → 6 giorni / 7 servizi.
     giorniApertura:      [2,3,4,5,6,0],
+
+    // Chiusure straordinarie: giorni in cui il locale non ha lavorato. Vengono
+    // esclusi dal conteggio dei servizi, cosi' le medie per servizio non
+    // scendono facendo sembrare una perdita quella che e' una chiusura.
+    chiusure: [
+      { da: "2026-08-07", a: "2026-08-25", nota: "Chiusura estiva" }
+    ],
     serviziGiorno:       { 6:2 }
   };
 </script>

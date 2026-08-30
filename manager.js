@@ -1087,6 +1087,133 @@ async function _sbWriteVersion(v){
   }catch{}
 }
 
+// ─── SESSIONE CON SCADENZA ───────────────────────────────────────────────────
+// Un terminale lasciato aperto in sala per ore riprende con uno stato vecchio e,
+// al primo salvataggio, lo propaga. Dopo INATTIVITA_MAX si forza il ricaricamento:
+// la pagina riparte dal cloud e tutti i dispositivi convergono.
+var INATTIVITA_MAX_MS = 2*60*60*1000; // 2 ore
+let _lastActivity = Date.now(), _idleTimer = null;
+function _touchActivity(){ _lastActivity = Date.now(); }
+function _checkIdle(){
+  if(Date.now()-_lastActivity < INATTIVITA_MAX_MS) return;
+  // Non si ricarica con lavoro non salvato: prima si tenta il flush.
+  if(typeof _unsyncedMovCount==="function" && _unsyncedMovCount()>0){
+    try{ _flushSave(); }catch(e){}
+    _touchActivity(); // riprova al giro successivo
+    return;
+  }
+  location.reload();
+}
+function _initIdleWatch(){
+  ["click","keydown","touchstart","visibilitychange"].forEach(ev=>{
+    document.addEventListener(ev,()=>{
+      if(ev==="visibilitychange" && document.visibilityState==="visible"){
+        // Tornando in primo piano dopo molto tempo si rilegge subito il cloud.
+        if(Date.now()-_lastActivity >= INATTIVITA_MAX_MS){ location.reload(); return; }
+      }
+      _touchActivity();
+    },{passive:true});
+  });
+  if(_idleTimer) clearInterval(_idleTimer);
+  _idleTimer=setInterval(_checkIdle,60*1000);
+}
+
+// ─── GIACENZA DERIVATA DAL LEDGER (fonte unica) ──────────────────────────────
+// PROBLEMA STORICO: la giacenza viveva SOLO nel blob cm_wines. Con last-write-wins
+// un terminale rimasto aperto (o tornato online) risalvava il blob vecchio e le
+// bottiglie gia' scaricate "risuscitavano", mentre il ledger append-only aveva
+// gia' registrato lo scarico. Stesso meccanismo per gli ordini modificati e per
+// i trasferimenti gia' usciti ma ancora contati in casa.
+// SOLUZIONE: la giacenza NON e' piu' un numero che si salva e si sovrascrive, ma
+// il risultato di   seed + saldo_ledger.
+//   · saldo_ledger = somma dei movimenti di quella referenza (append-only, non
+//     torna mai indietro: un client vecchio non puo' cancellarne uno);
+//   · seed = giacenza precedente all'inizio del ledger, calcolata UNA VOLTA e
+//     poi congelata in w._giacSeed (serve per le referenze storiche, i cui
+//     carichi sono anteriori al ledger e quindi non sommabili).
+// Cosi' due terminali che divergono convergono sullo stesso numero, perche'
+// partono dagli stessi movimenti.
+function _ledgerDelta(m){
+  if(!m || m.deleted) return 0;
+  const q=parseInt(m.qty)||0;
+  switch(m.tipo){
+    case "carico": case "trasferimento-entrata": return q;
+    case "scarico": case "trasferimento-uscita": case "fallata": return -q;
+    case "rettifica": return q; // gia' firmata alla creazione
+    default: return 0;
+  }
+}
+function _saldoLedgerPerVino(){
+  const map=new Map();
+  (movements||[]).forEach(m=>{
+    if(!m || m.deleted || !m.wineId) return;
+    map.set(m.wineId,(map.get(m.wineId)||0)+_ledgerDelta(m));
+  });
+  return map;
+}
+// Referenze la cui storia nel ledger comincia dall'origine (c'e' almeno un
+// carico o un'entrata): per queste il seed DEVE essere 0, altrimenti dedurlo
+// dalla giacenza attuale cristallizzerebbe l'errore che stiamo correggendo
+// (es. bottiglie gia' trasferite ma ancora contate in casa).
+function _vinoConStoriaCompleta(){
+  const set=new Set();
+  (movements||[]).forEach(m=>{
+    if(!m || m.deleted || !m.wineId) return;
+    if(m.tipo==="carico"||m.tipo==="trasferimento-entrata") set.add(m.wineId);
+  });
+  return set;
+}
+// Riallinea i lotti alla giacenza ricalcolata, consumando in FIFO (o ripristinando
+// sull'ultimo lotto) cosi' l'invariante giacenza === Somma(lots.qtyRimanente) regge.
+function _riallineaLotti(w,giac){
+  const lots=(w.lots||[]).map(l=>({...l}));
+  if(!lots.length) return lots;
+  let somma=lots.reduce((a,l)=>a+(parseInt(l.qtyRimanente)||0),0);
+  let diff=giac-somma;
+  if(diff===0) return lots;
+  if(diff<0){ // consumo FIFO dal lotto piu' vecchio
+    let resto=-diff;
+    for(const l of lots){
+      if(resto<=0) break;
+      const d=Math.min(parseInt(l.qtyRimanente)||0,resto);
+      l.qtyRimanente=(parseInt(l.qtyRimanente)||0)-d; resto-=d;
+    }
+  } else { // rientro: si ripristina sull'ultimo lotto, senza superare il caricato
+    const l=lots[lots.length-1];
+    l.qtyRimanente=(parseInt(l.qtyRimanente)||0)+diff;
+  }
+  return lots;
+}
+// Ritorna {cambiate, dettaglio[]} per poter loggare cosa e' stato corretto.
+function _reconcileGiacenze(opts){
+  const silent=!!(opts&&opts.silent);
+  if(!_movV2Available) return {cambiate:0,dettaglio:[]}; // ledger inaffidabile: non si tocca nulla
+  const saldi=_saldoLedgerPerVino();
+  const completi=_vinoConStoriaCompleta();
+  const dett=[];
+  wines=(wines||[]).map(w=>{
+    const saldo=saldi.get(w.id)||0;
+    let seed=w._giacSeed;
+    if(completi.has(w.id)){
+      seed=0; // storia intera nel ledger: la giacenza e' tutta e sola somma dei movimenti
+    } else if(seed===undefined||seed===null||isNaN(parseInt(seed))){
+      // Referenza anteriore al ledger: si deduce il seed una volta sola, cosi'
+      // la giacenza pregressa non va persa.
+      seed=(parseInt(w.giacenza)||0)-saldo;
+    }
+    seed=parseInt(seed)||0;
+    const nuova=Math.max(0,seed+saldo);
+    const vecchia=parseInt(w.giacenza)||0;
+    if(nuova===vecchia && w._giacSeed!==undefined) return w;
+    if(nuova!==vecchia) dett.push({nome:w.nome,annata:w.annata,da:vecchia,a:nuova});
+    return {...w,_giacSeed:seed,giacenza:nuova,lots:_riallineaLotti(w,nuova)};
+  });
+  if(dett.length && !silent){
+    console.warn("[giacenze] riallineate dal ledger:",dett);
+  }
+  return {cambiate:dett.length,dettaglio:dett};
+}
+
 // ─── MOVIMENTI: LEDGER APPEND-ONLY (cm_movements_ledger) ─────────────────────────
 // I movimenti NON vivono più in un blob JSONB sovrascritto per intero (causa
 // storica di perdita scarichi: un client "indietro" riscriveva tutto l'array,
@@ -1566,6 +1693,9 @@ async function _rebaseOnRemote(){
     }
   }catch{}
   _localVersion  = rver ?? _localVersion;
+  // La giacenza si ricava dal ledger: un blob remoto piu' vecchio non puo' piu'
+  // far risorgere bottiglie gia' scaricate.
+  _reconcileGiacenze({silent:true});
   _lastGoodWines = _lastAttemptWines = _snapWines(remoteWines); // tripwire valutato contro il remoto vero
   _setMergeBase(remoteWines, ro ?? [], rf ?? [], rs ?? {});
   _saveLocalBackup();
@@ -1597,6 +1727,9 @@ async function _flushSave(){
 
   _saveInFlight = true;
   _savePending  = false;
+  // Ultimo presidio: qualunque cosa abbia toccato il blob in memoria, cio' che
+  // finisce sul cloud e' sempre la giacenza derivata dal ledger.
+  try{ _reconcileGiacenze({silent:true}); }catch(e){ console.warn("[giacenze] riconciliazione saltata:",e); }
   _setDbStatus("sync","Sincronizzazione…");
 
   // Cattura snapshot immutabile DEEP dello stato corrente prima dell'await.
@@ -1808,6 +1941,13 @@ async function loadData(){
 
     _migrateOrders();
     _migrateWines();
+    // Riconciliazione all'avvio: allinea le giacenze ai movimenti reali PRIMA di
+    // fissare la baseline, altrimenti si consoliderebbe uno stato gia' sbagliato.
+    const _rec=_reconcileGiacenze();
+    if(_rec.cambiate){
+      notify(`🔧 ${_rec.cambiate} giacenz${_rec.cambiate===1?"a riallineata":"e riallineate"} ai movimenti registrati`);
+      scheduleSave();
+    }
     _lastGoodWines = _lastAttemptWines = _snapWines(wines); // baseline integrità = stato remoto appena caricato
     _setMergeBase(wines, orders, fallate, alertSoglie); // baseline per il merge 3-vie
     await _syncLocale(); // dati di fatturazione dal cloud
@@ -2446,6 +2586,7 @@ function _setInvScrollHeight(){
 
 function afterRender(){
   _acInit();
+  if(!_idleTimer) _initIdleWatch();
   if(section==="dashboard") initPlanciaCharts();
   // Shortcut tooltip hints su bottoni topbar
   _applyShortcutTitles();
@@ -2795,8 +2936,36 @@ function _plServizi(daISO,aISO){
   const apert=new Set(CONFIG.giorniApertura||[0,1,2,3,4,5,6]);
   const extra=CONFIG.serviziGiorno||{};
   let n=0, d=_parseD(daISO); const fine=_parseD(aISO);
-  while(d<=fine){ const wd=d.getDay(); if(apert.has(wd)) n+=(parseInt(extra[wd])||1); d=_shiftD(d,1); }
+  while(d<=fine){ const wd=d.getDay();
+    if(apert.has(wd) && !_isChiuso(_isoD(d))) n+=(parseInt(extra[wd])||1);
+    d=_shiftD(d,1); }
   return n;
+}
+// Chiusure straordinarie (ferie, turni, festivi): giorni in cui il locale NON ha
+// lavorato. Senza, i periodi di ferie entravano nel denominatore dei KPI per
+// servizio e il calo sembrava una perdita di fatturato invece che una chiusura.
+// Formato in CM_CONFIG: chiusure:[{da:"2026-08-07",a:"2026-08-25",nota:"Ferie"}]
+function _isChiuso(dataISO){
+  const list=CONFIG.chiusure;
+  if(!Array.isArray(list)||!list.length) return false;
+  const g=String(dataISO).slice(0,10);
+  return list.some(c=>{ if(!c) return false;
+    const da=String(c.da||c.dal||"").slice(0,10), a=String(c.a||c.al||da).slice(0,10);
+    return da && g>=da && g<=a; });
+}
+function _giorniChiusi(daISO,aISO){
+  let n=0, d=_parseD(daISO); const fine=_parseD(aISO);
+  while(d<=fine){ if(_isChiuso(_isoD(d))) n++; d=_shiftD(d,1); }
+  return n;
+}
+function _notaChiusure(daISO,aISO){
+  const n=_giorniChiusi(daISO,aISO);
+  if(!n) return "";
+  const note=[...new Set((CONFIG.chiusure||[]).filter(c=>{
+    const da=String(c.da||c.dal||"").slice(0,10), a=String(c.a||c.al||da).slice(0,10);
+    return da<=String(aISO).slice(0,10) && a>=String(daISO).slice(0,10);
+  }).map(c=>c.nota||"chiusura"))].join(", ");
+  return `${n} giorn${n===1?"o":"i"} di chiusura esclus${n===1?"o":"i"}${note?" · "+note:""}`;
 }
 // Chiave di bucket per la granularità scelta (settimana = ISO 8601).
 function _plBucket(dataISO, gran){
@@ -3205,7 +3374,7 @@ function _plSec2Vendite(D){
     </div>
   </div>
   <div style="font-size:10px;color:var(--txt4);margin-bottom:14px;letter-spacing:.04em">
-    ${h(R.label)} · ${h(R.dLabel)} · ${R.giorni} giorni di calendario · <span style="color:var(--amber3)">${D.serviziPer} servizi di apertura</span>
+    ${h(R.label)} · ${h(R.dLabel)} · ${R.giorni} giorni di calendario · <span style="color:var(--amber3)">${D.serviziPer} servizi di apertura</span>${(()=>{const n=_notaChiusure(R.da,R.a);return n?` · <span style="color:var(--txt4)">${h(n)}</span>`:"";})()}
     &nbsp;·&nbsp; confronto con ${h(_parseD(R.prevDa).toLocaleDateString("it-IT"))} → ${h(_parseD(R.prevA).toLocaleDateString("it-IT"))}
   </div>`;
   // KPI performance
