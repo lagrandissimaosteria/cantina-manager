@@ -5327,7 +5327,7 @@ function renderOrdini(){
 
   <!-- Modal Nuovo/Modifica Ordine -->
   <div id="ordine-modal-backdrop" class="modal-backdrop hidden" onclick="chiudiOrdineModal(event)">
-    <div class="modal" style="width:94vw;max-width:1500px" onclick="event.stopPropagation()">
+    <div class="modal cm-modal-xl" onclick="event.stopPropagation()">
       <div class="modal-header">
         <h2 id="ordine-modal-title">➕ Nuovo Ordine</h2>
         <button style="font-size:18px;color:var(--txt3)" onclick="chiudiOrdineModal()">✕</button>
@@ -5345,7 +5345,7 @@ function renderOrdini(){
 
   <!-- Modal Ricezione Singola Ordine -->
   <div id="ricezione-modal-backdrop" class="modal-backdrop hidden" onclick="chiudiRicezioneModal(event)">
-    <div class="modal" style="max-width:820px" onclick="event.stopPropagation()">
+    <div class="modal cm-modal-xl" onclick="event.stopPropagation()">
       <div class="modal-header">
         <h2>📦 Conferma Arrivo Ordine</h2>
         <button style="font-size:18px;color:var(--txt3)" onclick="chiudiRicezioneModal()">✕</button>
@@ -5899,27 +5899,34 @@ function _renderOrdineModalBody(allFornitori, allProduttori, allNomi){
     </div>
     <!-- Referenze -->
     <div class="modal-section-label">🍾 Referenze dell'ordine</div>
-    <div style="overflow-x:auto">
-      <table style="width:100%;border-collapse:collapse;min-width:1100px">
+    <div class="cm-grid-wrap">
+      <table class="cm-grid-tbl">
+        <colgroup>
+          <col style="width:10%"><col style="width:12.5%"><col style="width:7%"><col style="width:4.5%">
+          <col style="width:7.5%"><col style="width:6%"><col style="width:6.5%"><col style="width:7%">
+          <col style="width:0">
+          <col style="width:6.5%"><col style="width:4.5%"><col style="width:5.5%"><col style="width:6%">
+          <col style="width:4%"><col style="width:4.5%"><col style="width:6.5%"><col style="width:3%">
+        </colgroup>
         <thead>
-          <tr style="font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--txt4)">
-            <td style="padding:6px 8px;min-width:120px">Produttore</td>
-            <td style="padding:6px 8px;min-width:120px">Nome Vino</td>
-            <td style="padding:6px 8px;min-width:90px">Vitigni</td>
-            <td style="padding:6px 8px;min-width:56px">Annata</td>
-            <td style="padding:6px 8px;min-width:90px">Tipologia</td>
-            <td style="padding:6px 8px;min-width:80px">Formato</td>
-            <td style="padding:6px 8px;min-width:90px">Nazione</td>
-            <td style="padding:6px 8px;min-width:100px">Regione</td>
-            <td style="padding:6px 8px;width:0;padding:0;overflow:hidden;max-width:0"></td>
-            <td style="padding:6px 8px;min-width:90px">P.Acq ex IVA</td>
-            <td style="padding:6px 8px;min-width:56px">IVA</td>
-            <td style="padding:6px 8px;min-width:90px">P.Acq+IVA</td>
-            <td style="padding:6px 8px;min-width:80px">P.Carta</td>
-            <td style="padding:6px 8px;min-width:56px">Qty</td>
-            <td style="padding:6px 8px;min-width:64px;text-align:center;background:rgba(255,69,58,.04)">Sc.%</td>
-            <td style="padding:6px 8px;min-width:80px;text-align:right;background:rgba(48,209,88,.04)">Tot. riga</td>
-            <td style="padding:6px 8px;min-width:28px"></td>
+          <tr class="cm-grid-head">
+            <td>Produttore</td>
+            <td>Nome Vino</td>
+            <td>Vitigni</td>
+            <td>Annata</td>
+            <td>Tipologia</td>
+            <td>Formato</td>
+            <td>Nazione</td>
+            <td>Regione</td>
+            <td class="cm-col-hidden"></td>
+            <td>P.Acq ex IVA</td>
+            <td>IVA</td>
+            <td>P.Acq+IVA</td>
+            <td>P.Carta</td>
+            <td style="text-align:center">Qty</td>
+            <td style="text-align:center;background:rgba(255,69,58,.04)">Sc.%</td>
+            <td style="text-align:right;background:rgba(48,209,88,.04)">Tot. riga</td>
+            <td></td>
           </tr>
         </thead>
         <tbody id="omd-refs-body">${refsHtml}</tbody>
@@ -6253,23 +6260,36 @@ function _renderRicezioneModalBody(ordine, allForn, allProd, allNomi){
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
       <div><label class="form-label">Data Arrivo Effettiva</label>
-        <input id="ric-data-input" type="date" class="form-input" value="${today()}" onchange="ricezioneModalData.dataArrivo=this.value"></div>
+        <input id="ric-data-input" type="date" class="form-input" value="${h(ricezioneModalData.dataArrivo||today())}" onchange="ricezioneModalData.dataArrivo=this.value"></div>
       <div><label class="form-label">Numero Fattura <span style="color:var(--txt4)">(opzionale)</span></label>
-        <input id="ric-fattura-input" type="text" class="form-input" placeholder="Es. FT-2025-001" onchange="ricezioneModalData.fattura=this.value.trim()"></div>
+        <input id="ric-fattura-input" type="text" class="form-input" placeholder="Es. FT-2025-001" value="${h(ricezioneModalData.fattura||'')}" onchange="ricezioneModalData.fattura=this.value.trim()"></div>
     </div>
-    <div style="overflow-x:auto">
-      <table style="width:100%;border-collapse:collapse;min-width:600px">
-        <thead><tr style="font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt4)">
-          <td style="padding:6px 8px">Produttore</td>
-          <td style="padding:6px 8px">Nome Vino</td>
-          <td style="padding:6px 8px;text-align:center;color:var(--amber)">Annata</td>
-          <td style="padding:6px 8px;text-align:center">Formato</td>
-          <td style="padding:6px 8px">Vitigni</td>
-          <td style="padding:6px 8px">Tipo</td>
-          <td style="padding:6px 8px;text-align:center">Ordinato</td>
-          <td style="padding:6px 8px;text-align:center;color:var(--amber)">Arrivato ✏️</td>
-          <td style="padding:6px 8px">P.Acq ✏️</td>
-          <td style="padding:6px 8px;width:64px"></td>
+    <div class="cm-grid-wrap">
+      <table class="cm-grid-tbl">
+        <colgroup>
+          <col style="width:10%"><col style="width:13%"><col style="width:4.5%"><col style="width:5.5%">
+          <col style="width:8%"><col style="width:7%"><col style="width:6.5%"><col style="width:7%">
+          <col style="width:5%"><col style="width:5.5%">
+          <col style="width:6%"><col style="width:4.5%"><col style="width:5.5%"><col style="width:5.5%">
+          <col style="width:6%"><col style="width:3.5%">
+        </colgroup>
+        <thead><tr class="cm-grid-head">
+          <td>Produttore</td>
+          <td>Nome Vino</td>
+          <td style="text-align:center;color:var(--amber)">Annata</td>
+          <td style="text-align:center">Formato</td>
+          <td>Vitigni</td>
+          <td>Tipo</td>
+          <td>Nazione</td>
+          <td>Regione</td>
+          <td style="text-align:center">Ordin.</td>
+          <td style="text-align:center;color:var(--amber)">Arrivato ✏️</td>
+          <td>P.Acq ✏️</td>
+          <td>IVA ✏️</td>
+          <td style="text-align:right">P.Acq+IVA</td>
+          <td>P.Carta ✏️</td>
+          <td style="text-align:right;background:rgba(48,209,88,.04)">Tot. riga</td>
+          <td></td>
         </tr></thead>
         <tbody id="ric-righe-body">${righeHtml}</tbody>
       </table>
@@ -6293,27 +6313,61 @@ function _aggiornaRicTotale(){
 // sbagliate). I dati completi si inseriscono nella scheda, non in linea.
 function _ricRowHtml(r){
   const ex=!!r._extra;
+  const iva=parseInt(r.iva)||22;
+  const ivaIncl=(parseFloat(r.prezzoAcq)||0)*(1+iva/100);
+  const tot=ivaIncl*(parseInt(r.qtyArr)||0);
+  const ivaOpts=IVA_OPTIONS.map(v=>`<option value="${v}"${v===iva?" selected":""}>${v}%</option>`).join("");
+  const short=(parseInt(r.qtyArr)||0)<(parseInt(r.qty)||0) && !ex;
   return `
     <tr data-ric-id="${r.id}" style="border-top:1px solid var(--border)${ex?";background:rgba(255,159,10,.05)":""}">
-      <td style="padding:5px 8px;color:var(--txt3)">${h(r.produttore||'—')}</td>
-      <td style="padding:5px 8px">${h(r.nomeVino||'—')}${ex?` <span style="font-size:9px;color:var(--amber3);letter-spacing:.1em">NON PREVISTA</span>`:""}</td>
-      <td style="padding:5px 8px;color:var(--amber);font-family:'Montserrat',sans-serif;text-align:center;font-size:11px;white-space:nowrap">${r.annata?h(r.annata):'<span style="color:var(--txt4)">N.V.</span>'}</td>
-      <td style="padding:5px 8px;color:var(--txt4);font-size:10px;text-align:center;white-space:nowrap">${parseFloat(r.formato)||0.75}L</td>
-      <td style="padding:5px 8px;color:var(--txt3);font-size:10px">${h(r.vitigni||'—')}</td>
-      <td style="padding:5px 8px">${badge(r.tipologia)}</td>
-      <td style="padding:5px 8px;color:var(--txt2);text-align:center">${ex?'<span style="color:var(--txt4)">—</span>':r.qty}</td>
-      <td style="padding:5px 8px">
-        <input type="number" class="form-input" style="font-size:11px;text-align:center" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" value="${r.qtyArr}" min="0" step="1"
-          onchange="_ricRefChange('${r.id}','qtyArr',parseInt(this.value)||0);_aggiornaRicTotale()"
-          oninput="_ricRefChange('${r.id}','qtyArr',parseInt(this.value)||0);_aggiornaRicTotale()">
+      <td style="color:var(--txt3)">${h(r.produttore||'—')}</td>
+      <td>${h(r.nomeVino||'—')}${ex?` <span style="font-size:9px;color:var(--amber3);letter-spacing:.1em">NON PREVISTA</span>`:""}</td>
+      <td style="color:var(--amber);text-align:center;white-space:nowrap">${r.annata?h(r.annata):'<span style="color:var(--txt4)">N.V.</span>'}</td>
+      <td style="color:var(--txt3);text-align:center;white-space:nowrap">${parseFloat(r.formato)||0.75}L</td>
+      <td style="color:var(--txt3)">${h(r.vitigni||'—')}</td>
+      <td>${badge(r.tipologia)}</td>
+      <td style="color:var(--txt3)">${h(r.nazione||'—')}</td>
+      <td style="color:var(--txt3)">${h(r.regione||'—')}</td>
+      <td style="color:var(--txt2);text-align:center">${ex?'<span style="color:var(--txt4)">—</span>':r.qty}</td>
+      <td>
+        <input type="number" class="form-input${short?" cm-ric-short":""}" style="text-align:center" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" value="${r.qtyArr}" min="0" step="1"
+          oninput="_ricRefChange('${r.id}','qtyArr',parseInt(this.value)||0);_ricRowRecalc('${r.id}')">
       </td>
-      <td style="padding:5px 8px">
-        <input type="number" class="form-input" style="font-size:11px" value="${r.prezzoAcq||''}" step="0.01" min="0" placeholder="0.00"
-          onchange="_ricRefChange('${r.id}','prezzoAcq',parseFloat(this.value)||0);_aggiornaRicTotale()">
+      <td>
+        <input type="number" class="form-input" style="text-align:right" value="${r.prezzoAcq||''}" step="0.01" min="0" placeholder="0.00"
+          oninput="_ricRefChange('${r.id}','prezzoAcq',parseFloat(this.value)||0);_ricRowRecalc('${r.id}')">
       </td>
-      <td style="padding:5px 4px;text-align:right;white-space:nowrap">${ex?`<button class="btn-outline btn-sm" style="padding:2px 6px;font-size:10px" onclick="_addRicezioneRow('${r.id}')" title="Modifica scheda">✏️</button> <button style="color:var(--txt4);font-size:13px;background:none;border:none;cursor:pointer" onclick="_ricRemoveRow('${r.id}')" title="Rimuovi">✕</button>`:""}</td>
+      <td>
+        <select class="form-input" onchange="_ricRefChange('${r.id}','iva',parseInt(this.value)||22);_ricRowRecalc('${r.id}')">${ivaOpts}</select>
+      </td>
+      <td id="ric-ivaincl-${r.id}" style="text-align:right;color:var(--amber);font-weight:600;white-space:nowrap;background:rgba(255,159,10,.06)">${ivaIncl?fmtRound(ivaIncl):"—"}</td>
+      <td>
+        <input type="number" class="form-input" style="text-align:right" value="${r.prezzoCarta||''}" step="1" min="0" placeholder="0"
+          oninput="_ricRefChange('${r.id}','prezzoCarta',parseFloat(this.value)||0)">
+      </td>
+      <td id="ric-tot-${r.id}" style="text-align:right;white-space:nowrap;background:rgba(48,209,88,.04)">${tot?fmtRound(tot):"—"}</td>
+      <td style="text-align:right;white-space:nowrap">${ex?`<button class="btn-outline btn-sm" style="padding:2px 5px;font-size:10px" onclick="_addRicezioneRow('${r.id}')" title="Modifica scheda">✏️</button> <button style="color:var(--txt4);font-size:13px;background:none;border:none;cursor:pointer" onclick="_ricRemoveRow('${r.id}')" title="Rimuovi">✕</button>`:""}</td>
     </tr>`;
 }
+
+// Ricalcolo chirurgico della singola riga di ricezione (IVA incl., totale riga,
+// evidenza quantita' mancante) senza rigenerare l'intera tabella: evita la
+// perdita di focus mentre si digitano le quantita' arrivate.
+function _ricRowRecalc(id){
+  const r=ricezioneModalData?.righe.find(x=>x.id===id);
+  if(!r) return;
+  const ivaIncl=(parseFloat(r.prezzoAcq)||0)*(1+(parseInt(r.iva)||22)/100);
+  const tot=ivaIncl*(parseInt(r.qtyArr)||0);
+  const a=document.getElementById(`ric-ivaincl-${id}`);
+  if(a) a.textContent=ivaIncl?fmtRound(ivaIncl):"—";
+  const b=document.getElementById(`ric-tot-${id}`);
+  if(b) b.textContent=tot?fmtRound(tot):"—";
+  const row=document.querySelector(`tr[data-ric-id="${id}"]`);
+  const inp=row?row.querySelector('td:nth-child(10) input'):null;
+  if(inp) inp.classList.toggle("cm-ric-short", !r._extra && (parseInt(r.qtyArr)||0)<(parseInt(r.qty)||0));
+  _aggiornaRicTotale();
+}
+
 function _ricRenderRighe(){
   const tbody=document.getElementById("ric-righe-body");
   if(tbody) tbody.innerHTML=ricezioneModalData.righe.map(r=>_ricRowHtml(r)).join("");
@@ -12251,3 +12305,34 @@ function _acInit(root){
     window.addEventListener("resize",()=>_acPos());
   }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MODALI A TUTTA LARGHEZZA (composizione ordine / ricezione ordine)
+// Griglia a layout fisso: tutte le colonne visibili senza scroll orizzontale.
+(function(){
+  if(typeof document==="undefined"||document.getElementById("cm-modal-xl-css")) return;
+  const st=document.createElement("style"); st.id="cm-modal-xl-css";
+  st.textContent=`
+.cm-modal-xl{width:98vw!important;max-width:1900px!important;max-height:94vh!important;
+  display:flex!important;flex-direction:column!important}
+.cm-modal-xl>.modal-header,.cm-modal-xl>.modal-footer{flex:0 0 auto}
+.cm-modal-xl>.modal-body{flex:1 1 auto;overflow-y:auto;overflow-x:hidden;max-height:none}
+.cm-grid-wrap{overflow-x:auto;overflow-y:visible}
+.cm-grid-tbl{width:100%;border-collapse:collapse;table-layout:fixed;min-width:1080px}
+.cm-grid-tbl td{padding:4px 4px!important;vertical-align:middle;font-size:11px;
+  overflow-wrap:anywhere;word-break:break-word}
+.cm-grid-tbl .cm-col-hidden{width:0;padding:0!important;overflow:hidden;max-width:0}
+.cm-grid-tbl tr.cm-grid-head td{position:sticky;top:0;z-index:3;background:var(--bg2,#1c1917);
+  font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--txt4);
+  padding:7px 4px!important;border-bottom:1px solid var(--border);white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+.cm-grid-tbl .form-input{width:100%!important;min-width:0!important;max-width:100%!important;
+  box-sizing:border-box;font-size:11px;padding-left:5px;padding-right:5px}
+.cm-grid-tbl select.form-input{padding-right:2px;text-overflow:ellipsis}
+.cm-grid-tbl input.cm-ric-short{border-color:rgba(255,159,10,.55)!important;color:var(--amber)!important}
+@media(max-width:1024px){
+  .cm-modal-xl{width:100vw!important;max-width:100vw!important;max-height:100vh!important}
+  .cm-grid-tbl{min-width:940px}
+}`;
+  (document.head||document.documentElement).appendChild(st);
+})();
