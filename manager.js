@@ -1139,7 +1139,10 @@ function _ledgerDelta(m){
   switch(m.tipo){
     case "carico": case "trasferimento-entrata": return q;
     case "scarico": case "trasferimento-uscita": case "fallata": return -q;
-    case "rettifica": return q; // gia' firmata alla creazione
+    case "rettifica": case "correzione": {
+      if(q<0) return q;                       // qty gia' firmata
+      return (m.segno==="-") ? -q : q;        // qty positiva + segno esplicito
+    }
     default: return 0;
   }
 }
@@ -6562,12 +6565,13 @@ function confermaRicezioneOrdine(){
   const daProcessare=ricezioneModalData.righe.filter(r=>(parseInt(r.qtyArr)||0)>0);
   if(!daProcessare.length){notify("⚠️ Nessuna bottiglia da caricare","err");return;}
 
-  // Validate: qtyArr cannot exceed qty ordered (skip _extra rows)
-  for(const r of daProcessare){
-    if(!r._extra && (parseInt(r.qtyArr)||0) > (parseInt(r.qty)||0)){
-      notify(`⚠️ ${r.nomeVino}: quantità arrivata (${r.qtyArr}) supera quella ordinata (${r.qty})`, "err");
-      return;
-    }
+  // Eccedenze: il fornitore manda spesso qualche bottiglia in piu' per compensare
+  // referenze mancanti. NON e' un errore bloccante — si carica quel che e'
+  // arrivato davvero e si avvisa, cosi' la differenza resta visibile.
+  const _ecced=daProcessare.filter(r=>!r._extra && (parseInt(r.qtyArr)||0)>(parseInt(r.qty)||0))
+    .map(r=>`${r.nomeVino} +${(parseInt(r.qtyArr)||0)-(parseInt(r.qty)||0)}`);
+  if(_ecced.length){
+    notify(`📦 Ricevute in eccedenza rispetto all'ordine: ${_ecced.slice(0,3).join(" · ")}${_ecced.length>3?` · +altre ${_ecced.length-3}`:""}`,"info");
   }
 
   daProcessare.forEach(r=>{
@@ -12549,6 +12553,60 @@ function _acInit(root){
     try{ scheduleSave(); if(typeof saveTimer!=="undefined") clearTimeout(saveTimer); _flushSave(); }
     catch(e){ console.warn("flush fallito", e); }
     console.log("✅ date riallineate + flush. Ricarica la pagina per aggiornare i KPI.");
+    return report;
+  };
+})();
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RETTIFICA MASSIVA GIACENZE (console) — allinea le referenze a una lista di
+// valori reali generando MOVIMENTI DI RETTIFICA firmati nel ledger. Non tocca
+// mai la giacenza "a mano": la correzione resta tracciata, sopravvive alle
+// risincronizzazioni e non puo' essere annullata da un terminale rimasto aperto.
+//   lista: [{id:"<wineId>", q:<giacenza reale>}, ...]
+//   window.__cmRettificaMassiva(lista)                  → dry-run
+//   window.__cmRettificaMassiva(lista,{apply:true})     → applica + backup + flush
+//   opzioni: {data:"2026-09-02", nota:"Conta fisica"}
+(function(){
+  window.__cmRettificaMassiva = function(lista, opts){
+    opts=opts||{};
+    const apply=!!opts.apply;
+    const data=opts.data||today();
+    const nota=opts.nota||"Rettifica inventario";
+    if(!Array.isArray(lista)||!lista.length){ console.warn("Lista vuota"); return []; }
+    const report=[], azioni=[];
+    lista.forEach(x=>{
+      const w=(wines||[]).find(y=>y.id===x.id);
+      if(!w){ report.push({id:x.id, esito:"non trovata"}); return; }
+      const att=parseInt(w.giacenza)||0, target=parseInt(x.q)||0, delta=target-att;
+      if(delta===0){ report.push({ref:`${w.produttore||""} ${w.nome||""} ${w.annata||""}`.trim(), da:att, a:target, delta:0, esito:"gia' allineata"}); return; }
+      report.push({ref:`${w.produttore||""} ${w.nome||""} ${w.annata||""}`.trim(), da:att, a:target, delta, esito:"da rettificare"});
+      azioni.push({w, delta, target});
+    });
+    console.table(report);
+    const n=azioni.length, tot=azioni.reduce((a,b)=>a+b.delta,0);
+    console.log(`${apply?"APPLICO":"DRY-RUN"} — ${n} referenze, saldo ${tot>0?"+":""}${tot} bottiglie.`);
+    if(!apply || !n) return report;
+    try{
+      const ts=new Date().toISOString().replace(/[:.]/g,"-");
+      localStorage.setItem(_lsKey("wines_backup_"+ts), JSON.stringify(wines));
+      localStorage.setItem(_lsKey("movements_backup_"+ts), JSON.stringify(movements));
+      console.log("💾 backup salvato:", _lsKey("wines_backup_"+ts));
+    }catch(e){ console.warn("backup fallito", e); }
+    const nuovi=[];
+    azioni.forEach(({w,delta,target})=>{
+      const q=Math.abs(delta);
+      nuovi.push({ id:uid(), wineId:w.id, wineName:w.nome, produttore:w.produttore||"",
+        nazione:w.nazione||"", tipo:"rettifica", qty:q, segno: delta<0?"-":"+",
+        data, fattura:"", fornitore:"", note:nota, origine:"rettifica-massiva",
+        ts:Date.now() });
+      // Il valore corrente si allinea subito; al prossimo _reconcileGiacenze la
+      // giacenza sara' comunque riderivata da seed + saldo e dara' lo stesso numero.
+      wines=wines.map(x=> x.id!==w.id ? x : {...x, giacenza:target, lots:_riallineaLotti(x,target)});
+    });
+    movements=[...nuovi, ...movements];
+    try{ scheduleSave(); clearTimeout(saveTimer); _flushSave(); }
+    catch(e){ console.warn("flush fallito", e); }
+    console.log(`✅ ${n} rettifiche scritte nel ledger + flush. Ricarica la pagina.`);
     return report;
   };
 })();
