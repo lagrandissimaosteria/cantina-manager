@@ -123,6 +123,8 @@ let _movLedgerVuoto = 0; // >0 = ledger remoto vuoto con storico in cache locale
 // BLOCCATE: salvare una cache locale stantia sopra il remoto è esattamente ciò
 // che ha fatto riapparire bottiglie già scaricate.
 let _degradedMode = "", _degradedWarned = false;
+const MERGE_DEL_ABS = 25;    // soglia assoluta: record spariti dal remoto in un merge
+const MERGE_DEL_PCT = 0.20;  // soglia relativa: quota della base comune
 const MOV_DELETE_ABS = 25;   // soglia assoluta: n. movimenti cancellati in un save
 const MOV_DELETE_PCT = 0.20; // soglia relativa: quota della baseline caricata
 let _bozzeSb = []; // bozze da ordini_testata+righe, caricate in background
@@ -1052,6 +1054,50 @@ async function _sbUpsert(table, payload){
   const { error } = await _sb.from(table).upsert(payload, {onConflict:"user_id"});
   if(error){ console.warn("Supabase upsert error:", table, error.message); throw error; }
 }
+
+// ── TOMBSTONE REFERENZE (cancellazioni autorevoli) ──────────────────────────
+// cm_wines e' una riga sola per user_id: una postazione stantia che salva puo'
+// reintrodurre un vino eliminato altrove. Il merge 3-vie ora rispetta la
+// cancellazione remota, ma solo finche' la base comune e' affidabile: se una
+// sessione riparte da backup locale o perde la base, il record risulta "creato
+// localmente" e rientra lo stesso. cm_tombstones e' la rete di sicurezza:
+// append-only lato client (policy solo SELECT+INSERT), quindi nessuna postazione
+// puo' cancellare una cancellazione. Se la tabella non esiste il codice degrada
+// in silenzio e resta operativo (stessa logica di cm_settings/cm_fatture).
+let _tombTableOk = true;
+let _tombstones = new Set();
+async function _sbReadTombstones(){
+  if(!_sb || !_tombTableOk) return null;
+  try{
+    const { data, error } = await _sb.from("cm_tombstones")
+      .select("id").eq("user_id", _effectiveDbUser()).eq("entity","wine");
+    if(error){ _tombTableOk=false; console.warn("[tombstones] lettura:", error.message); return null; }
+    return new Set((data||[]).map(r=>r.id));
+  }catch(e){ _tombTableOk=false; console.warn("[tombstones] lettura:", e&&e.message||e); return null; }
+}
+async function _sbWriteTombstones(items){
+  if(!_sb || !_tombTableOk || !items || !items.length) return;
+  try{
+    const rows=items.map(it=>({ user_id:_effectiveDbUser(), entity:"wine", id:it.id, nome:it.nome||"" }));
+    const { error } = await _sb.from("cm_tombstones")
+      .upsert(rows, { onConflict:"user_id,entity,id", ignoreDuplicates:true });
+    if(error){ _tombTableOk=false; console.warn("[tombstones] scrittura:", error.message); }
+  }catch(e){ _tombTableOk=false; console.warn("[tombstones] scrittura:", e&&e.message||e); }
+}
+// Marca localmente e in remoto. Non blocca: la cancellazione locale avviene
+// comunque, il tombstone e' solo il presidio contro la resurrezione.
+function _tombstonaVini(items){
+  (items||[]).forEach(it=>{ if(it && it.id) _tombstones.add(it.id); });
+  _sbWriteTombstones(items);
+}
+// Filtro autorevole, applicato a ogni load, rebase e salvataggio.
+function _stripTombstoned(arr){
+  if(!_tombstones.size) return arr;
+  const src=arr||[];
+  const out=src.filter(w=>!_tombstones.has(w.id));
+  if(out.length!==src.length) console.warn("[tombstones] scartate", src.length-out.length, "referenze gia' eliminate");
+  return out;
+}
 async function _sbRead(table){
   if(!_sb) return null;
   const { data, error } = await _sb.from(table).select("data").eq("user_id", _effectiveDbUser());
@@ -1584,9 +1630,25 @@ function _merge3(base, local, remote){
   const bo=new Map((base||[]).map(x=>[x.id,x]));            // base come oggetti
   const rm=new Map((remote||[]).map(x=>[x.id,x]));
   const out=new Map((remote||[]).map(x=>[x.id,x]));
+  // CANCELLAZIONE REMOTA: un record presente nella base comune e assente dal
+  // remoto e' stato eliminato da un'altra postazione. Mancava il caso simmetrico
+  // di "eliminato localmente": il ramo "modificato localmente" qui sotto lo
+  // reinseriva a ogni rebase => referenze che resuscitano. Guard: se dal remoto
+  // manca una fetta enorme della base la lettura e' sospetta (parziale/mutilata)
+  // e non si deduce nessuna cancellazione, altrimenti si svuota la cantina.
+  const _mancantiRem=[...bm.keys()].filter(x=>!rm.has(x)).length;
+  const _delRemOk = !(bm.size>0 && _mancantiRem>=MERGE_DEL_ABS && (_mancantiRem/bm.size)>=MERGE_DEL_PCT);
+  if(!_delRemOk){
+    console.warn("[merge3] cancellazioni remote IGNORATE:",_mancantiRem,"su",bm.size,"- lettura remota sospetta");
+    // out parte dal remoto: i record intatti e assenti dal remoto sparirebbero
+    // comunque. Con lettura sospetta si ripescano dalla base; il ciclo qui sotto
+    // li sovrascrive con la versione locale dove c'e' stata una modifica.
+    for(const [bid,brec] of bo) if(!rm.has(bid)) out.set(bid, brec);
+  }
   for(const [id,rec] of lm){
     const b=bm.get(id);
     if(b===undefined){ out.set(id, rec); continue; }        // creato localmente
+    if(_delRemOk && !rm.has(id)) continue;                  // eliminato sul remoto: la cancellazione vince
     if(JSON.stringify(rec)!==b){
       // Modificato localmente: il locale vince. Ma se il remoto e' cambiato su
       // campi DIVERSI dalla giacenza (es. anagrafica da un'altra postazione),
@@ -1693,6 +1755,7 @@ async function _rebaseOnRemote(){
   ]);
   const remoteWines = (rw ?? []).map(v=>({...v, nazione: inferPaese(v.nazione, v.regione, v.zona)}));
   wines       = _merge3(_mergeBase.wines,   wines,   remoteWines);
+  wines       = _stripTombstoned(wines);
   fallate     = _merge3(_mergeBase.fallate, fallate, rf ?? []);
   orders      = _merge3(_mergeBase.orders,  orders,  ro ?? []);
   await _rebaseFatture();
@@ -1723,7 +1786,17 @@ async function _rebaseOnRemote(){
   // far risorgere bottiglie gia' scaricate.
   _reconcileGiacenze({silent:true});
   _lastGoodWines = _lastAttemptWines = _snapWines(remoteWines); // tripwire valutato contro il remoto vero
-  _setMergeBase(remoteWines, ro ?? [], rf ?? [], rs ?? {});
+  // La base del merge deve rispecchiare il remoto MA con giacenza/lotti gia'
+  // derivati dal ledger dalla riconciliazione qui sopra. Fissandola sul remoto
+  // grezzo, ogni referenza toccata risultava "modificata localmente" per sempre:
+  // al rebase successivo il locale vinceva sempre, ed e' la deriva che teneva in
+  // vita i record cancellati da un'altra postazione.
+  const _giacNow = new Map((wines||[]).map(w=>[w.id,w]));
+  const _baseWines = (remoteWines||[]).map(rw2=>{
+    const lw=_giacNow.get(rw2.id);
+    return lw ? {...rw2, _giacSeed:lw._giacSeed, giacenza:lw.giacenza, lots:lw.lots} : rw2;
+  });
+  _setMergeBase(_baseWines, ro ?? [], rf ?? [], rs ?? {});
   _saveLocalBackup();
   return true;
 }
@@ -1755,6 +1828,7 @@ async function _flushSave(){
   _savePending  = false;
   // Ultimo presidio: qualunque cosa abbia toccato il blob in memoria, cio' che
   // finisce sul cloud e' sempre la giacenza derivata dal ledger.
+  wines = _stripTombstoned(wines); // una referenza eliminata non torna mai sul cloud
   try{ _reconcileGiacenze({silent:true}); }catch(e){ console.warn("[giacenze] riconciliazione saltata:",e); }
   _setDbStatus("sync","Sincronizzazione…");
 
@@ -1964,6 +2038,11 @@ async function loadData(){
         _movSyncBaseline = new Map(live.map(r => [r.payload.id, _movHash(r.payload)]));
       }
     }
+
+    // Referenze eliminate: il tombstone e' autorevole e vince su qualunque blob.
+    const _tomb = await _sbReadTombstones();
+    if(_tomb) _tombstones = _tomb;
+    wines = _stripTombstoned(wines);
 
     _migrateOrders();
     _migrateWines();
@@ -8019,6 +8098,10 @@ function bulkDeleteWines(){
     `Eliminare <strong>${n} vin${n===1?'o':'i'}</strong>?<br><span style="font-size:11px;color:var(--txt4)">Verranno rimossi anche movimenti e fallate collegati.</span>`,
     `🗑️ Elimina ${n} ${n===1?'vino':'vini'}`,
     () => {
+      _tombstonaVini([...snap].map(_id=>{
+        const _w=wines.find(x=>x.id===_id);
+        return {id:_id, nome:(_w&&_w.nome)||""};
+      }));
       wines=wines.filter(w=>!snap.has(w.id));
       movements=movements.filter(m=>!snap.has(m.wineId));
       fallate=fallate.filter(f=>!snap.has(f.wineId));
@@ -8334,6 +8417,7 @@ function deleteWine(id){
     `Eliminare <strong>${w.nome}</strong>${w.produttore?' ('+w.produttore+')':''}?<br><span style="font-size:11px;color:var(--txt4)">Verranno rimossi anche movimenti e fallate collegati.</span>`,
     "🗑️ Elimina",
     () => {
+      _tombstonaVini([{id:id, nome:w.nome||""}]);
       wines=wines.filter(x=>x.id!==id);
       movements=movements.filter(m=>m.wineId!==id);
       fallate=fallate.filter(f=>f.wineId!==id);
@@ -9604,15 +9688,46 @@ function _renderMobStorico(){
   }).join("");
 }
 
+// Annullare uno scarico CANCELLANDO la riga di ledger fa riapparire la bottiglia
+// senza lasciare traccia del perche': e' la meccanica con cui una referenza
+// "resuscita" da sola il giorno dopo. La sessione mobile resta aperta per giorni,
+// quindi la X di annullo era a un tap di distanza anche su scarichi vecchi.
+// Oltre la finestra a caldo l'annullo diventa uno STORNO: il movimento originale
+// resta, la giacenza torna su e in storico si legge quando e perche'.
+const MOB_STORNO_MS = 20*60*1000;
+function _movEta(m){ const t=parseInt(m&&m.ts)||0; return t ? (Date.now()-t) : Infinity; }
+function _stornoMovimento(mov, motivo){
+  if(!mov) return null;
+  const q=Math.abs(parseInt(mov.qty)||0);
+  if(!q) return null;
+  const d=_ledgerDelta(mov);
+  if(!d) return null;
+  const st={ id:uid(), wineId:mov.wineId, wineName:mov.wineName||"", produttore:mov.produttore||"",
+    nazione:mov.nazione||"", tipo:"rettifica", qty:q, segno: d<0 ? "+" : "-",
+    data:today(), fattura:"", fornitore:"",
+    note:(motivo||"Storno")+" - movimento del "+(mov.data||"?"),
+    origine:"storno", stornoDi:mov.id, ts:Date.now() };
+  movements=[st,...movements];
+  try{ _reconcileGiacenze({silent:true}); }catch(e){ console.warn("[storno] riconciliazione saltata:",e); }
+  return st;
+}
+
 async function mobAnnullaStorico(movId){
   const entry = _mobLog.find(e => e.movId === movId);
   if(!entry || entry.annullato) return;
 
   const {wineId, prevGiacenza, prevLots} = entry;
+  const _mov = movements.find(m => m.id === movId);
+  const _nomeW = (wines.find(w => w.id === wineId)||{}).nome || "questo vino";
+  if(!confirm(`Annullare lo scarico di ${_nomeW}?\n\nLa bottiglia torna in giacenza.`)) return;
 
-  // Restore wine state
-  wines = wines.map(w => w.id === wineId ? {...w, giacenza:prevGiacenza, lots:prevLots} : w);
-  movements = movements.filter(m => m.id !== movId);
+  if(_mov && _movEta(_mov) > MOB_STORNO_MS){
+    _stornoMovimento(_mov, "Annullo scarico da mobile");
+  } else {
+    // Restore wine state
+    wines = wines.map(w => w.id === wineId ? {...w, giacenza:prevGiacenza, lots:prevLots} : w);
+    movements = movements.filter(m => m.id !== movId);
+  }
 
   // Marca come annullato nel log
   _mobLog = _mobLog.map(e => e.movId === movId ? {...e, annullato:true} : e);
@@ -9679,9 +9794,14 @@ async function mobConfirmEdit(){
   const entry = _mobLog.find(e => e.movId === movId);
   if(!entry) return;
 
-  // 1. Annulla il vecchio movimento (ripristina giacenza + lots)
-  wines = wines.map(w => w.id === entry.wineId ? {...w, giacenza:entry.prevGiacenza, lots:entry.prevLots} : w);
-  movements = movements.filter(m => m.id !== movId);
+  // 1. Annulla il vecchio movimento: a caldo si cancella, dopo si storna
+  const _movOld = movements.find(m => m.id === movId);
+  if(_movOld && _movEta(_movOld) > MOB_STORNO_MS){
+    _stornoMovimento(_movOld, "Correzione quantita da mobile");
+  } else {
+    wines = wines.map(w => w.id === entry.wineId ? {...w, giacenza:entry.prevGiacenza, lots:entry.prevLots} : w);
+    movements = movements.filter(m => m.id !== movId);
+  }
   _mobLog = _mobLog.map(e => e.movId === movId ? {...e, annullato:true} : e);
 
   // 2. Registra nuovo scarico con qty aggiornata
