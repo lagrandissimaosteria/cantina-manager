@@ -36,7 +36,14 @@ const CONFIG = (() => {
     // Dati di fatturazione cablati nell'host HTML: fondo indelebile su cui si
     // appoggiano localStorage e cloud. Un campo vuoto (storage azzerato, riga
     // cm_locale assente o parziale) NON li sovrascrive più.
-    localeDefault:  {}
+    localeDefault:  {},
+    // Accesso con account personali (Supabase Auth email+password) al posto
+    // della password condivisa. Ogni movimento registra chi l'ha fatto (m.by).
+    authEmail:      false,
+    // Email con ruolo amministratore quando l'account non ha app_metadata.role.
+    // Ogni altro account e' "staff": solo Inventario Rapido (Scarico/Fresco/
+    // Storico), anche da desktop.
+    authAdmins:     []
   };
   const O = (typeof window!=="undefined" && window.CM_CONFIG && typeof window.CM_CONFIG==="object" && !Array.isArray(window.CM_CONFIG)) ? window.CM_CONFIG : {};
   return Object.freeze({ ...D, ...O });
@@ -766,7 +773,7 @@ function _initSupabase(){
         persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: true,
-        storageKey: "pb_auth"          // namespaced: nessuna collisione con altri progetti Supabase sullo stesso dominio
+        storageKey: _lsKey("auth")     // per-locale: Osteria e Portland condividono l'origine github.io
       }
     });
     _authWire();                       // FASE 2b: idrata sessione persistita + listener (no-op safe su client v1)
@@ -891,13 +898,31 @@ async function authSignIn(email, password){
 
 async function authSignOut(){
   if(!_sb || !_sb.auth) return;
+  const _pend = _obCount();
+  if(_pend){
+    await _obPushLedger();
+    if(_obCount()){ notify("🛑 "+_obCount()+" movimenti non ancora sul database: esci solo quando torna la rete","err"); return; }
+  }
   try{ await _sb.auth.signOut(); }catch(_){}
   _authState.session=null; _authState.user=null;
   _authRenderStatus();
   notify("Logout effettuato");
+  if(CONFIG.authEmail){ sessionStorage.removeItem("cm_logged"); setTimeout(()=>location.reload(), 400); }
 }
 
 function authWhoAmI(){ return _authState.user ? (_authState.user.email||_authState.user.id) : null; }
+
+// Ruolo dell'account. Senza login ad account (password condivisa) tutto resta
+// com'era: amministratore. app_metadata.role non e' modificabile dall'utente.
+function _authRole(){
+  if(!CONFIG.authEmail) return "admin";
+  const u=_authState.user; if(!u) return "staff";
+  const r=u.app_metadata && u.app_metadata.role;
+  if(r==="admin"||r==="staff") return r;
+  const em=String(u.email||"").toLowerCase();
+  return (CONFIG.authAdmins||[]).map(x=>String(x).toLowerCase()).includes(em) ? "admin" : "staff";
+}
+function _isStaff(){ return _authRole()==="staff"; }
 
 // Gate SOFT: se il login è richiesto e manca la sessione, apre il modal e blocca
 // l'azione. Ritorna true se si può procedere. Da chiamare all'inizio delle
@@ -962,7 +987,7 @@ function _authRenderStatus(){
   if(so) so.style.display = who ? "" : "none";
   const btn = document.getElementById("auth-btn");
   if(btn){
-    btn.textContent = who ? "🔐" : "🔓";
+    btn.textContent = who ? ("🔐 "+String(who).split("@")[0]) : "🔓";
     btn.title = who ? ("Account: "+who) : (_authRequired()?"Login richiesto":"Accesso anonimo");
   }
 }
@@ -1000,7 +1025,109 @@ function _saveLocalBackup(snap){
     localStorage.setItem(_lsKey("orders"),JSON.stringify(snap?snap.orders:orders));
     localStorage.setItem(_lsKey("fatture"),JSON.stringify(fatture));
   }catch{}
+  _obCapture();
 }
+// ── OUTBOX MOVIMENTI ─────────────────────────────────────────────────────────
+// Incidente 21–23/09: scarichi registrati su una postazione mai arrivati sul
+// ledger. loadData() sostituisce i movimenti con quelli remoti e riscrive la
+// cache locale: tutto cio' che non era partito veniva cancellato in silenzio al
+// primo caricamento riuscito. L'outbox e' una chiave separata che NESSUN
+// caricamento sovrascrive: un movimento esce dall'outbox solo quando il ledger
+// ne conferma la scrittura. Al caricamento i movimenti in outbox assenti dal
+// remoto vengono ripristinati e reinviati.
+function _obRead(){
+  try{ const o=JSON.parse(localStorage.getItem(_lsKey("mov_outbox"))||"{}"); return (o&&typeof o==="object"&&!Array.isArray(o))?o:{}; }
+  catch{ return {}; }
+}
+function _obWrite(o){
+  try{ localStorage.setItem(_lsKey("mov_outbox"), JSON.stringify(o)); }
+  catch(e){ console.error("[outbox] scrittura fallita:", e); }
+}
+function _obCount(){ return Object.keys(_obRead()).length; }
+// id confermati sul ledger, persistiti: servono quando la sessione parte senza
+// rete e la baseline in memoria e' vuota.
+function _obPersistSynced(){
+  try{ if(_movSyncBaseline && _movSyncBaseline.size) localStorage.setItem(_lsKey("mov_synced"), JSON.stringify([..._movSyncBaseline.keys()])); }catch{}
+}
+function _obCapture(){
+  try{
+    const base = (_movSyncBaseline && _movSyncBaseline.size) ? _movSyncBaseline : null;
+    let ids = null;
+    if(!base){
+      try{ ids = new Set(JSON.parse(localStorage.getItem(_lsKey("mov_synced"))||"[]")); }catch{ ids = new Set(); }
+      if(!ids.size) return; // nessun riferimento: non si puo' distinguere il nuovo dal vecchio
+    }
+    const ob = _obRead(), cur = new Set(), who = (typeof authWhoAmI==="function") ? authWhoAmI() : null;
+    let ch = false;
+    for(const m of (movements||[])){
+      if(!m || !m.id) continue;
+      cur.add(m.id);
+      const nuovo = base ? !base.has(m.id) : !ids.has(m.id);
+      const unsynced = base ? base.get(m.id) !== _movHash(m) : nuovo;
+      if(!unsynced) continue;
+      if(nuovo && !m.by && who) m.by = who;
+      const j = JSON.stringify(m);
+      if(!ob[m.id] || JSON.stringify(ob[m.id]) !== j){ ob[m.id] = JSON.parse(j); ch = true; }
+    }
+    // Fuori dall'outbox cio' che non e' piu' tra i movimenti (annullato prima
+    // del sync, oppure gia' presente sul remoto e riallineato).
+    for(const id of Object.keys(ob)) if(!cur.has(id)){ delete ob[id]; ch = true; }
+    if(ch) _obWrite(ob);
+  }catch(e){ console.error("[outbox] capture:", e); }
+}
+function _obConfirm(ids){
+  if(!ids || !ids.length) return;
+  const ob = _obRead(); let ch = false;
+  for(const id of ids) if(ob[id]){ delete ob[id]; ch = true; }
+  if(ch) _obWrite(ob);
+}
+// Ripristina in memoria i movimenti dell'outbox che il remoto non ha mai visto.
+// rows = righe ledger (incluse le cancellate: una cancellazione remota vince).
+function _obRecover(rows){
+  const ob = _obRead(), ids = Object.keys(ob);
+  if(!ids.length) return 0;
+  const remote = new Set((rows||[]).map(r => r.id));
+  // Gia' sul remoto: esce dall'outbox (le modifiche locali non ancora inviate
+  // restano rilevate dalla baseline e rientrano alla prossima cattura).
+  let pr = false;
+  for(const id of ids) if(remote.has(id)){ delete ob[id]; pr = true; }
+  if(pr) _obWrite(ob);
+  const have = new Set((movements||[]).map(m => m.id));
+  const add = ids.filter(id => !remote.has(id) && !have.has(id)).map(id => ob[id]).filter(m => m && m.id);
+  if(add.length){
+    movements = [...add, ...movements]
+      .sort((a,b)=> (b.ts||0)-(a.ts||0) || String(b.data||"").localeCompare(String(a.data||"")));
+    console.warn("[outbox] ripristinati", add.length, "movimenti mai arrivati sul ledger");
+  }
+  return add.length;
+}
+// Invio SOLO-LEDGER, indipendente dal blob: funziona anche in sola lettura,
+// dopo un conflitto o un blocco del tripwire. INSERT ... ON CONFLICT DO NOTHING:
+// non puo' sovrascrivere ne' far risorgere righe gia' presenti sul remoto.
+let _obPushing = false;
+async function _obPushLedger(){
+  if(_obPushing || !_sb || (typeof navigator!=="undefined" && navigator.onLine===false)) return 0;
+  const have = new Set((movements||[]).map(m => m.id));
+  const rows = Object.values(_obRead()).filter(m => m && m.id && have.has(m.id));
+  if(!rows.length) return 0;
+  _obPushing = true;
+  try{
+    for(const c of _chunk(rows, 500)){
+      const { error } = await _sb.from("cm_movements_ledger")
+        .upsert(c.map(m => ({ id:m.id, user_id:_effectiveDbUser(), payload:m, deleted:false })), { onConflict:"id", ignoreDuplicates:true });
+      if(error) throw error;
+      _obConfirm(c.map(m => m.id));
+      if(_movSyncBaseline && _movSyncBaseline.size) c.forEach(m => _movSyncBaseline.set(m.id, _movHash(m)));
+    }
+    _obPersistSynced();
+    console.info("[outbox] inviati al ledger:", rows.length);
+    return rows.length;
+  }catch(e){ console.warn("[outbox] invio ledger fallito:", e?.message||e); return 0; }
+  finally{ _obPushing = false; }
+}
+setInterval(function(){ if(_obCount()) _obPushLedger(); }, 30000);
+if(typeof window!=="undefined") window.addEventListener("online", function(){ setTimeout(_obPushLedger, 800); });
+
 function _loadLocalBackup(){
   try{const s=JSON.parse(localStorage.getItem(_lsKey("wines"))||"null");wines=(s||[]).map(v=>({...v,nazione:inferPaese(v.nazione,v.regione,v.zona)}))}catch{wines=[]}
   try{movements=JSON.parse(localStorage.getItem(_lsKey("movements"))||"[]")}catch{movements=[]}
@@ -1008,6 +1135,7 @@ function _loadLocalBackup(){
   try{alertSoglie=JSON.parse(localStorage.getItem(_lsKey("alert_soglie"))||"{}")}catch{alertSoglie={}}
   try{orders=JSON.parse(localStorage.getItem(_lsKey("orders"))||"[]")}catch{orders=[]}
   try{fatture=JSON.parse(localStorage.getItem(_lsKey("fatture"))||"[]")}catch{fatture=[]}
+  _obRecover([]); // la cache non deve mai perdere cio' che e' ancora in outbox
   _migrateOrders();
   _migrateWines();
   _riparaReferenzeOrdini();
@@ -1373,6 +1501,7 @@ async function _flushMovementsV2(){
     const rows = c.map(m => ({ id:m.id, user_id:_effectiveDbUser(), payload:m, deleted:false }));
     const { error } = await _sb.from("cm_movements_ledger").upsert(rows, {onConflict:"id"});
     if(error) throw error;
+    _obConfirm(c.map(m => m.id));
   }
   if(!troppi){
     for(const c of _chunk(deletes, 500)){
@@ -1386,6 +1515,7 @@ async function _flushMovementsV2(){
   _movSyncBaseline = troppi
     ? new Map([...cur, ...[...(_movSyncBaseline)].filter(([id]) => !cur.has(id))])
     : cur;
+  _obPersistSynced();
 }
 
 // ── PUBLIC API ────────────────────────────────────────────────────────────────
@@ -1817,6 +1947,7 @@ async function _flushSave(){
     // Sessione non allineata al remoto: il backup locale è già stato scritto da
     // scheduleSave, quindi il lavoro non si perde, ma NON lo si propaga.
     _setDbStatus("err","Sola lettura — "+_degradedMode);
+    _obPushLedger(); // i movimenti sono append-only: partono anche in sola lettura
     if(!_degradedWarned){
       _degradedWarned = true;
       notify("🔒 Sola lettura: questa sessione non è allineata al database ("+_degradedMode+"). Modifiche salvate solo qui. Ricarica la pagina per riallinearti.","err");
@@ -1857,6 +1988,7 @@ async function _flushSave(){
         _rebaseTries = 0;
         _setDbStatus("err","Conflitto persistente");
         notify("⚠️ Conflitto ripetuto con un'altra postazione: modifica NON salvata. Usa \"Sync forzato\".","err");
+        _obPushLedger();
         _saveInFlight = false; _savePending = false;
         return;
       }
@@ -1920,6 +2052,7 @@ async function _flushSave(){
   }catch(e){
     _setDbStatus("err","Errore sync");
     notify("⚠️ Salvataggio remoto fallito — dati locali ok","err");
+    _obPushLedger();
   }finally{
     _saveInFlight = false;
     if(_savePending){ _savePending = false; _flushSave(); }
@@ -1981,6 +2114,7 @@ async function loadData(){
   }
   _setDbStatus("sync","Caricamento…");
   _movLedgerVuoto = 0;
+  let _obRecuperati = 0;
   _degradedMode = ""; _degradedWarned = false;
   try{
     // allSettled: una tabella secondaria che fallisce (RLS mancante, timeout,
@@ -2033,9 +2167,19 @@ async function loadData(){
         _movLedgerVuoto = cacheLoc.length;
       } else {
         _movV2Available = true;
+        // Primo avvio di questa versione: la cache locale puo' contenere movimenti
+        // mai arrivati sul ledger (le versioni precedenti li perdevano qui).
+        // Si passano all'outbox: _obRecover tiene solo quelli assenti dal remoto.
+        if(!localStorage.getItem(_lsKey("mov_synced")) && Array.isArray(cacheLoc) && cacheLoc.length){
+          const ob=_obRead(); let n=0;
+          for(const m of cacheLoc) if(m && m.id && !ob[m.id]){ ob[m.id]=m; n++; }
+          if(n) _obWrite(ob);
+        }
         movements = live.map(r => r.payload)
           .sort((a,b)=> (b.ts||0)-(a.ts||0) || String(b.data||"").localeCompare(String(a.data||"")));
         _movSyncBaseline = new Map(live.map(r => [r.payload.id, _movHash(r.payload)]));
+        _obPersistSynced();
+        _obRecuperati = _obRecover(movRows);
       }
     }
 
@@ -2052,6 +2196,10 @@ async function loadData(){
     if(_rec.cambiate){
       notify(`🔧 ${_rec.cambiate} giacenz${_rec.cambiate===1?"a riallineata":"e riallineate"} ai movimenti registrati`);
       scheduleSave();
+    }
+    if(_obRecuperati){
+      _obPushLedger().then(n=>{ if(n) scheduleSave(); });
+      setTimeout(()=>notify(`♻️ Recuperati ${_obRecuperati} moviment${_obRecuperati===1?"o":"i"} rimast${_obRecuperati===1?"o":"i"} su questo dispositivo — inviati al database`), 3200);
     }
     _lastGoodWines = _lastAttemptWines = _snapWines(wines); // baseline integrità = stato remoto appena caricato
     _setMergeBase(wines, orders, fallate, alertSoglie); // baseline per il merge 3-vie
@@ -2147,7 +2295,59 @@ function _loginLockoutTick(){
   setTimeout(_loginLockoutTick, 1000);
 }
 
+// Ingresso nell'app dopo un login valido (password condivisa o account).
+function _enterApp(){
+  sessionStorage.setItem("cm_logged","1");
+  document.getElementById("login-screen").style.display="none";
+  _applySidebarState();
+  if(!_sb) _initSupabase();
+  if(_isMobile()){
+    enterMobileMode();
+    loadData();
+  } else {
+    const app=document.getElementById("app");
+    app.classList.remove("hidden"); app.style.display="flex";
+    loadData(); go("dashboard");
+  }
+}
+// Schermata di login in modalita' account: aggiunge il campo email.
+function _loginEmailUi(){
+  if(!CONFIG.authEmail || document.getElementById("em-input")) return;
+  const pw=document.getElementById("pw-input"); if(!pw) return;
+  const row=pw.closest(".form-row"); if(!row) return;
+  const r=document.createElement("div"); r.className="form-row";
+  r.innerHTML='<label class="form-label">Email</label><input type="email" id="em-input" class="form-input" placeholder="nome@email.it" autocomplete="username" autocapitalize="off" spellcheck="false">';
+  row.parentNode.insertBefore(r,row);
+  r.querySelector("input").addEventListener("keydown",e=>{ if(e.key==="Enter") pw.focus(); });
+}
+async function _doLoginEmail(){
+  const err=document.getElementById("pw-err");
+  const email=(document.getElementById("em-input")?.value||"").trim().toLowerCase();
+  const password=document.getElementById("pw-input").value;
+  if(!email||!password){ err.textContent="Inserisci email e password."; err.classList.remove("hidden"); return; }
+  if(!_sb) _initSupabase();
+  if(!_sb){ err.textContent="Database non configurato su questo dispositivo."; err.classList.remove("hidden"); return; }
+  const btn=document.querySelector(".login-box .btn-primary");
+  if(btn){ btn.disabled=true; btn.textContent="Accesso…"; }
+  try{
+    const { data, error } = await _sb.auth.signInWithPassword({ email, password });
+    if(error) throw error;
+    _authState.session=data.session; _authState.user=data.user; _authRenderStatus();
+    err.classList.add("hidden");
+    _enterApp();
+  }catch(e){
+    const box=document.querySelector(".login-box");
+    box.classList.add("shake"); setTimeout(()=>box.classList.remove("shake"),400);
+    document.getElementById("pw-input").value="";
+    err.textContent = /invalid/i.test(e?.message||"") ? "Email o password non corrette." : ("Accesso non riuscito: "+(e?.message||"rete assente"));
+    err.classList.remove("hidden");
+  }finally{
+    if(btn){ btn.disabled=false; btn.textContent="Accedi"; }
+  }
+}
+
 async function doLogin(){
+  if(CONFIG.authEmail) return _doLoginEmail();
   if(_isLoginLocked()){ _loginLockoutTick(); return; }
 
   const pw=document.getElementById("pw-input").value;
@@ -2156,18 +2356,8 @@ async function doLogin(){
   const hash=Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
   if(hash===PASSWORD_HASH){
     _loginRL.attempts=0; _loginRL.lockedUntil=0; _loginRL.cooldown=30;
-    sessionStorage.setItem("cm_logged","1");
-    document.getElementById("login-screen").style.display="none";
-    _applySidebarState();
     _initSupabase();
-    if(_isMobile()){
-      enterMobileMode();
-      loadData();
-    } else {
-      const app=document.getElementById("app");
-      app.classList.remove("hidden"); app.style.display="flex";
-      loadData(); go("dashboard");
-    }
+    _enterApp();
   } else {
     _loginRL.attempts++;
     const err=document.getElementById("pw-err"); err.classList.remove("hidden");
@@ -2241,6 +2431,7 @@ function _applySidebarState(){
 // ─── NAVIGATION ───────────────────────────────────────────────────────────────
 var SECTION_TITLES={dashboard:"Plancia",inventario:"Inventario Vini","scarico-serata":"🍾 Scarico Serata",movimenti:"Carico / Scarico",fallate:"Gestione Fallate",ordini:"Ordini Fornitore",export:"Export & Bilancio",amministrazione:"💶 Amministrazione",impostazioni:"⚙️ Impostazioni"};
 function go(s){
+  if(_isStaff()) return;
   if(s==="analytics") s="dashboard"; // sezioni fuse in "Plancia"
   if(s==="trasferimenti" && !CONFIG.trasferimenti) s="dashboard"; // feature off su questo locale
   section=s;
@@ -2261,11 +2452,24 @@ function destroyCharts(){
 window.addEventListener("resize", ()=>{ if(section==="inventario") _setInvScrollHeight(); });
 
 // Auto-login se sessione ancora valida
-function _bootSession(){
+async function _bootSession(){
+  if(CONFIG.authEmail){
+    _loginEmailUi();
+    _initSupabase();
+    let ok=false;
+    try{
+      const { data } = await _sb.auth.getSession();
+      ok=!!data?.session;
+      if(ok){ _authState.session=data.session; _authState.user=data.session.user; }
+    }catch{}
+    // Offline con sessione salvata: getSession la legge dal dispositivo.
+    if(!ok) return;
+    sessionStorage.setItem("cm_logged","1");
+  }
   if(sessionStorage.getItem("cm_logged")!=="1") return;
   document.getElementById("login-screen").style.display="none";
   _applySidebarState();
-  _initSupabase();
+  if(!_sb) _initSupabase();
   document.querySelectorAll(".modal-backdrop").forEach(bd=>{
     if(bd._patchedClose) return;
     bd._patchedClose = true;
@@ -9087,6 +9291,7 @@ function exportMovimentiCSV(){
 })();
 
 function _isMobile(){
+  if(_isStaff()) return true; // account dipendente: sempre Inventario Rapido
   // Considera mobile se larghezza < 768px OPPURE se è un dispositivo touch con schermo piccolo
   const w = window.innerWidth || document.documentElement.clientWidth;
   const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
@@ -9095,6 +9300,11 @@ function _isMobile(){
 
 function enterMobileMode(){
   _mobActive = true;
+  const _xb=document.getElementById("mob-exit-btn");
+  if(_xb){
+    if(_isStaff()){ _xb.textContent="⎋ Esci"; _xb.title=authWhoAmI()||""; _xb.onclick=function(e){ e.preventDefault(); authSignOut(); }; }
+    else if(CONFIG.authEmail){ _xb.title=authWhoAmI()||""; }
+  }
   document.getElementById("mob-screen").style.display = "flex";
   document.getElementById("app").style.display = "none";
 
@@ -9117,6 +9327,7 @@ function enterMobileMode(){
 }
 
 function exitMobileMode(){
+  if(_isStaff()){ notify("Il tuo account può usare solo Scarico e Fresco","err"); return; }
   _mobActive = false;
   document.getElementById("mob-screen").style.display = "none";
   const app = document.getElementById("app");
