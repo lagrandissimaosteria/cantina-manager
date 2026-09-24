@@ -1385,24 +1385,50 @@ function _rettificaGiacenzaLedger(wineId, target, nota, dataMov){
   return delta;
 }
 
+// BUG 24/09 — "carichi e rettifiche che spariscono": con seed forzato a 0 sulle
+// referenze con un carico nel ledger, un saldo storico negativo (piu' scarichi
+// che carichi registrati) veniva clampato a 0 e si MANGIAVA ogni carico o
+// rettifica successiva finche' il buco non era colmato (es. Preface: +1 x3 il
+// 20/09, sempre 0). Inoltre una referenza pre-ledger con seed>0 perdeva la
+// giacenza pregressa al primo nuovo carico.
+// FIX: fino a GIAC_CUTOFF_TS la giacenza si calcola esattamente come prima
+// (nessun numero attuale cambia); dopo, ogni movimento si applica in ordine
+// (ts) a partire da quel valore, con clamp a 0 passo-passo: un buco storico
+// non assorbe piu' i movimenti futuri. Deterministico: ogni postazione converge.
+const GIAC_CUTOFF_TS = 1790271000000; // 2026-09-24 17:30 UTC
 function _reconcileGiacenze(opts){
   const silent=!!(opts&&opts.silent);
   if(!_movV2Available) return {cambiate:0,dettaglio:[]}; // ledger inaffidabile: non si tocca nulla
   const saldi=_saldoLedgerPerVino();
-  const completi=_vinoConStoriaCompleta();
+  const perVino=new Map(); // wid -> {pre, completoPre, post[]}
+  (movements||[]).forEach(m=>{
+    if(!m || m.deleted || !m.wineId) return;
+    let r=perVino.get(m.wineId);
+    if(!r){ r={pre:0,completoPre:false,post:[]}; perVino.set(m.wineId,r); }
+    const ts=parseInt(m.ts)||0;
+    if(ts<=GIAC_CUTOFF_TS){
+      r.pre+=_ledgerDelta(m);
+      if(m.tipo==="carico"||m.tipo==="trasferimento-entrata") r.completoPre=true;
+    } else r.post.push(m);
+  });
   const dett=[];
   wines=(wines||[]).map(w=>{
     const saldo=saldi.get(w.id)||0;
+    const r=perVino.get(w.id)||{pre:0,completoPre:false,post:[]};
     let seed=w._giacSeed;
-    if(completi.has(w.id)){
-      seed=0; // storia intera nel ledger: la giacenza e' tutta e sola somma dei movimenti
+    if(r.completoPre){
+      seed=0; // storia intera nel ledger fino al cutoff
     } else if(seed===undefined||seed===null||isNaN(parseInt(seed))){
       // Referenza anteriore al ledger: si deduce il seed una volta sola, cosi'
       // la giacenza pregressa non va persa.
       seed=(parseInt(w.giacenza)||0)-saldo;
     }
     seed=parseInt(seed)||0;
-    const nuova=Math.max(0,seed+saldo);
+    let nuova=Math.max(0,seed+r.pre);
+    if(r.post.length){
+      r.post.slice().sort((x,y)=>((parseInt(x.ts)||0)-(parseInt(y.ts)||0))||String(x.id).localeCompare(String(y.id)))
+        .forEach(m=>{ nuova=Math.max(0,nuova+_ledgerDelta(m)); });
+    }
     const vecchia=parseInt(w.giacenza)||0;
     if(nuova===vecchia && w._giacSeed!==undefined) return w;
     if(nuova!==vecchia) dett.push({nome:w.nome,annata:w.annata,da:vecchia,a:nuova});
@@ -2724,7 +2750,7 @@ function _confirmRettifica(id, giacAttuale){
     qty: Math.abs(diff),
     data: today(),
     note: nota || "Rettifica giacenza inventario",
-    origine: "rettifica", fornitore:"", fattura:""
+    origine: "rettifica", fornitore:"", fattura:"", ts: Date.now()
   };
   movements.push(mov);
   // FIX T-B5: aggiorna anche i lotti FIFO, non solo la giacenza.
