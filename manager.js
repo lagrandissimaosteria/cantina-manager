@@ -3969,10 +3969,8 @@ function _plSec3Fornitori(D){
   // Cash Flow (uscite)
   html+=`<div class="card" style="margin-bottom:16px">
     <div class="section-label"><span>💶 Cash Flow Mensile · da gen 2026</span></div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px">
-      <div><div style="font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt3);margin:4px 0 4px"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#30D158;margin-right:6px;vertical-align:middle"></span>Incassi stimati <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#FF453A;margin:0 6px 0 10px;vertical-align:middle"></span>Uscite (IVA incl.)</div><div class="chart-container" style="height:200px"><canvas id="ch-cashflow"></canvas></div></div>
-      <div><div style="font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt3);margin:4px 0 4px"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#3b82f6;margin-right:6px;vertical-align:middle"></span>Saldo del mese (verde attivo · rosso passivo)</div><div class="chart-container" style="height:200px"><canvas id="ch-cashflow-saldo"></canvas></div></div>
-    </div>
+    <div style="font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt3);margin:4px 0 4px"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#30D158;margin-right:6px;vertical-align:middle"></span>Incassi stimati <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#FF453A;margin:0 6px 0 10px;vertical-align:middle"></span>Uscite (IVA incl.)</div>
+    <div class="chart-container" style="height:220px"><canvas id="ch-cashflow"></canvas></div>
   </div>`;
   return html;
 }
@@ -4068,20 +4066,15 @@ function initPlanciaCharts(){
   if(e3&&pie.length){
     activeCharts.pie=new Chart(e3,{type:"doughnut",data:{labels:pie.map(d=>d.name),datasets:[{data:pie.map(d=>d.value),backgroundColor:PIE_COLORS.slice(0,pie.length),borderWidth:1,borderColor:"#000"}]},options:{responsive:true,maintainAspectRatio:false,cutout:"55%",plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`${ctx.label}: ${ctx.raw} bt`}}}}});
   }
-  // Cash flow: incassi e uscite affiancati (stessa unita', un asse) + saldo a parte.
+  // Cash flow: incassi e uscite affiancati (stessa unita', un asse).
   const cf=window._plCash;
-  const ecf=document.getElementById("ch-cashflow"), ecs=document.getElementById("ch-cashflow-saldo");
+  const ecf=document.getElementById("ch-cashflow");
   if(ecf&&cf&&cf.labels&&cf.labels.length){
     activeCharts.cashflow=new Chart(ecf,{type:"bar",data:{labels:cf.labels,datasets:[
       {label:"Incassi stimati",data:cf.ricavo,backgroundColor:"#30D15899",borderColor:"#30D158",borderWidth:1,borderRadius:4,borderSkipped:"start",maxBarThickness:22},
       {label:"Uscite (IVA incl.)",data:cf.spesa,backgroundColor:"#FF453A99",borderColor:"#FF453A",borderWidth:1,borderRadius:4,borderSkipped:"start",maxBarThickness:22}
     ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:"index",intersect:false},plugins:{legend:{display:false},tooltip:{..._tt,callbacks:{label:c=>` ${c.dataset.label}: ${_euroTip(c.raw)}`}}},
       scales:{x:{ticks:{color:"#8E8E93",font:{family:"Montserrat",size:9}},grid:{display:false}},y:{beginAtZero:true,ticks:{color:"#8E8E93",font:{family:"Montserrat",size:9},callback:_eur,maxTicksLimit:5},grid:{color:"rgba(58,58,60,.35)"}}}}});
-  }
-  if(ecs&&cf&&cf.labels&&cf.labels.length){
-    activeCharts.cashflowSaldo=_bar1(ecs,cf.labels,cf.saldo,"#3b82f6",
-      v=>(v<0?"−":"")+_eur(Math.abs(v)), v=>(v<0?"− ":"+ ")+_euroTip(Math.abs(v)),
-      (v,a)=>v<0?`rgba(255,69,58,${a})`:`rgba(48,209,88,${a})`);
   }
   // Acquisti: bottiglie e spesa in due grafici separati.
   const d=window._plAcquisti;
