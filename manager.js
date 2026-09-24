@@ -13055,3 +13055,68 @@ function _acInit(root){
     return righe;
   };
 })();
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ALLINEA STORICO (console) — chiude i "buchi" del ledger: referenze con piu'
+// scarichi che carichi registrati fino a GIAC_CUTOFF_TS (bottiglie presenti in
+// cantina ma mai caricate). Per ognuna scrive UNA rettifica "+" pari al buco,
+// datata al primo movimento della referenza (ts subito prima), cosi' lo storico
+// non va mai sotto zero e carichi + rettifiche − scarichi = giacenza.
+// Le giacenze attuali NON cambiano (il buco era gia' assorbito dal clamp a 0).
+//   window.__cmAllineaStorico()              → dry-run (tabella)
+//   window.__cmAllineaStorico({apply:true})  → applica + backup + flush
+(function(){
+  window.__cmAllineaStorico = function(opts){
+    opts=opts||{};
+    const apply=!!opts.apply;
+    const per=new Map();
+    (movements||[]).forEach(m=>{
+      if(!m || m.deleted || !m.wineId) return;
+      const ts=parseInt(m.ts)||0;
+      if(ts>GIAC_CUTOFF_TS) return;
+      let r=per.get(m.wineId);
+      if(!r){ r={pre:0,completo:false,minTs:Infinity,minData:""}; per.set(m.wineId,r); }
+      r.pre+=_ledgerDelta(m);
+      if(m.tipo==="carico"||m.tipo==="trasferimento-entrata") r.completo=true;
+      if(ts<r.minTs) r.minTs=ts;
+      if(m.data && (!r.minData || m.data<r.minData)) r.minData=m.data;
+    });
+    const azioni=[];
+    (wines||[]).forEach(w=>{
+      const r=per.get(w.id);
+      if(!r || !r.completo || r.pre>=0) return;
+      azioni.push({w, buco:-r.pre, data:r.minData||today(), ts:(r.minTs>1 && isFinite(r.minTs)) ? r.minTs-1 : 1});
+    });
+    const giacPrima=new Map((wines||[]).map(w=>[w.id,parseInt(w.giacenza)||0]));
+    const report=azioni.map(a=>({sku:a.w.sku||"—",
+      ref:`${a.w.produttore||""} ${a.w.nome||""} ${a.w.annata||""}`.trim(),
+      bottiglie:a.buco, data:a.data, giacenza:giacPrima.get(a.w.id)}));
+    console.table(report);
+    const tot=azioni.reduce((s,a)=>s+a.buco,0);
+    console.log(`${apply?"APPLICO":"DRY-RUN"} — ${azioni.length} referenze, ${tot} bottiglie di giacenza iniziale non registrata.`);
+    if(!apply || !azioni.length) return report;
+    try{
+      const k=new Date().toISOString().replace(/[:.]/g,"-");
+      localStorage.setItem(_lsKey("movements_backup_"+k), JSON.stringify(movements));
+      console.log("💾 backup salvato:", _lsKey("movements_backup_"+k));
+    }catch(e){ console.warn("backup fallito", e); }
+    const nuovi=azioni.map(a=>({ id:uid(), wineId:a.w.id, wineName:a.w.nome, produttore:a.w.produttore||"",
+      nazione:a.w.nazione||"", tipo:"rettifica", qty:a.buco, segno:"+", data:a.data,
+      fattura:"", fornitore:"", note:"Allineamento storico: giacenza iniziale non registrata",
+      origine:"allineamento-storico", ts:a.ts }));
+    movements=[...nuovi, ...movements];
+    _reconcileGiacenze({silent:true});
+    const cambiate=(wines||[]).filter(w=>(parseInt(w.giacenza)||0)!==giacPrima.get(w.id));
+    if(cambiate.length){
+      // Tripwire: l'allineamento non deve MAI spostare una giacenza. Si annulla.
+      movements=movements.filter(m=>!nuovi.includes(m));
+      _reconcileGiacenze({silent:true});
+      console.error("⛔ Annullato: "+cambiate.length+" giacenze sarebbero cambiate.", cambiate.map(w=>w.nome));
+      return report;
+    }
+    try{ scheduleSave(); if(typeof saveTimer!=="undefined") clearTimeout(saveTimer); _flushSave(); }
+    catch(e){ console.warn("flush fallito", e); }
+    console.log(`✅ ${nuovi.length} rettifiche di allineamento scritte nel ledger + flush. Giacenze invariate.`);
+    return report;
+  };
+})();
