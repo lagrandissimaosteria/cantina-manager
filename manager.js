@@ -11730,9 +11730,13 @@ function _ordImportaManifesto(man){
   const o=man.ordine||{};
   const refs=(o.referenze||[]).filter(r=>r&&r.nomeVino).map(r=>{
     const fmt=String(parseFloat(r.formato)||0.75);
-    // Aggancio alla referenza locale solo se nome + formato coincidono: senza
-    // match il wineId resta vuoto e la ricezione creerà la scheda.
-    const wineId=(wines.find(w=>(w.nome||"").toLowerCase()===String(r.nomeVino).toLowerCase()
+    // Aggancio alla referenza locale solo se nome + produttore + annata + formato
+    // coincidono: col solo nome un "Langhe Nebbiolo 2023" si agganciava al primo
+    // omonimo di un altro produttore e la ricezione caricava sulla scheda sbagliata.
+    // Senza match il wineId resta vuoto e la ricezione creerà la scheda.
+    const _lc=x=>String(x||"").toLowerCase().trim();
+    const wineId=(wines.find(w=>_lc(w.nome)===_lc(r.nomeVino)
+      && _lc(w.produttore)===_lc(r.produttore) && _lc(w.annata)===_lc(r.annata)
       && String(parseFloat(w.formato)||0.75)===fmt)||{}).id||"";
     return {..._ordManifestRef(r), id:uid(), wineId};
   });
