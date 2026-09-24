@@ -3746,8 +3746,9 @@ function _plSec2Vendite(D){
   // Trend | Top 10 margine
   html+=`<div class="kpi-grid g2" style="margin-bottom:20px">
     <div class="card">
-      <div class="section-label"><span>📈 Andamento per ${_plGran==="giorno"?"Giorno":_plGran==="settimana"?"Settimana":"Mese"} · Ricavo & Margine</span></div>
-      <div class="chart-container" style="height:240px"><canvas id="ch-trend"></canvas></div>
+      <div class="section-label"><span>📈 Andamento per ${_plGran==="giorno"?"Giorno":_plGran==="settimana"?"Settimana":"Mese"}</span></div>
+      <div style="font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt3);margin:4px 0 4px"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#30D158;margin-right:6px;vertical-align:middle"></span>Ricavo</div><div class="chart-container" style="height:130px"><canvas id="ch-trend"></canvas></div>
+      <div style="font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt3);margin:10px 0 4px"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#3b82f6;margin-right:6px;vertical-align:middle"></span>Margine</div><div class="chart-container" style="height:130px"><canvas id="ch-trend-margine"></canvas></div>
     </div>
     <div class="card">
       <div class="section-label"><span>💰 Top 10 per Margine Realizzato</span></div>
@@ -3850,7 +3851,10 @@ function _plSec3Fornitori(D){
       <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--amber3)">📦</span><span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Acquisti per ${periodoLabels[analyticsAcquistiPeriodo]}</span>${(CARICO_MANUALE_NON_SPESA||CARICO_INIT_FINO)?`<span style="font-size:9px;color:var(--txt4);text-transform:none;letter-spacing:0"> \u00b7 solo carichi da ordine ricevuto</span>`:''}</div>
       <div style="display:flex;gap:4px">${["giorno","settimana","mese"].map(p=>`<button class="${analyticsAcquistiPeriodo===p?"btn-primary btn-sm":"btn-outline btn-sm"}" onclick="analyticsAcquistiPeriodo='${p}';render()">${periodoLabels[p]}</button>`).join("")}</div>
     </div>
-    ${acquistiData.length===0?`<div style="padding:32px;text-align:center;color:var(--txt4);font-size:11px">Nessun carico registrato</div>`:`<div style="padding:20px"><div class="chart-container" style="height:200px"><canvas id="chart-acquisti"></canvas></div></div>`}
+    ${acquistiData.length===0?`<div style="padding:32px;text-align:center;color:var(--txt4);font-size:11px">Nessun carico registrato</div>`:`<div style="padding:16px 20px;display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px">
+      <div><div style="font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt3);margin:0 0 4px"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#FF9F0A;margin-right:6px;vertical-align:middle"></span>Bottiglie acquistate</div><div class="chart-container" style="height:180px"><canvas id="chart-acquisti"></canvas></div></div>
+      <div><div style="font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt3);margin:0 0 4px"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#FF453A;margin-right:6px;vertical-align:middle"></span>Spesa (IVA incl.)</div><div class="chart-container" style="height:180px"><canvas id="chart-acquisti-spesa"></canvas></div></div>
+    </div>`}
   </div>`;
   // Storico Acquisti (KPI + dettaglio)
   html+=`<div class="kpi-grid g4" style="margin-bottom:16px">
@@ -3964,8 +3968,11 @@ function _plSec3Fornitori(D){
   </div>`;
   // Cash Flow (uscite)
   html+=`<div class="card" style="margin-bottom:16px">
-    <div class="section-label"><span>💶 Cash Flow Mensile · Incassi stimati vs Uscite · da gen 2026</span></div>
-    <div class="chart-container" style="height:240px"><canvas id="ch-cashflow"></canvas></div>
+    <div class="section-label"><span>💶 Cash Flow Mensile · da gen 2026</span></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px">
+      <div><div style="font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt3);margin:4px 0 4px"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#30D158;margin-right:6px;vertical-align:middle"></span>Incassi stimati <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#FF453A;margin:0 6px 0 10px;vertical-align:middle"></span>Uscite (IVA incl.)</div><div class="chart-container" style="height:200px"><canvas id="ch-cashflow"></canvas></div></div>
+      <div><div style="font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt3);margin:4px 0 4px"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#3b82f6;margin-right:6px;vertical-align:middle"></span>Saldo del mese (verde attivo · rosso passivo)</div><div class="chart-container" style="height:200px"><canvas id="ch-cashflow-saldo"></canvas></div></div>
+    </div>
   </div>`;
   return html;
 }
@@ -4035,15 +4042,20 @@ function renderPlancia(){
 
 function initPlanciaCharts(){
   const _eur=v=>v>=1000?`€${(v/1000).toFixed(0)}k`:`€${v}`;
-  // Trend combo: barre ricavo (sx) + linea margine (dx)
+  // Un grafico = una misura, un solo asse (niente doppi assi: si leggevano male).
+  const _nf0=new Intl.NumberFormat("it-IT",{maximumFractionDigits:0}), _nf2=new Intl.NumberFormat("it-IT",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const _tt={backgroundColor:"rgba(28,25,23,.95)",titleColor:"#FF9F0A",bodyColor:"#e7e5e4",borderColor:"rgba(68,64,60,.6)",borderWidth:1,padding:8};
+  const _bar1=(el,labels,data,color,fmtTick,fmtTip,colorFn)=>new Chart(el,{type:"bar",data:{labels,datasets:[{data,
+      backgroundColor:colorFn?data.map(v=>colorFn(v,.55)):color+"99",borderColor:colorFn?data.map(v=>colorFn(v,1)):color,borderWidth:1,borderRadius:4,borderSkipped:"start",maxBarThickness:28}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{..._tt,callbacks:{label:c=>" "+fmtTip(c.raw,c.dataIndex)}}},
+      scales:{x:{ticks:{color:"#8E8E93",font:{family:"Montserrat",size:9},maxRotation:45},grid:{display:false}},
+              y:{beginAtZero:true,ticks:{color:"#8E8E93",font:{family:"Montserrat",size:9},callback:fmtTick,maxTicksLimit:5},grid:{color:"rgba(58,58,60,.35)"}}}}});
+  const _euroTip=v=>"€ "+_nf0.format(v);
   const td=window._plTrend||[];
-  const e1=document.getElementById("ch-trend");
-  if(e1&&td.length){
-    activeCharts.trend=new Chart(e1,{data:{labels:td.map(d=>d.label),datasets:[
-      {type:"bar",label:"Ricavo",data:td.map(d=>d.ricavo),backgroundColor:"rgba(48,209,88,.45)",borderColor:"rgba(48,209,88,.9)",borderWidth:1,yAxisID:"y",order:2},
-      {type:"line",label:"Margine",data:td.map(d=>d.margine),borderColor:"#3b82f6",backgroundColor:"rgba(59,130,246,.12)",borderWidth:2,pointRadius:3,pointBackgroundColor:"#3b82f6",tension:.35,yAxisID:"y1",order:1}
-    ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:"index",intersect:false},plugins:{legend:{labels:{color:"#8E8E93",font:{family:"Montserrat",size:10}}},tooltip:{backgroundColor:"rgba(28,25,23,.95)",titleColor:"var(--amber)",bodyColor:"#e7e5e4",borderColor:"rgba(68,64,60,.6)",borderWidth:1,callbacks:{label:c=>` ${c.dataset.label}: €${new Intl.NumberFormat("it-IT",{maximumFractionDigits:0}).format(c.raw)}`}}},scales:{x:{ticks:{color:"#636366",font:{family:"Montserrat",size:9}},grid:{color:"rgba(58,58,60,.4)"}},y:{position:"left",ticks:{color:"#30D158",font:{family:"Montserrat",size:9},callback:_eur},grid:{color:"rgba(58,58,60,.4)"},title:{display:true,text:"Ricavo",color:"#30D158",font:{size:9}}},y1:{position:"right",ticks:{color:"#3b82f6",font:{family:"Montserrat",size:9},callback:_eur},grid:{drawOnChartArea:false},title:{display:true,text:"Margine",color:"#3b82f6",font:{size:9}}}}}});
-  }
+  const e1=document.getElementById("ch-trend"), e1b=document.getElementById("ch-trend-margine");
+  if(e1&&td.length) activeCharts.trend=_bar1(e1,td.map(d=>d.label),td.map(d=>d.ricavo),"#30D158",_eur,_euroTip);
+  if(e1b&&td.length) activeCharts.trendMargine=_bar1(e1b,td.map(d=>d.label),td.map(d=>d.margine),"#3b82f6",_eur,
+    (v,i)=>{ const r=td[i]?td[i].ricavo:0; return _euroTip(v)+(r?`  (${Math.round(v/r*100)}% del ricavo)`:""); });
   // Top 10 margine (bar orizzontale)
   const tm=window._plTopMargin||[];
   const e2=document.getElementById("ch-topmargin");
@@ -4056,24 +4068,27 @@ function initPlanciaCharts(){
   if(e3&&pie.length){
     activeCharts.pie=new Chart(e3,{type:"doughnut",data:{labels:pie.map(d=>d.name),datasets:[{data:pie.map(d=>d.value),backgroundColor:PIE_COLORS.slice(0,pie.length),borderWidth:1,borderColor:"#000"}]},options:{responsive:true,maintainAspectRatio:false,cutout:"55%",plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`${ctx.label}: ${ctx.raw} bt`}}}}});
   }
-  // Cash flow mensile (barre incassi/uscite + linea saldo)
+  // Cash flow: incassi e uscite affiancati (stessa unita', un asse) + saldo a parte.
   const cf=window._plCash;
-  const ecf=document.getElementById("ch-cashflow");
+  const ecf=document.getElementById("ch-cashflow"), ecs=document.getElementById("ch-cashflow-saldo");
   if(ecf&&cf&&cf.labels&&cf.labels.length){
-    activeCharts.cashflow=new Chart(ecf,{data:{labels:cf.labels,datasets:[
-      {type:"bar",label:"Incassi stimati",data:cf.ricavo,backgroundColor:"rgba(48,209,88,.45)",borderColor:"rgba(48,209,88,.9)",borderWidth:1,yAxisID:"y",order:3},
-      {type:"bar",label:"Uscite (IVA incl.)",data:cf.spesa,backgroundColor:"rgba(255,69,58,.4)",borderColor:"rgba(255,69,58,.85)",borderWidth:1,yAxisID:"y",order:2},
-      {type:"line",label:"Saldo",data:cf.saldo,borderColor:"#3b82f6",backgroundColor:"rgba(59,130,246,.12)",borderWidth:2,pointRadius:3,pointBackgroundColor:"#3b82f6",tension:.35,yAxisID:"y",order:1}
-    ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:"index",intersect:false},plugins:{legend:{labels:{color:"#8E8E93",font:{family:"Montserrat",size:10}}},tooltip:{backgroundColor:"rgba(28,25,23,.95)",titleColor:"var(--amber)",bodyColor:"#e7e5e4",borderColor:"rgba(68,64,60,.6)",borderWidth:1,callbacks:{label:c=>` ${c.dataset.label}: €${new Intl.NumberFormat("it-IT",{maximumFractionDigits:0}).format(c.raw)}`}}},scales:{x:{ticks:{color:"#636366",font:{family:"Montserrat",size:9}},grid:{color:"rgba(58,58,60,.4)"}},y:{ticks:{color:"#8E8E93",font:{family:"Montserrat",size:9},callback:_eur},grid:{color:"rgba(58,58,60,.4)"}}}}});
+    activeCharts.cashflow=new Chart(ecf,{type:"bar",data:{labels:cf.labels,datasets:[
+      {label:"Incassi stimati",data:cf.ricavo,backgroundColor:"#30D15899",borderColor:"#30D158",borderWidth:1,borderRadius:4,borderSkipped:"start",maxBarThickness:22},
+      {label:"Uscite (IVA incl.)",data:cf.spesa,backgroundColor:"#FF453A99",borderColor:"#FF453A",borderWidth:1,borderRadius:4,borderSkipped:"start",maxBarThickness:22}
+    ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:"index",intersect:false},plugins:{legend:{display:false},tooltip:{..._tt,callbacks:{label:c=>` ${c.dataset.label}: ${_euroTip(c.raw)}`}}},
+      scales:{x:{ticks:{color:"#8E8E93",font:{family:"Montserrat",size:9}},grid:{display:false}},y:{beginAtZero:true,ticks:{color:"#8E8E93",font:{family:"Montserrat",size:9},callback:_eur,maxTicksLimit:5},grid:{color:"rgba(58,58,60,.35)"}}}}});
   }
-  // Storico acquisti (barre bt + linea spesa)
+  if(ecs&&cf&&cf.labels&&cf.labels.length){
+    activeCharts.cashflowSaldo=_bar1(ecs,cf.labels,cf.saldo,"#3b82f6",
+      v=>(v<0?"−":"")+_eur(Math.abs(v)), v=>(v<0?"− ":"+ ")+_euroTip(Math.abs(v)),
+      (v,a)=>v<0?`rgba(255,69,58,${a})`:`rgba(48,209,88,${a})`);
+  }
+  // Acquisti: bottiglie e spesa in due grafici separati.
   const d=window._plAcquisti;
   if(d&&d.labels&&d.labels.length){
-    const el=document.getElementById("chart-acquisti");
-    if(el) activeCharts.acquisti=new Chart(el,{data:{labels:d.labels,datasets:[
-      {type:"bar",label:"Bottiglie acquistate",data:d.qty,backgroundColor:"rgba(245,158,11,0.55)",borderColor:"rgba(245,158,11,0.9)",borderWidth:1,yAxisID:"yQty",order:2},
-      {type:"line",label:"Spesa (IVA incl.)",data:d.spesa,borderColor:"#30D158",backgroundColor:"rgba(74,222,128,0.10)",borderWidth:2,pointRadius:4,pointBackgroundColor:"#30D158",tension:.35,fill:true,yAxisID:"ySpesa",order:1}
-    ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:"index",intersect:false},plugins:{legend:{labels:{color:"#8E8E93",font:{family:"Montserrat",size:10}}},tooltip:{backgroundColor:"rgba(28,25,23,.95)",titleColor:"var(--amber)",bodyColor:"#e7e5e4",borderColor:"rgba(68,64,60,.6)",borderWidth:1,callbacks:{label:c=>c.datasetIndex===0?` ${c.raw} bt`:` €${new Intl.NumberFormat("it-IT",{minimumFractionDigits:2}).format(c.raw)}`}}},scales:{x:{ticks:{color:"#636366",font:{family:"Montserrat",size:9},maxRotation:45},grid:{color:"rgba(41,37,36,.4)"}},yQty:{position:"left",ticks:{color:"var(--amber)",font:{family:"Montserrat",size:9}},grid:{color:"rgba(41,37,36,.4)"},title:{display:true,text:"Bottiglie",color:"var(--amber)",font:{size:9}}},ySpesa:{position:"right",ticks:{color:"#30D158",font:{family:"Montserrat",size:9},callback:v=>"€"+new Intl.NumberFormat("it-IT",{maximumFractionDigits:0}).format(v)},grid:{drawOnChartArea:false},title:{display:true,text:"Spesa €",color:"#30D158",font:{size:9}}}}}});
+    const el=document.getElementById("chart-acquisti"), el2=document.getElementById("chart-acquisti-spesa");
+    if(el) activeCharts.acquisti=_bar1(el,d.labels,d.qty,"#FF9F0A",v=>_nf0.format(v),v=>`${_nf0.format(v)} bt`);
+    if(el2) activeCharts.acquistiSpesa=_bar1(el2,d.labels,d.spesa,"#FF453A",_eur,v=>"€ "+_nf2.format(v));
   }
 }
 
@@ -6360,10 +6375,10 @@ function _refRowHtml(r,i,tipoOpts,ivaOpts,allProduttori,allNomi){
   // Colore sfondo cella sconto referenza
   const scBg = scontoRef>=100 ? "rgba(48,209,88,.12)" : scontoRef>0 ? "rgba(255,69,58,.06)" : "transparent";
   return `<tr data-ref-id="${r.id}" style="border-top:1px solid var(--border)">
-    <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;min-width:110px;width:100%" list="omd-prod-dl" autocomplete="off" value="${h(r.produttore)}" placeholder="Produttore" onchange="_refChange('${r.id}','produttore',this.value)"></td>
-    <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;min-width:110px;width:100%" list="omd-wine-dl" autocomplete="off" value="${h(r.nomeVino)}" placeholder="Nome vino" onchange="_refChange('${r.id}','nomeVino',this.value);_showRefGiacenza('${r.id}',this.value)"><div id="ref-giac-${r.id}" style="font-size:9px;margin-top:2px"></div></td>
+    <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;min-width:110px;width:100%" list="omd-prod-dl" autocomplete="off" value="${h(r.produttore)}" placeholder="Produttore" onchange="_refChange('${r.id}','produttore',this.value);_refAutofillSafe('${r.id}')"></td>
+    <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;min-width:110px;width:100%" list="omd-wine-dl" autocomplete="off" value="${h(r.nomeVino)}" placeholder="Nome vino" onchange="_refChange('${r.id}','nomeVino',this.value);_showRefGiacenza('${r.id}',this.value);_refAutofillSafe('${r.id}')"><div id="ref-giac-${r.id}" style="font-size:9px;margin-top:2px"></div></td>
     <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;min-width:80px;width:100%" data-ac-src="vitigni" data-ac-multi="1" autocomplete="off" value="${h(r.vitigni||'')}" placeholder="es. Nebbiolo" onchange="_refChange('${r.id}','vitigni',this.value.trim())"></td>
-    <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;text-align:center;min-width:52px;width:100%" value="${h(r.annata||'')}" placeholder="es. 2021" onchange="_refChange('${r.id}','annata',this.value.trim())"></td>
+    <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;text-align:center;min-width:52px;width:100%" value="${h(r.annata||'')}" placeholder="es. 2021" onchange="_refChange('${r.id}','annata',this.value.trim());_refAutofillSafe('${r.id}')"></td>
     <td style="padding:5px 6px"><select class="form-input" style="font-size:11px;min-width:80px;width:100%" data-prev="${h(r.tipologia)}" onchange="_addTipologiaInline(this,(v)=>_refChange('${r.id}','tipologia',v));if(this.value!=='__new__'){this.dataset.prev=this.value;_refChange('${r.id}','tipologia',this.value)}">${selTipo}</select></td>
     <td style="padding:5px 6px"><select class="form-input" style="font-size:11px;min-width:72px;width:100%" onchange="_refChange('${r.id}','formato',parseFloat(this.value)||0.75);_updateRefCartaSuggerita('${r.id}')">
       ${_formatoOptsHtml(r.formato)}
@@ -6395,6 +6410,7 @@ function _syncFornitoreToRefs(val){
 function _refChange(refId,field,value){
   const r=ordineModalData.referenze.find(x=>x.id===refId);
   if(r){
+    _refTouched(refId).add(field);
     r[field]=field==='vitigni'?value.split(",").map(v=>v.trim()).filter(Boolean).join(", "):value;
     // FIX FORMATO: se cambia il formato, il wineId assegnato (per nome) non è più valido
     if(field==='formato'){ r.wineId=""; _showRefGiacenza(refId, r.nomeVino); }
@@ -6408,9 +6424,53 @@ function _refChangeNazione(refId,val){
   if(dl) dl.innerHTML=_ordRegioniPer(val).map(x=>`<option value="${h(x)}">`).join("");
 }
 
-// _refAutofill rimosso — l'autofill creava comportamenti inattesi (match parziali
-// sovrascrivevano campi compilati manualmente). I datalist HTML forniscono già
-// suggerimenti senza side effect. Solo _refChange aggiorna lo stato.
+// Autofill SICURO da inventario (il vecchio _refAutofill fu rimosso perche' match
+// parziali sovrascrivevano campi compilati a mano). Regole:
+//  · match solo ESATTO sul nome (+ produttore se gia' scritto); se il nome esiste
+//    presso piu' produttori e il produttore e' vuoto, non si tocca nulla;
+//  · si riempiono SOLO i campi vuoti o lasciati al valore di default e mai toccati
+//    (tipologia "Rosso", nazione "Italia", IVA 22, formato vuoto); l'annata no;
+//  · a parita' di nome vince la scheda con la stessa annata, altrimenti la piu' recente.
+const _refTouchedMap = new Map();
+function _refTouched(id){ let s=_refTouchedMap.get(id); if(!s){ s=new Set(); _refTouchedMap.set(id,s); } return s; }
+function _refAutofillSafe(refId){
+  const r=ordineModalData?.referenze?.find(x=>x.id===refId);
+  if(!r) return;
+  const lc=x=>String(x||"").toLowerCase().trim();
+  const nn=lc(r.nomeVino); if(!nn) return;
+  let cand=(wines||[]).filter(w=>lc(w.nome)===nn && (!lc(r.produttore) || lc(w.produttore)===lc(r.produttore)));
+  if(!cand.length) return;
+  if(!lc(r.produttore) && new Set(cand.map(w=>lc(w.produttore))).size>1) return; // ambiguo
+  const annN=w=>parseInt(w.annata)||0;
+  const src=cand.find(w=>lc(r.annata) && lc(w.annata)===lc(r.annata))
+    || cand.slice().sort((a,b)=>annN(b)-annN(a))[0];
+  const touched=_refTouched(refId), vuoto=v=>v===undefined||v===null||String(v).trim()==="";
+  const fatti=[];
+  const put=(k,v,etichetta,cond)=>{ if(vuoto(v)) return; if(cond){ r[k]=v; fatti.push(etichetta); } };
+  put("produttore", src.produttore, "produttore", vuoto(r.produttore));
+  put("vitigni",    src.vitigni,    "vitigni",    vuoto(r.vitigni));
+  put("regione",    src.regione,    "regione",    vuoto(r.regione));
+  put("zona",       src.zona,       "zona",       vuoto(r.zona));
+  put("nazione",    src.nazione,    "nazione",    (vuoto(r.nazione)||r.nazione==="Italia") && !touched.has("nazione") && r.nazione!==src.nazione);
+  put("tipologia",  src.tipologia,  "tipologia",  (vuoto(r.tipologia)||r.tipologia==="Rosso") && !touched.has("tipologia") && r.tipologia!==src.tipologia);
+  put("iva",        parseInt(src.iva)||"", "IVA", !touched.has("iva") && (parseInt(r.iva)||22)===22 && (parseInt(src.iva)||22)!==22);
+  put("formato",    parseFloat(src.formato)||"", "formato", vuoto(r.formato));
+  put("prezzoAcq",  parseFloat(src.prezzoAcq)||"", "prezzo acquisto", vuoto(r.prezzoAcq));
+  put("prezzoCarta",parseFloat(src.prezzoCarta)||"", "prezzo carta", vuoto(r.prezzoCarta));
+  if(!fatti.length) return;
+  const tr=document.querySelector(`tr[data-ref-id="${refId}"]`);
+  if(tr){
+    const i=ordineModalData.referenze.indexOf(r);
+    // Il change scatta uscendo dal campo: si ripristina il focus sul campo raggiunto.
+    const campi=[...tr.querySelectorAll("input,select")], fi=campi.indexOf(document.activeElement);
+    tr.outerHTML=_refRowHtml(r,i,"","",[],[]);
+    if(fi>=0){ const nt=document.querySelector(`tr[data-ref-id="${refId}"]`); const el=nt&&nt.querySelectorAll("input,select")[fi]; if(el) el.focus(); }
+    _showRefGiacenza(refId, r.nomeVino);
+    try{ _updateRefCartaSuggerita(refId); }catch{}
+  }
+  _updateOrdineModalTotale();
+  notify(`↺ Da inventario (${src.nome}${src.annata?" "+src.annata:""}): ${fatti.join(", ")}`);
+}
 
 function _addRefRow(){
   ordineModalData.referenze.push(_newRef());
@@ -6478,8 +6538,10 @@ function _showRefGiacenza(refId, nomeVino){
   const ref = ordineModalData?.referenze?.find(r=>r.id===refId);
   // FIX FORMATO: cerca il vino con lo stesso nome E lo stesso formato della referenza
   const _fmt = String(parseFloat(ref?.formato)||0.75);
+  const _p = String(ref?.produttore||"").toLowerCase().trim();
   const w = wines.find(x => x.nome.toLowerCase() === (nomeVino||"").toLowerCase().trim()
-    && String(parseFloat(x.formato)||0.75) === _fmt);
+    && String(parseFloat(x.formato)||0.75) === _fmt
+    && (!_p || String(x.produttore||"").toLowerCase().trim() === _p));
   if(!w){ el.textContent=""; return; }
   // T-B6: salva wineId nella referenza — T-B5 userà match stabile per id alla ricezione
   if(ref && !ref.wineId) ref.wineId = w.id;
