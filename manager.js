@@ -640,6 +640,7 @@ function calcCostoMovimento(m,w){
 // _applyMovEffect: applica l'effetto di un movimento.
 // Ritornano un NUOVO oggetto vino (immutabile).
 function _reverseMovEffect(w, mov){
+  if(mov&&mov.tipo==="scarico-stornato") return {...w}; // effetto già neutralizzato dallo storno
   const q=parseInt(mov.qty)||0; if(q<=0) return {...w};
   let giac=parseInt(w.giacenza)||0;
   let lots=(w.lots||[]).map(l=>({...l}));
@@ -656,6 +657,7 @@ function _reverseMovEffect(w, mov){
   return {...w,giacenza:giac,lots};
 }
 function _applyMovEffect(w, mov){
+  if(mov&&mov.tipo==="scarico-stornato") return {...w};
   const q=parseInt(mov.qty)||0; if(q<=0) return {...w};
   let giac=parseInt(w.giacenza)||0;
   let lots=(w.lots||[]).map(l=>({...l}));
@@ -716,6 +718,7 @@ function _isCaricoIniziale(m){
 }
 function _isAcquisto(m){ return !!m && !m.deleted && m.tipo==="carico" && !_isCaricoIniziale(m); }
 function _movVis(m){ const t=m&&m.tipo;
+  if(t==="scarico-stornato") return {s:"",i:"\u21ba",c:"var(--txt4)"};
   if(t==="scarico") return {s:"-",i:"\u2b07",c:"#FF453A"};
   if(t==="trasferimento-uscita") return {s:"-",i:"\u2b07",c:"#5AC8FA"};
   if(t==="trasferimento-entrata") return {s:"+",i:"\u2b06",c:"#5AC8FA"};
@@ -2455,10 +2458,145 @@ function _applySidebarState(){
 }
 
 // ─── NAVIGATION ───────────────────────────────────────────────────────────────
-var SECTION_TITLES={dashboard:"Plancia",inventario:"Inventario Vini","scarico-serata":"🍾 Scarico Serata",movimenti:"Carico / Scarico",fallate:"Gestione Fallate",ordini:"Ordini Fornitore",export:"Export & Bilancio",amministrazione:"💶 Amministrazione",impostazioni:"⚙️ Impostazioni"};
+// ─── ICONE UI (SVG monocromatiche, tratto sottile, colore = currentColor) ─────
+// Seguono il tema del locale senza asset esterni. ic(nome) → markup inline.
+const _IC={
+ chart:'<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+ bottle:'<path d="M10 2h4M10.5 2v4.5C8.5 7.5 8 9 8 11v10a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V11c0-2-.5-3.5-2.5-4.5V2"/><path d="M8 14h8"/>',
+ glass:'<path d="M7 2h10l-.6 6.2A4.4 4.4 0 0 1 12 12a4.4 4.4 0 0 1-4.4-3.8z"/><path d="M12 12v8M8 22h8M7.4 6h9.2"/>',
+ box:'<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/>',
+ swap:'<path d="M7 20V4M3 8l4-4 4 4M17 4v16M13 16l4 4 4-4"/>',
+ alert:'<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17.5v.01"/>',
+ cart:'<path d="M3 4h2l2.4 11h11L21 7H6"/><circle cx="9" cy="19.5" r="1.5"/><circle cx="17" cy="19.5" r="1.5"/>',
+ truck:'<path d="M2 6h12v10H2zM14 10h4l3 3v3h-7"/><circle cx="6" cy="18" r="2"/><circle cx="17" cy="18" r="2"/>',
+ download:'<path d="M12 3v12M7 10l5 5 5-5M4 21h16"/>',
+ euro:'<path d="M18 6.5A7 7 0 1 0 18 17.5M4 10h9M4 14h9"/>',
+ gear:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>',
+ list:'<path d="M9 6h12M9 12h12M9 18h12M4 6h.01M4 12h.01M4 18h.01"/>',
+ search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+ calendar:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+ edit:'<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13 7 4 4"/>',
+ trash:'<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/>',
+ check:'<path d="m5 12 5 5L20 7"/>',
+ plus:'<path d="M12 5v14M5 12h14"/>',
+ minus:'<path d="M5 12h14"/>'
+};
+function ic(n,cls){ return `<svg class="ic${cls?" "+cls:""}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${_IC[n]||""}</svg>`; }
+const _NAV_IC={dashboard:"chart",inventario:"bottle",movimenti:"swap",fallate:"alert",ordini:"cart",trasferimenti:"truck",export:"download",amministrazione:"euro",impostazioni:"gear"};
+Object.assign(_IC,{
+ checkCircle:'<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>',
+ clipboard:'<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 10h6M9 14h6M9 18h4"/>',
+ inbox:'<path d="M3 13h5l1.5 3h5l1.5-3h5"/><path d="M5 5h14l2 8v6H3v-6z"/>',
+ upload:'<path d="M12 15V3M7 8l5-5 5 5M4 21h16"/>',
+ save:'<path d="M5 3h11l4 4v14H4V3z"/><path d="M8 3v5h7V3M8 21v-7h8v7"/>',
+ refresh:'<path d="M20 11a8 8 0 0 0-14.3-4.9L4 8M4 3v5h5M4 13a8 8 0 0 0 14.3 4.9L20 16M20 21v-5h-5"/>',
+ file:'<path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6M9 13h8M9 17h6"/>',
+ x:'<path d="M6 6l12 12M18 6 6 18"/>',
+ dot:'<circle cx="12" cy="12" r="5" fill="currentColor" stroke="none"/>',
+ gift:'<rect x="3" y="8" width="18" height="4"/><path d="M5 12v9h14v-9M12 8v13M12 8c-2-4-5-4-5-2s3 2 5 2c2 0 5 0 5-2s-3-2-5 2"/>',
+ snow:'<path d="M12 2v20M3.3 7l17.4 10M3.3 17 20.7 7M9 4l3 2 3-2M9 20l3-2 3 2"/>',
+ clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+ stop:'<circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/>',
+ note:'<path d="M4 4h16v11l-5 5H4z"/><path d="M15 20v-5h5M8 9h8M8 13h5"/>',
+ scale:'<path d="M12 3v18M7 21h10M4 7h16M4 7l-2.5 6a3 3 0 0 0 5 0zM20 7l-2.5 6a3 3 0 0 0 5 0z"/>',
+ trend:'<path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/>',
+ factory:'<path d="M3 21V10l6 4v-4l6 4V4h6v17z"/><path d="M7 17h2M12 17h2M17 17h2"/>',
+ mail:'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>',
+ receipt:'<path d="M5 2h14v20l-3-2-2 2-2-2-2 2-2-2-3 2z"/><path d="M9 7h6M9 11h6M9 15h4"/>',
+ lock:'<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+ unlock:'<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/>',
+ grape:'<circle cx="12" cy="9" r="2.5"/><circle cx="8.5" cy="12.5" r="2.5"/><circle cx="15.5" cy="12.5" r="2.5"/><circle cx="12" cy="16" r="2.5"/><path d="M12 6.5V2l3 2"/>',
+ adjust:'<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
+ print:'<path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M6 14h12v7H6z"/>',
+ folder:'<path d="M3 5h6l2 3h10v12H3z"/>',
+ thermo:'<path d="M10 14V4a2 2 0 0 1 4 0v10a4 4 0 1 1-4 0z"/><path d="M12 9v8"/>',
+ tool:'<path d="M15 4a5 5 0 0 0-4.6 7L3 18.4 5.6 21l7.4-7.4A5 5 0 0 0 20 9l-3 3-3-1-1-3z"/>',
+ trophy:'<path d="M8 4h8v5a4 4 0 0 1-8 0zM8 6H4a4 4 0 0 0 4 4M16 6h4a4 4 0 0 1-4 4M12 13v4M8 21h8M9 17h6"/>',
+ target:'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
+ pause:'<circle cx="12" cy="12" r="9"/><path d="M10 9v6M14 9v6"/>',
+ sparkle:'<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/>',
+ home:'<path d="M3 11 12 4l9 7M5 10v10h14V10"/>',
+ building:'<path d="M3 21h18M4 10h16M12 3l9 5H3zM6 10v11M10 10v11M14 10v11M18 10v11"/>',
+ bulb:'<path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/>',
+ eye:'<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+ globe:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
+ link:'<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+ plug:'<path d="M9 2v5M15 2v5M6 7h12v4a6 6 0 0 1-12 0zM12 17v5"/>',
+ tag:'<path d="M3 12V3h9l9 9-9 9z"/><circle cx="7.5" cy="7.5" r="1.5"/>'
+});
+// Emoji → icona. Conversione a runtime sul DOM (MutationObserver): copre ogni
+// sezione, modale, notifica e il mobile senza riscrivere i template uno per
+// uno. Frecce e ✓/✕ tipografici restano testo. Negli <option> (che non possono
+// contenere SVG) l'emoji viene solo rimossa.
+const _EMO_IC={"⚠":"alert","✅":"checkCircle","🗑":"trash","✏":"edit","✎":"edit","📦":"box","📋":"clipboard","📥":"inbox","📤":"upload","💾":"save","➕":"plus","🔄":"refresh","♻":"refresh","📄":"file","📑":"file","❌":"x","⛔":"stop","🛑":"stop","🛒":"cart","🟢":["dot","#30D158"],"🔴":["dot","#FF453A"],"🟡":["dot","#FFD60A"],"🎁":"gift","❄":"snow","🧊":"pause","🔍":"search","🍾":"bottle","🍷":"glass","🍇":"grape","⏳":"clock","🐌":"clock","📝":"note","⚖":"scale","📈":"trend","📊":"chart","💰":"euro","💶":"euro","🏭":"factory","✉":"mail","📨":"mail","🧾":"receipt","🔐":"lock","🔒":"lock","🔓":"unlock","☑":"checkCircle","✔":"check","🩹":"adjust","🖨":"print","📁":"folder","🗂":"folder","🌡":"thermo","🔧":"tool","🧹":"sparkle","🆕":"sparkle","🏆":"trophy","🏷":"tag","🎯":"target","🗓":"calendar","📅":"calendar","🏠":"home","🚚":"truck","🏛":"building","💡":"bulb","👁":"eye","🌍":"globe","🌐":"globe","🔗":"link","🔌":"plug","⚙":"gear"};
+const _EMO_RE=new RegExp("("+Object.keys(_EMO_IC).join("|")+")\\uFE0F?\\uFE0E?","gu");
+function _emoIcon(e){ const v=_EMO_IC[e]; const [n,c]=Array.isArray(v)?v:[v]; return c?`<span style="color:${c};display:inline-flex">${ic(n)}</span>`:ic(n); }
+function _iconize(root){
+  if(!root||root.nodeType!==1&&root.nodeType!==9) return;
+  const tw=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);
+  const todo=[];
+  while(tw.nextNode()){ const n=tw.currentNode; _EMO_RE.lastIndex=0; if(_EMO_RE.test(n.nodeValue)) todo.push(n); }
+  todo.forEach(n=>{
+    const p=n.parentNode; if(!p) return;
+    if(/^(SCRIPT|STYLE|TITLE|TEXTAREA)$/.test(p.nodeName)) return;
+    if(p.nodeName==="OPTION"||p.nodeName==="SELECT"){ n.nodeValue=n.nodeValue.replace(_EMO_RE,"").replace(/^\s+/,""); return; }
+    const s=document.createElement("span");
+    s.innerHTML=h(n.nodeValue).replace(_EMO_RE,(m,e)=>_emoIcon(e));
+    p.replaceChild(document.createRange().createContextualFragment(s.innerHTML),n);
+  });
+}
+var _icoObs=null, _icoQ=new Set();
+function _iconizeStart(){
+  if(_icoObs||typeof MutationObserver==="undefined") return;
+  _iconize(document.body);
+  _icoObs=new MutationObserver(ms=>{
+    ms.forEach(m=>{ if(m.type==="characterData") _icoQ.add(m.target.parentNode); else m.addedNodes.forEach(n=>_icoQ.add(n.nodeType===3?n.parentNode:n)); });
+    if(_icoQ.__raf) return;
+    _icoQ.__raf=requestAnimationFrame(()=>{ const q=[..._icoQ]; _icoQ.clear(); _icoQ.__raf=0; q.forEach(_iconize); });
+  });
+  _icoObs.observe(document.body,{childList:true,subtree:true,characterData:true});
+}
+// Idempotente (gira a ogni afterRender, tocca il DOM solo la prima volta): CSS
+// condiviso, icone in sidebar, rimozione del vecchio pulsante "Scarico Serata"
+// dagli host HTML senza doverli modificare.
+function _uiPolish(){
+  if(!document.getElementById("cm-ui-css")){
+    const s=document.createElement("style"); s.id="cm-ui-css";
+    s.textContent=`.ic{width:1.05em;height:1.05em;display:inline-block;vertical-align:-.17em;flex-shrink:0}
+.nav-icon{display:inline-flex;align-items:center;justify-content:center;min-width:18px}.nav-icon .ic{width:18px;height:18px}
+.sidebar-logo h1 .ic{width:20px;height:20px;color:var(--amber)}
+.cm-seg{display:flex;gap:2px;padding:3px;margin-bottom:16px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;width:fit-content;max-width:100%;overflow-x:auto}
+.cm-seg button{display:inline-flex;align-items:center;gap:7px;padding:7px 14px;border-radius:8px;font-size:12px;font-weight:500;color:var(--txt3);white-space:nowrap;transition:background .15s,color .15s}
+.cm-seg button:hover{color:var(--txt)}.cm-seg button.active{background:var(--bg3);color:var(--amber)}
+.cm-chip{font-size:11px;font-weight:500;padding:5px 11px;border:1px solid var(--border2);border-radius:999px;color:var(--txt3);background:none;transition:all .15s;white-space:nowrap}
+.cm-chip:hover{color:var(--txt)}.cm-chip.active{color:var(--amber);border-color:var(--amber3);background:rgba(255,159,10,.08)}
+.cm-search{flex:1;min-width:180px;position:relative;display:flex;align-items:center}.cm-search .ic{position:absolute;left:10px;color:var(--txt4);pointer-events:none}.cm-search .form-input{padding-left:32px}
+.ssp-step{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.ssp-step button{width:44px;height:44px;border-radius:10px;border:1px solid var(--border2);background:var(--bg2);color:var(--txt2);display:flex;align-items:center;justify-content:center;touch-action:manipulation}
+.ssp-step button.plus{border-color:var(--amber3);color:var(--amber)}.ssp-step .ic{width:18px;height:18px}
+.ssp-qty{width:54px;height:44px;text-align:center;font-size:1.1rem;font-weight:600;border-radius:10px;border:1px solid var(--border2);background:var(--bg);color:var(--txt)}
+.cm-actionbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 18px;position:sticky;bottom:0;z-index:10;background:var(--bg2);border-top:1px solid var(--border)}
+.cm-actionbar .btn-primary:disabled{cursor:not-allowed}
+.cm-tag{font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
+.cm-ico-btn{width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border2);border-radius:6px;color:var(--txt3);margin-left:4px;transition:all .15s}
+.cm-ico-btn:hover{color:var(--amber);border-color:var(--amber3)}.cm-ico-btn.danger:hover{color:#FF453A;border-color:rgba(255,69,58,.5)}
+.cm-empty{text-align:center;padding:28px;color:var(--txt4);font-size:12px}`;
+    document.head.appendChild(s);
+  }
+  document.querySelector('.nav-btn[data-section="scarico-serata"]')?.remove();
+  document.querySelectorAll(".nav-btn[data-section]").forEach(b=>{
+    const n=_NAV_IC[b.dataset.section], i=b.querySelector(".nav-icon");
+    if(n&&i&&!i.dataset.ic){ i.innerHTML=ic(n); i.dataset.ic="1"; }
+  });
+  const lg=document.querySelector(".sidebar-logo h1");
+  if(lg&&!lg.dataset.ic&&lg.firstChild&&lg.firstChild.nodeType===3){ lg.firstChild.textContent=""; lg.insertAdjacentHTML("afterbegin",ic("glass")); lg.dataset.ic="1"; }
+  _iconizeStart();
+}
+var SECTION_TITLES={dashboard:"Plancia",inventario:"Inventario Vini",movimenti:"Movimenti",fallate:"Gestione Fallate",ordini:"Ordini Fornitore",export:"Export & Bilancio",amministrazione:"Amministrazione",impostazioni:"Impostazioni"};
 function go(s){
   if(_isStaff()) return;
   if(s==="analytics") s="dashboard"; // sezioni fuse in "Plancia"
+ if(s==="scarico-serata"||s==="report-serata"){ s="movimenti"; movUi.tab="scarico"; } // sezione fusa in Movimenti
   if(s==="trasferimenti" && !CONFIG.trasferimenti) s="dashboard"; // feature off su questo locale
   section=s;
   if(selMode) exitSel(); // NAV-03: resetta selezione multipla al cambio sezione
@@ -2905,8 +3043,7 @@ function render(){
   const c=document.getElementById("content");
   if(section==="dashboard") c.innerHTML=renderPlancia();
   else if(section==="inventario") c.innerHTML=renderInventario();
-  else if(section==="scarico-serata") c.innerHTML=renderScaricoSerataPage();
-  else if(section==="report-serata"){ go("scarico-serata"); return; }
+ else if(section==="scarico-serata"||section==="report-serata"){ go("movimenti"); return; }
   else if(section==="movimenti"){if(!movForm.data)movForm.data=today();if(!fallForm.data)fallForm.data=today();c.innerHTML=renderMovimenti();}
   else if(section==="fallate") c.innerHTML=renderFallate();
   else if(section==="ordini"){
@@ -2925,6 +3062,7 @@ function _setInvScrollHeight(){
 }
 
 function afterRender(){
+ _uiPolish();
   _acInit();
   if(!_idleTimer) _initIdleWatch();
   if(section==="dashboard") initPlanciaCharts();
@@ -2948,13 +3086,7 @@ function afterRender(){
       else { _selectedWineId=null; }
     }
   }
-  // Ripristina stato pannello report inline se era aperto
-  if(section==="scarico-serata" && _reportInlineOpen){
-    const body=document.getElementById("report-inline-body");
-    const arrow=document.getElementById("report-inline-arrow");
-    if(body){ body.style.display="block"; body.innerHTML=_renderReportBody(reportSerataData); }
-    if(arrow){ arrow.className="report-toggle-arrow open"; }
-  }
+ if(section==="movimenti") _updateScaricoCounts();
 }
 
 // Aggiorna i title dei bottoni topbar con hint shortcut da tastiera
@@ -3739,7 +3871,7 @@ function _plSec2Vendite(D){
     ${[
       {label:"Ricavo per Servizio",v:fmt(D.ricavoPerServizio),cls:"c-green",sub:_plDelta(D.ricavoPerServizio,P.ricavo/D.serviziPrev)},
       {label:"Ricavo Medio/Bottiglia",v:fmt(D.ricavoPerBt),cls:"c-amber",sub:`<span style="color:var(--txt4)">servizio incluso</span>`},
-      {label:"Peso del Servizio",v:`${fmtN(D.totRicavo?D.totServizio/D.totRicavo*100:0,1)}%`,cls:"c-orange",sub:`${fmt(D.totServizio)} sull'incasso<br><span style="color:var(--txt4)">margine 100%</span>`},
+      ...((parseFloat(CONFIG.servizioBottiglia)||D.totServizio)?[{label:"Peso del Servizio",v:`${fmtN(D.totRicavo?D.totServizio/D.totRicavo*100:0,1)}%`,cls:"c-orange",sub:`${fmt(D.totServizio)} sull'incasso<br><span style="color:var(--txt4)">margine 100%</span>`}]:[]), // solo dove il servizio al banco esiste
       {label:"Servizi nel Periodo",v:D.serviziPer,cls:"c-blue",sub:`<span style="color:var(--txt4)">${R.giorni} giorni di calendario</span>`},
     ].map(k=>`<div class="kpi-card"><div class="kpi-label">${k.label}</div><div class="kpi-val ${k.cls}">${k.v}</div><div class="kpi-sub">${k.sub}</div></div>`).join("")}
   </div>`;
@@ -4322,9 +4454,28 @@ function renderInventario(){
   return html;
 }
 
+// Soglie di default dalla ROTAZIONE, non fisse: con min 3 / riordino 6 su una
+// cantina fatta di referenze da 1–2 bottiglie quasi tutto risultava "sotto
+// minimo" e l'allarme non distingueva più nulla. Ora: minimo = copertura di 14
+// giorni, riordino = 30 giorni, sulle vendite degli ultimi 90. Un vino che non
+// ruota non genera allarmi. Le soglie impostate a mano restano prioritarie.
+var _rotCache={k:"",m:null};
+function _rot90(wineId){
+  const k=movements.length+"|"+today();
+  if(_rotCache.k!==k){
+    const d=new Date(); d.setDate(d.getDate()-90); const cut=_isoD(d), m=new Map();
+    movements.forEach(x=>{ if(x&&!x.deleted&&x.tipo==="scarico"&&(x.data||"")>=cut) m.set(x.wineId,(m.get(x.wineId)||0)+(parseInt(x.qty)||0)); });
+    _rotCache={k,m};
+  }
+  return _rotCache.m.get(wineId)||0;
+}
 function _getSoglie(wineId){
   const v = alertSoglie[wineId];
-  if(v === undefined || v === null) return {min:3, riordino:6};
+  if(v === undefined || v === null){
+    const s=_rot90(wineId); if(!s) return {min:0, riordino:0};
+    const min=Math.max(1,Math.ceil(s*14/90));
+    return {min, riordino:Math.max(min+1,Math.ceil(s*30/90))};
+  }
   if(typeof v === "number") return {min:v, riordino:Math.max(v+1, v*2)};
   return {min: v.min??3, riordino: v.riordino??6};
 }
@@ -4421,44 +4572,29 @@ function _refreshPop(wineId, el){
   if(rowBtn) rowBtn.innerHTML = `<span style="color:#FF453A">${sg.min}</span>·<span style="color:#fbbf24">${sg.riordino}</span>`;
 }
 
+function _sspTot(){
+  let righe=0,bt=0,ric=0;
+  for(const [id,v] of Object.entries(scaricoSerata.qtys)){
+    const q=parseInt(v)||0; if(q<=0) continue;
+    const w=wines.find(x=>x.id===id); if(!w||!((parseInt(w.giacenza)||0)>0)) continue;
+    righe++; bt+=q; ric+=q*(parseFloat(w.prezzoCarta)||0);
+  }
+  return {righe,bt,ric};
+}
+// Contatore e pulsante letti dallo STATO, non dal DOM: una card nascosta dalla
+// ricerca ma con quantità resta conteggiata, esattamente come verrà registrata.
 function _updateScaricoCounts(){
-  // Conta solo righe/card visibili (filtro ricerca potrebbe nasconderne alcune)
-  const _SEL = "#ssp-list .ssp-card, #ssp-table tbody tr, #scarico-serata-table tbody tr";
-  let totBt = 0, righe = 0;
-  document.querySelectorAll(_SEL).forEach(tr => {
-    if(tr.style.display === "none") return;
-    const input = tr.querySelector("input[type=number]");
-    if(!input) return;
-    const q = parseInt(input.value)||0;
-    if(q > 0){ totBt += q; righe++; }
-  });
-  // Calcola ricavo stimato in tempo reale
-  let totRicavoStimato = 0;
-  document.querySelectorAll(_SEL).forEach(tr => {
-    if(tr.style.display === "none") return;
-    const inp = tr.querySelector("input[type=number]");
-    if(!inp) return;
-    const wid = tr.dataset.wid;
-    const q = parseInt(inp.value)||0;
-    if(q > 0 && wid){
-      const w = wines.find(x=>x.id===wid);
-      if(w && w.prezzoCarta) totRicavoStimato += q * parseFloat(w.prezzoCarta);
-    }
-  });
-  const el = document.getElementById("scarico-serata-count");
-  if(el){
-    el.innerHTML = righe > 0
-      ? `<span style="color:#FF6B6B">${righe} vin${righe===1?"o":"i"}</span> · <span style="color:var(--amber)">${totBt} bottigli${totBt===1?"a":"e"}</span>${totRicavoStimato>0?` · <span style="color:#30D158;font-weight:600">~${fmt(totRicavoStimato)} ricavo</span>`:''} da scaricare`
-      : `<span style="color:var(--txt4)">Inserisci le quantità finite</span>`;
-  }
-  const btn = document.querySelector(`button[onclick*="registraScaricaSerata"]`);
-  if(btn){
-    btn.disabled = righe === 0;
-    btn.style.background = righe > 0 ? "var(--amber3)" : "rgba(58,58,60,.5)";
-    btn.style.color = righe > 0 ? "#000" : "var(--txt4)";
-    btn.style.cursor = righe > 0 ? "pointer" : "not-allowed";
-    btn.textContent = `🍾 Registra ${righe > 0 ? `${righe} scarich${righe===1?"o":"i"}` : "scarichi"}`;
-  }
+  const t=_sspTot(), el=document.getElementById("scarico-serata-count"), btn=document.getElementById("ssp-reg-btn");
+  if(el) el.innerHTML=t.righe
+    ? `<b style="color:var(--txt)">${t.righe}</b> vin${t.righe===1?"o":"i"} · <b style="color:var(--amber)">${t.bt}</b> bt${t.ric?` · <b style="color:#30D158">${fmt(t.ric)}</b>`:""}`
+    : `<span style="color:var(--txt4)">Inserisci le bottiglie vendute</span>`;
+  if(btn){ btn.disabled=!t.righe; btn.style.opacity=t.righe?"1":".4"; btn.innerHTML=`${ic("check")} Registra ${t.righe===1?"1 scarico":t.righe?t.righe+" scarichi":"scarichi"}`; }
+}
+function _sspMatch(w,q){ q=(q||"").trim(); return !q || (!!w && _fuzzyMatch(q,[w.nome,w.produttore,w.annata,w.vitigni].filter(Boolean).join(" "),w.sku)); }
+function _sspFilter(v){
+  scaricoSerata.q=v;
+  const wm=Object.fromEntries(wines.map(w=>[w.id,w]));
+  document.querySelectorAll("#ssp-list .ssp-card").forEach(c=>{ c.style.display=_sspMatch(wm[c.dataset.wid],v)?"flex":"none"; });
 }
 
 
@@ -4543,146 +4679,216 @@ function _labelGiornataServizio(dataISO){
   return `${_isTurnoDiurno(dataISO)?"Servizio":"Serata"} ${g}`;
 }
 var scaricoSerata = {
-  open: false,
-  listCollapsed: false,
   get data(){ return this._data || _dataServizioDefault(); },
   set data(v){ this._data = v; },
-  note: "",
-  sort: "nome",  // 'nome' | 'tipo' | 'giacenza'
+  note: "", q: "",
+  sort: "nome", // 'nome' | 'tipo' | 'giacenza'
   qtys: {} // wineId → qty string
 };
-
-function toggleScaricoPannello(){
-  scaricoSerata.open = !scaricoSerata.open;
-  render();
-}
-
+// Unico percorso di scarico desktop (batch dalla lista). Effetto su giacenza e
+// FIFO con _applyMovEffect: lo stesso motore di modifica/eliminazione movimenti.
+// Il mobile resta sul proprio percorso (registraMovimentoMobileQty): stessi
+// snapshot contabili, stesso ledger, nessuno stato condiviso con questa pagina.
 function registraScaricaSerata(){
   if(!_syncGate("Scarico serata")) return;
-  const righe = wines
-    .filter(w => w.giacenza > 0)
-    .map(w => ({ wine: w, qty: parseInt(scaricoSerata.qtys[w.id]) || 0 }))
-    .filter(r => r.qty > 0);
-
-  if(!righe.length){ notify("Inserisci almeno una quantità", "err"); return; }
-
-  for(const r of righe){
-    if(r.qty > r.wine.giacenza){
-      notify(`Giacenza insufficiente per ${r.wine.nome} (${r.wine.giacenza} disponibili)`, "err");
-      return;
-    }
-  }
-
-  const data = scaricoSerata.data || _dataServizioDefault();
-  const note = scaricoSerata.note.trim();
-
-  const scaricoByWineId = {};
-  righe.forEach(r => { scaricoByWineId[r.wine.id] = { qty: r.qty }; });
-
-  wines = wines.map(w => {
-    const sc = scaricoByWineId[w.id];
-    if(!sc) return w;
-    let rem = sc.qty;
-    const updLots = (w.lots||[]).map(l => {
-      if(rem <= 0 || l.qtyRimanente <= 0) return l;
-      const c = Math.min(rem, l.qtyRimanente);
-      rem -= c;
-      return {...l, qtyRimanente: l.qtyRimanente - c};
-    });
-    _fifoShort(w.id, w.nome, rem);
-    return {...w, giacenza: w.giacenza - sc.qty, lots: updLots};
-  });
-
-  const newMovs = righe.map(r => ({
-    id: uid(), wineId: r.wine.id, wineName: r.wine.nome, produttore: r.wine.produttore, nazione: r.wine.nazione||"",
-    tipo: "scarico", qty: r.qty, data, fattura: "", fornitore: "",
-    costoUnitarioIva: calcCostoIvaBottiglia(r.wine),
-    servizio: _servizioSnap(data), // snapshot servizio al banco (0 se pre servizioDal)
-    prezzoCartaSnap: parseFloat(r.wine.prezzoCarta)||0, // snapshot ricavo
-    note: note || "Scarico serata", ts: Date.now()
+  const righe=Object.entries(scaricoSerata.qtys)
+    .map(([id,v])=>({w:wines.find(x=>x.id===id), q:parseInt(v)||0}))
+    .filter(r=>r.w && r.q>0);
+  if(!righe.length){ notify("Inserisci almeno una quantità","err"); return; }
+  const over=righe.find(r=>r.q>(parseInt(r.w.giacenza)||0));
+  if(over){ notify(`Giacenza insufficiente per ${over.w.nome} (${over.w.giacenza} disponibili)`,"err"); return; }
+  const data=scaricoSerata.data, note=scaricoSerata.note.trim()||"Scarico serata", ts=Date.now();
+  if(_bloccaChiuso(data,"Scarico")) return;
+  const nuovi=righe.map(({w,q})=>({
+    id:uid(), wineId:w.id, wineName:w.nome, produttore:w.produttore, nazione:w.nazione||"",
+    tipo:"scarico", qty:q, data, fattura:"", fornitore:"",
+    costoUnitarioIva:calcCostoIvaBottiglia(w), servizio:_servizioSnap(data),
+    prezzoCartaSnap:parseFloat(w.prezzoCarta)||0, note, ts
   }));
-  movements = [...newMovs, ...movements];
-
-  const totBt = righe.reduce((s,r) => s + r.qty, 0);
-  scaricoSerata.qtys = {};
-  scaricoSerata.note = "";
-
-  scheduleSave();
-  notify(`🍾 ${righe.length} vin${righe.length===1?"o":"i"} scaricati — ${totBt} bottigli${totBt===1?"a":"e"} totali`);
-  const _scSy=window.scrollY; render(); requestAnimationFrame(()=>window.scrollTo(0,_scSy));
-}
-// ─── SCARICO SINGOLA RIGA ─────────────────────────────────────────────────────
-function registraScaricaSingoloVino(wineId){
-  if(!_syncGate("Scarico rapido")) return;
-  const qty = parseInt(scaricoSerata.qtys[wineId])||0;
-  if(qty <= 0){ notify("⚠️ Inserisci una quantità per questo vino","err"); return; }
-  const wine = wines.find(w => w.id === wineId);
-  if(!wine){ notify("⚠️ Vino non trovato","err"); return; }
-  if(qty > wine.giacenza){ notify(`⚠️ Giacenza insufficiente (${wine.giacenza} disponibili)`,"err"); return; }
-
-  const data = scaricoSerata.data || _dataServizioDefault();
-  const note = scaricoSerata.note.trim();
-
-  // Aggiorna vino
-  wines = wines.map(w => {
-    if(w.id !== wineId) return w;
-    let rem = qty;
-    const updLots = (w.lots||[]).map(l => {
-      if(rem<=0||l.qtyRimanente<=0) return l;
-      const c = Math.min(rem,l.qtyRimanente); rem-=c;
-      return {...l, qtyRimanente:l.qtyRimanente-c};
-    });
-    _fifoShort(w.id, w.nome, rem);
-    return {...w, giacenza:w.giacenza-qty, lots:updLots};
+  const perVino=Object.fromEntries(nuovi.map(m=>[m.wineId,m]));
+  wines=wines.map(w=>{
+    const m=perVino[w.id]; if(!m) return w;
+    const disp=(w.lots||[]).reduce((s,l)=>s+Math.max(0,parseInt(l.qtyRimanente)||0),0);
+    _fifoShort(w.id, w.nome, Math.max(0,m.qty-disp));
+    return _applyMovEffect(w,m);
   });
-
-  movements = [{
-    id:uid(), wineId, wineName:wine.nome, produttore:wine.produttore, nazione:wine.nazione||"",
-    tipo:"scarico", qty, data, fattura:"", fornitore:"",
-    costoUnitarioIva: calcCostoIvaBottiglia(wine),
-    servizio: _servizioSnap(data), // snapshot servizio al banco (0 se pre servizioDal)
-    prezzoCartaSnap: parseFloat(wine.prezzoCarta)||0, // snapshot ricavo
-    note:note||"Scarico serata", ts:Date.now()
-  }, ...movements];
-
-  // Pulisce la qty dalla riga
-  delete scaricoSerata.qtys[wineId];
-
-  scheduleSave();
-  notify(`🍾 ${wine.nome} — ${qty} bottigli${qty===1?"a":"e"} scaricata`);
-
-  // Aggiorna solo la card nel DOM senza re-render completo
-  const card = document.querySelector(`#ssp-list .ssp-card[data-wid="${wineId}"]`);
-  if(card){
-    const newGiac = wines.find(w=>w.id===wineId)?.giacenza ?? 0;
-    if(newGiac === 0){
-      card.remove(); // vino esaurito: rimuovi dalla lista
-    } else {
-      const giacEl = card.querySelector('.ssp-giac');
-      if(giacEl) giacEl.textContent = newGiac;
-      const inp = card.querySelector('.ssp-qty');
-      if(inp){ inp.value=''; inp.max = newGiac; }
-      _sspRefreshCard(wineId);
-    }
-  }
-  _updateScaricoCounts();
-  updateSidebar();
+  movements=[...nuovi,...movements];
+  const totBt=nuovi.reduce((s,m)=>s+m.qty,0);
+  scaricoSerata.qtys={}; scaricoSerata.note=""; scaricoSerata.q="";
+  scheduleSave(); clearTimeout(saveTimer); _flushSave();
+  notify(`${nuovi.length} vin${nuovi.length===1?"o":"i"} scaricati — ${totBt} bottigli${totBt===1?"a":"e"}`);
+  // Si atterra sul report della giornata appena registrata.
+  Object.assign(movUi,{tab:"storico",tipo:"tutti",data,q:"",lim:MOV_PAGE});
+  render(); window.scrollTo(0,0);
 }
 
 
-// ─── MOVIMENTI ────────────────────────────────────────────────────────────────
+// ─── MOVIMENTI: sezione unica (Scarico serata · Carico/Rettifica · Storico) ──
+// Fonde le ex sezioni "Scarico Serata" e "Carico / Scarico". Il mobile non passa
+// di qui (render() esce prima con _mobActive) e condivide solo il ledger.
+const MOV_PAGE=300;
+const _MOV_MODAL=`  <div class="modal-backdrop hidden" id="mov-edit-backdrop" onclick="closeMovModal(event)">
+    <div class="modal" style="max-width:560px" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h2>Modifica movimento</h2>
+        <button style="font-size:18px;color:var(--txt3)" onclick="closeMovModal()">✕</button>
+      </div>
+      <div class="modal-body" id="mov-edit-body"></div>
+      <div class="modal-footer">
+        <button class="btn-outline" onclick="closeMovModal()">Annulla</button>
+        <button class="btn-primary" onclick="saveMovEdit()">Salva modifiche</button>
+      </div>
+    </div>
+  </div>`;
+var movUi={tab:"scarico", tipo:"tutti", data:"", q:"", lim:MOV_PAGE};
+function _movSetTab(t){ movUi.tab=t; if(selMode){ selMode=null; selIds=new Set(); } render(); window.scrollTo(0,0); }
+function _movSet(k,v){ movUi[k]=v; movUi.lim=MOV_PAGE; if(selMode){ selMode=null; selIds=new Set(); } render(); }
 function renderMovimenti(){
-  const selW=wines.find(w=>w.id===movForm.wineId);
-
-  let html = `<div class="kpi-grid g2" style="margin-bottom:20px">
+  if(movForm.tipo==="scarico") movForm.tipo="carico";
+  const T=[["scarico","glass","Scarico serata"],["carico","box","Carico / Rettifica"],["storico","list","Storico"]];
+  const tabs=`<div class="cm-seg" role="tablist">${T.map(([k,i,l])=>`<button role="tab" class="${movUi.tab===k?"active":""}" onclick="_movSetTab('${k}')">${ic(i)}<span>${l}</span></button>`).join("")}</div>`;
+  const corpo=movUi.tab==="carico"?_renderMovCarico():movUi.tab==="storico"?_renderMovStorico():_renderMovScarico();
+  return tabs+corpo+_MOV_MODAL;
+}
+function _renderMovScarico(){
+  const sk=scaricoSerata.sort||"nome";
+  const cmp={giacenza:(a,b)=>b.giacenza-a.giacenza, tipo:(a,b)=>String(a.tipologia||"").localeCompare(b.tipologia||"")};
+  const list=wines.filter(w=>w&&w.id&&(parseInt(w.giacenza)||0)>0)
+    .sort((a,b)=>(cmp[sk]?cmp[sk](a,b):0)||String(a.nome||"").localeCompare(b.nome||""));
+  const chip=(k,l)=>`<button class="cm-chip${sk===k?" active":""}" onclick="const y=scrollY;scaricoSerata.sort='${k}';render();scrollTo(0,y)">${l}</button>`;
+  const card=w=>{
+    const giac=parseInt(w.giacenza)||0, carta=parseFloat(w.prezzoCarta)||0, q=parseInt(scaricoSerata.qtys[w.id])||0;
+    return `<div class="ssp-card" data-wid="${w.id}" style="display:${_sspMatch(w,scaricoSerata.q)?"flex":"none"};align-items:center;gap:12px;padding:10px 14px;border-radius:12px;border:1px solid ${q?"rgba(255,69,58,.35)":"var(--border2)"};background:${q?"rgba(255,69,58,.06)":"rgba(28,28,30,.5)"}">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:14px;font-weight:600;color:var(--txt);line-height:1.25;word-break:break-word">${h(w.nome||"— senza nome —")}</div>
+        <div style="font-size:12px;color:var(--txt4);margin-top:2px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">${h((w.produttore||"").trim()||"—")}<span style="color:var(--amber)">${w.annata?h(w.annata):"N.V."}</span>${w.tipologia?badge(w.tipologia):""}</div>
+        <div style="font-size:11px;color:var(--txt4);margin-top:2px">Giacenza <span class="ssp-giac" style="color:var(--amber3)">${giac}</span> bt<span class="ssp-ric" style="margin-left:8px;color:${q&&carta?"#30D158":"var(--txt4)"}">${q&&carta?"· ricavo "+fmt(q*carta):""}</span></div>
+      </div>
+      <div class="ssp-step">
+        <button type="button" onclick="_sspStep('${w.id}',-1)" aria-label="Diminuisci">${ic("minus")}</button>
+        <input type="number" inputmode="numeric" pattern="[0-9]*" min="0" max="${giac}" class="ssp-qty" value="${q||""}" placeholder="0" onfocus="this.select()" oninput="_sspInput('${w.id}',this.value)">
+        <button type="button" class="plus" onclick="_sspStep('${w.id}',1)" aria-label="Aumenta">${ic("plus")}</button>
+      </div>
+    </div>`;
+  };
+  return `<div class="card" style="padding:0;overflow:hidden">
+    <div style="padding:16px 18px 10px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+      <div><label class="form-label">Giornata di servizio</label>
+        <input type="date" class="form-input" style="max-width:180px" value="${scaricoSerata.data}" oninput="if(this.value){scaricoSerata.data=this.value;document.getElementById('ssp-giorn').textContent=_labelGiornataServizio(this.value)}">
+        <div id="ssp-giorn" style="font-size:11px;color:var(--txt4);margin-top:4px">${h(_labelGiornataServizio(scaricoSerata.data))}</div></div>
+      <div style="flex:1;min-width:180px"><label class="form-label">Note</label>
+        <input class="form-input" placeholder="Note serata…" value="${h(scaricoSerata.note||"")}" oninput="scaricoSerata.note=this.value"></div>
+    </div>
+    <div style="padding:0 18px 12px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+      ${chip("nome","Nome")}${chip("tipo","Tipologia")}${chip("giacenza","Giacenza")}
+      <div class="cm-search">${ic("search")}<input type="search" class="form-input" placeholder="Cerca vino, produttore, annata…" value="${h(scaricoSerata.q||"")}" oninput="_sspFilter(this.value)"></div>
+    </div>
+    <div id="ssp-list" style="display:flex;flex-direction:column;gap:6px;padding:0 12px 10px">${list.map(card).join("")||`<div class="cm-empty">Nessun vino in giacenza</div>`}</div>
+    <div class="cm-actionbar">
+      <div id="scarico-serata-count" style="font-size:12px;color:var(--txt3)"></div>
+      <button id="ssp-reg-btn" class="btn-primary" onclick="registraScaricaSerata()" disabled></button>
+    </div>
+  </div>`;
+}
+function _movMatchTipo(m,t){
+  if(t==="tutti") return true;
+  if(t==="rettifica") return _isRettifica(m.tipo);
+  if(t==="trasferimento") return String(m.tipo||"").startsWith("trasferimento");
+  return m.tipo===t;
+}
+function _movFiltrati(){
+  const wm=Object.fromEntries(wines.map(w=>[w.id,w])), q=(movUi.q||"").trim();
+  return movements.filter(m=>m && !m.deleted && _movMatchTipo(m,movUi.tipo) && (!movUi.data||m.data===movUi.data)
+      && (!q||_fuzzyMatch(q,[m.wineName,m.produttore,m.fornitore,m.fattura,m.note,wm[m.wineId]?.annata].filter(Boolean).join(" "),wm[m.wineId]?.sku)))
+    .sort((a,b)=>String(b.data||"").localeCompare(String(a.data||""))||(b.ts||0)-(a.ts||0));
+}
+function _reportSerataHtml(data){
+  const wm=Object.fromEntries(wines.map(w=>[w.id,w]));
+  const sc=movements.filter(m=>m&&!m.deleted&&m.tipo==="scarico"&&m.data===data);
+  if(!sc.length) return "";
+  let bt=0,ricV=0,srv=0,cos=0; const byT={};
+  sc.forEach(m=>{ const w=wm[m.wineId], r=calcRicavoMovimento(m,w);
+    bt+=m.qty; ricV+=r; srv+=calcServizioMovimento(m); cos+=calcCostoMovimento(m,w);
+    const t=w?.tipologia||"—"; byT[t]=byT[t]||{bt:0,ric:0}; byT[t].bt+=m.qty; byT[t].ric+=r; });
+  const ric=ricV+srv, mar=ric-cos;
+  return `<div class="card" style="margin-bottom:14px">
+    <div class="section-label"><span>${ic("calendar")} ${h(_labelGiornataServizio(data))}</span></div>
+    <div class="kpi-grid g4" style="margin-bottom:14px">
+      <div class="kpi-card"><div class="kpi-label">Bottiglie</div><div class="kpi-val c-amber">${bt}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Ricavo</div><div class="kpi-val c-green">${fmt(ric)}</div>${srv?`<div class="kpi-sub">vino ${fmt(ricV)} + servizio ${fmt(srv)}</div>`:""}</div>
+      <div class="kpi-card"><div class="kpi-label">Costo merce</div><div class="kpi-val c-amber">${fmt(cos)}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Margine lordo</div><div class="kpi-val" style="color:${mar>=0?"#30D158":"#FF453A"}">${fmt(mar)}</div><div class="kpi-sub">${ric?fmtN(mar/ric*100,1)+"% sul ricavo":"—"}</div></div>
+    </div>
+    ${Object.entries(byT).sort((a,b)=>b[1].bt-a[1].bt).map(([t,v])=>`<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">${badge(t)}<div style="flex:1;height:4px;background:var(--bg3);border-radius:2px"><div style="height:4px;background:var(--amber);border-radius:2px;width:${Math.round(v.bt/bt*100)}%"></div></div><span style="font-size:12px;color:var(--txt2);width:44px;text-align:right">${v.bt} bt</span><span style="font-size:12px;color:var(--amber);width:84px;text-align:right">${fmt(v.ric)}</span></div>`).join("")}
+  </div>`;
+}
+// Costo e ricavo in tabella dagli SNAPSHOT del movimento (come plancia e
+// bilancio), non dai prezzi live del vino: riprezzare non altera lo storico.
+function _renderMovStorico(){
+  const f=_movFiltrati(), rows=f.slice(0,movUi.lim), wm=Object.fromEntries(wines.map(w=>[w.id,w]));
+  const giorni=[...new Set(movements.filter(m=>m&&!m.deleted&&m.tipo==="scarico").map(m=>m.data))].sort((a,b)=>String(b).localeCompare(String(a))).slice(0,6);
+  const TIPI=[["tutti","Tutti"],["scarico","Scarichi"],["carico","Carichi"],["rettifica","Rettifiche"]].concat(CONFIG.trasferimenti?[["trasferimento","Trasferimenti"]]:[]);
+  const chip=(k,v,l)=>`<button class="cm-chip${movUi[k]===v?" active":""}" onclick="_movSet('${k}','${v}')">${l}</button>`;
+  const riga=m=>{
+    const w=wm[m.wineId], v=_movVis(m), sc=m.tipo==="scarico";
+    const cU = sc ? calcCostoMovimento(m,w)/(m.qty||1) : (m.tipo==="carico"&&w) ? costoCarico(m,w)*(1+(parseInt(w.iva)||22)/100) : 0;
+    const ric = sc ? calcRicavoTotaleMovimento(m,w) : 0;
+    return `<tr data-sel-id="${m.id}">${selMode==="movimenti"?`<td class="cb-col"><input type="checkbox" class="cb-sel" data-id="${m.id}" onchange="toggleSel('${m.id}');_updateBulkBar()"></td>`:""}
+      <td style="color:var(--txt2);white-space:nowrap">${h(_fmtDataIT(m.data))}</td>
+      <td><span class="cm-tag" style="color:${v.c}">${h(_isRettifica(m.tipo)?"rettifica":String(m.tipo||"").replace("trasferimento-","trasf. ").replace("scarico-stornato","stornato"))}${_isCaricoIniziale(m)?" · inv.":""}</span></td>
+      <td style="max-width:240px"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(m.wineName||"—")} <span style="color:var(--amber)">${w?.annata?h(w.annata):""}</span></div><div style="font-size:11px;color:var(--txt4);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(m.produttore||w?.produttore||"")}</div></td>
+      <td style="color:var(--txt3);font-size:11px">${h([m.fornitore,m.fattura].filter(Boolean).join(" · ")||"—")}</td>
+      <td class="r" style="color:${v.c};font-weight:600">${v.s}${m.qty}</td>
+      <td class="r" style="color:var(--txt3);white-space:nowrap">${cU?fmt(cU):"—"}</td>
+      <td class="r" style="color:var(--amber);white-space:nowrap">${ric?fmt(ric):"—"}</td>
+      <td style="color:var(--txt4);font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(m.note||"")}</td>
+      <td class="c" style="white-space:nowrap"><button class="cm-ico-btn" title="Modifica" onclick="openMovModal('${m.id}')">${ic("edit")}</button><button class="cm-ico-btn danger" title="Elimina" onclick="_eliminaMov('${m.id}')">${ic("trash")}</button></td></tr>`;
+  };
+  return `${movUi.data?_reportSerataHtml(movUi.data):""}
+  <div class="card" style="padding:0">
+    ${selMode==="movimenti"?renderBulkBar("movimenti", rows.map(m=>m.id)):""}
+    <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px;border-bottom:1px solid var(--border)">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${TIPI.map(([v,l])=>chip("tipo",v,l)).join("")}
+        <div class="cm-search">${ic("search")}<input type="search" class="form-input" placeholder="Cerca vino, fornitore, fattura… (Invio)" value="${h(movUi.q||"")}" onchange="_movSet('q',this.value)"></div></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <input type="date" class="form-input" style="max-width:160px;padding:5px 8px" value="${movUi.data||""}" onchange="_movSet('data',this.value)">
+        ${chip("data","","Tutte le date")}${giorni.map(d=>chip("data",d,h(_fmtDataIT(d)))).join("")}
+        <span style="margin-left:auto;display:flex;gap:6px">
+          ${selMode!=="movimenti"?`<button class="btn-outline btn-sm" onclick="enterSel('movimenti')">${ic("check")} Selezione</button>`:""}
+          <button class="btn-outline btn-sm" onclick="${movUi.data?`exportReportSerataCSV('${movUi.data}')`:"exportMovimentiCSV()"}">${ic("download")} CSV</button>
+        </span>
+      </div>
+      <div style="font-size:11px;color:var(--txt4)">${f.length} moviment${f.length===1?"o":"i"}${f.length>rows.length?` · mostrati ${rows.length}`:""}</div>
+    </div>
+    <div class="tbl-wrap"><table>
+      <thead><tr>${selMode==="movimenti"?`<th class="cb-col"><input type="checkbox" id="cb-sel-all" class="cb-sel" onchange="toggleSelAll()"></th>`:""}<th>Data</th><th>Tipo</th><th>Vino</th><th>Fornitore · Fattura</th><th class="r">Qtà</th><th class="r">Costo+IVA/bt</th><th class="r">Ricavo</th><th>Note</th><th class="c"></th></tr></thead>
+      <tbody>${rows.map(riga).join("")||`<tr><td colspan="10" class="cm-empty">Nessun movimento</td></tr>`}</tbody>
+    </table></div>
+    ${f.length>rows.length?`<div style="padding:12px;text-align:center"><button class="btn-outline btn-sm" onclick="movUi.lim+=MOV_PAGE;render()">Mostra altri ${Math.min(MOV_PAGE,f.length-rows.length)}</button></div>`:""}
+  </div>`;
+}
+function _eliminaMov(id){
+  const m=movements.find(x=>x.id===id); if(!m) return;
+  if(_bloccaChiuso(m.data,"Eliminazione")) return;
+  _confirmModal(`Eliminare <strong>${m.qty} bt</strong> — <strong>${h(m.wineName||"")}</strong> (${h(m.tipo)}, ${h(_fmtDataIT(m.data))})?<br><span style="font-size:11px;color:var(--txt4)">La giacenza del vino viene corretta invertendo l'effetto del movimento.</span>`,
+    "Elimina", ()=>{
+      wines=wines.map(w=>w.id===m.wineId?_reverseMovEffect(w,m):w);
+      movements=movements.filter(x=>x.id!==id);
+      scheduleSave(); clearTimeout(saveTimer); _flushSave();
+      notify("Movimento eliminato — giacenza corretta"); render();
+    }, "danger");
+}
+function _renderMovCarico(){
+ const selW=wines.find(w=>w.id===movForm.wineId);
+ const _logM=movements.filter(m=>m&&!m.deleted&&m.tipo!=="scarico"&&m.tipo!=="scarico-stornato");
+   return `<div class="kpi-grid g2" style="margin-bottom:20px">
     <div class="card">
-      <div class="section-label"><span>📦 Registra Movimento</span></div>
+      <div class="section-label"><span>${ic("box")} Registra carico o rettifica</span></div>
       <div class="form-grid g2" style="margin-bottom:8px">
         <div><label class="form-label">Tipo</label>
           <select class="form-select" onchange="_movFormSetTipo(this.value)">
-            <option value="carico" ${movForm.tipo==="carico"?"selected":""}>📦 Carico</option>
-            <option value="scarico" ${movForm.tipo==="scarico"?"selected":""}>🍾 Scarico</option>
-            <option value="rettifica" ${_isRettifica(movForm.tipo)?"selected":""}>🩹 Rettifica giacenza (± senza spesa)</option>
+            <option value="carico" ${movForm.tipo==="carico"?"selected":""}>Carico</option>
+            <option value="rettifica" ${_isRettifica(movForm.tipo)?"selected":""}>Rettifica giacenza (± senza spesa)</option>
           </select>
         </div>
         <div><label class="form-label">Data</label><input class="form-input" type="date" value="${movForm.data}" oninput="movForm.data=this.value"></div>
@@ -4876,302 +5082,17 @@ function renderMovimenti(){
       </div>`:""}
       `:""}
       <button class="${movForm.tipo==="scarico"?"btn-primary":"btn-green"}" style="width:100%;justify-content:center;margin-top:14px" onclick="registraMovimento()">
-        ${movForm.tipo==="scarico"?"🍾 Registra Scarico":_isRettifica(movForm.tipo)?"🩹 Registra Rettifica":"📦 Registra Carico"}
+        ${_isRettifica(movForm.tipo)?"Registra rettifica":"Registra carico"}
       </button>
     </div>
     <div class="card">
-      <div class="section-label"><span># Log Recenti</span></div>
+      <div class="section-label"><span>Ultimi carichi e rettifiche</span></div>
       <div style="max-height:320px;overflow-y:auto;display:flex;flex-direction:column;gap:6px">
-        ${movements.length===0?`<div style="text-align:center;padding:28px;color:var(--txt4);font-size:11px">Nessun movimento</div>`:
-        movements.slice(0,10).map(m=>{const v=_movVis(m);return `<div class="move-log"><span style="color:${v.c}">${v.i}</span><div style="flex:1;min-width:0"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(m.wineName)}</div><div style="color:var(--txt4);font-size:10px">${h(_fmtDataIT(m.data))}${m.fattura?" · "+h(m.fattura):""}</div></div><span style="font-family:'Montserrat',sans-serif;color:${v.c};font-size:1rem">${v.s}${m.qty}</span></div>`;}).join("")}
-      </div>
-    </div>
-  </div>
-  <div class="card" style="padding:0">
-    ${selMode==='movimenti'?renderBulkBar('movimenti', movements.map(m=>m.id)):''}
-    <div class="tbl-header">
-      <span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt3)">Storico Completo — ${movements.length} movimenti</span>
-      <div style="display:flex;gap:8px">
-        ${selMode!=='movimenti'?`<button class="btn-outline btn-sm" onclick="enterSel('movimenti')" style="border-color:rgba(59,130,246,.5);color:#93c5fd">☑ Selezione multipla</button>`:''}
-        <button class="btn-outline btn-sm" onclick="exportMovimentiCSV()">↓ CSV</button>
-      </div>
-    </div>
-    <div class="tbl-wrap">
-      <table>
-        <thead><tr>${selMode==='movimenti'?`<th class="cb-col"><input type="checkbox" id="cb-sel-all" class="cb-sel" onchange="toggleSelAll()"></th>`:''}<th>Data</th><th>Tipo</th><th>Vino</th><th>Vitigni</th><th>Annata</th><th>Produttore</th><th>Nazione</th><th>N° Fattura</th><th>Fornitore</th><th class="r">Qtà</th><th class="r">P.Acq+IVA</th><th class="r">P.Carta/Ricavo</th><th>Note</th><th class="c"></th></tr></thead>
-        <tbody>
-          ${movements.length===0?`<tr><td colspan="10" style="text-align:center;padding:28px;color:var(--txt4)">Nessun movimento registrato</td></tr>`:
-          (()=>{ const wMap=Object.fromEntries(wines.map(w=>[w.id,w])); return movements.map(m=>{const wObj=wMap[m.wineId]; const wAnn=wObj?.annata||""; const costoIva=wObj?calcCostoIvaBottiglia(wObj):0; return `<tr data-sel-id="${m.id}">${selMode==='movimenti'?`<td class="cb-col"><input type="checkbox" class="cb-sel" data-id="${m.id}" onchange="toggleSel('${m.id}');_updateBulkBar()"></td>`:''}<td style="color:var(--txt2)">${h(_fmtDataIT(m.data))}</td><td><span style="font-size:9px;padding:2px 8px;border:1px solid;${m.tipo==="scarico"?"background:rgba(255,69,58,.12);color:#FF6B6B;border-color:#CC3025":_isRettifica(m.tipo)?"background:rgba(90,200,250,.12);color:#5AC8FA;border-color:#3a86a8":"background:rgba(20,83,45,.3);color:#30D158;border-color:#166534"}">${h((m.tipo||"").toUpperCase())}${_isCaricoIniziale(m)?' \u00b7 INV.':''}</span></td><td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(m.wineName)}</td><td style="color:var(--txt3);font-size:10px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(wObj?.vitigni||"—")}</td><td style="color:var(--amber);font-family:'Montserrat',sans-serif;white-space:nowrap">${wAnn?h(wAnn):'<span style="color:var(--txt4)">N.V.</span>'}</td><td style="color:var(--txt2);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(m.produttore||"—")}</td><td style="color:var(--amber3);font-size:10px;white-space:nowrap">${h(m.nazione||wObj?.nazione||"—")}</td><td style="color:var(--txt3)">${h(m.fattura||"—")}</td><td style="color:var(--txt3)">${h(m.fornitore||"—")}</td><td class="r" style="font-family:'Montserrat',sans-serif;color:${_movVis(m).c};font-size:1rem">${_movVis(m).s}${m.qty}</td><td class="r" style="color:var(--txt3);white-space:nowrap">${costoIva?fmt(costoIva):"—"}</td><td class="r" style="color:var(--amber);white-space:nowrap">${wObj?.prezzoCarta?fmt(parseFloat(wObj.prezzoCarta)):"—"}</td><td style="color:var(--txt4);font-size:10px">${h(m.note||"—")}</td><td class="c"><button onclick="openMovModal('${m.id}')" style="background:none;border:1px solid var(--border2);color:var(--txt3);font-size:11px;padding:3px 8px;cursor:pointer;font-family:inherit;transition:all .15s" onmouseover="this.style.borderColor='var(--amber3)';this.style.color='var(--amber)'" onmouseout="this.style.borderColor='var(--border2)';this.style.color='var(--txt3)'">✏️</button></td></tr>`; }).join(""); })() }
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- MODAL MODIFICA MOVIMENTO -->
-  <div class="modal-backdrop hidden" id="mov-edit-backdrop" onclick="closeMovModal(event)">
-    <div class="modal" style="max-width:560px" onclick="event.stopPropagation()">
-      <div class="modal-header">
-        <h2>✏️ Modifica Movimento</h2>
-        <button style="font-size:18px;color:var(--txt3)" onclick="closeMovModal()">✕</button>
-      </div>
-      <div class="modal-body" id="mov-edit-body"></div>
-      <div class="modal-footer">
-        <button class="btn-outline" onclick="closeMovModal()">Annulla</button>
-        <button class="btn-primary" onclick="saveMovEdit()">💾 Salva Modifiche</button>
+        ${_logM.length===0?`<div style="text-align:center;padding:28px;color:var(--txt4);font-size:11px">Nessun movimento</div>`:
+        _logM.slice(0,10).map(m=>{const v=_movVis(m);return `<div class="move-log"><span style="color:${v.c}">${v.i}</span><div style="flex:1;min-width:0"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(m.wineName)}</div><div style="color:var(--txt4);font-size:10px">${h(_fmtDataIT(m.data))}${m.fattura?" · "+h(m.fattura):""}</div></div><span style="font-family:'Montserrat',sans-serif;color:${v.c};font-size:1rem">${v.s}${m.qty}</span></div>`;}).join("")}
       </div>
     </div>
   </div>`;
-  return html;
-}
-
-// ─── SCARICO SERATA STANDALONE PAGE ──────────────────────────────────────────
-function renderScaricoSerataPage(){
-  const sortKey = scaricoSerata.sort || 'nome';
-  const listCollapsed = scaricoSerata.listCollapsed || false;
-  const winiBase = wines.filter(w => w.giacenza > 0);
-  const winiDisponibili = winiBase.slice().sort((a,b) => {
-    if(sortKey === 'giacenza') return b.giacenza - a.giacenza || a.nome.localeCompare(b.nome);
-    if(sortKey === 'tipo') return a.tipologia.localeCompare(b.tipologia) || a.nome.localeCompare(b.nome);
-    return a.nome.localeCompare(b.nome);
-  });
-  const righeValide = winiDisponibili.filter(w=>(parseInt(scaricoSerata.qtys[w.id])||0)>0).length;
-  const totDaScarico = winiDisponibili.reduce((s,w)=>s+(parseInt(scaricoSerata.qtys[w.id])||0),0);
-  const ricavoTot = winiDisponibili.reduce((s,w)=>{
-    const q=parseInt(scaricoSerata.qtys[w.id])||0;
-    return s+(q&&w.prezzoCarta?q*parseFloat(w.prezzoCarta):0);
-  },0);
-  const sortBtn = (key, label) => {
-    const active = sortKey === key;
-    return `<button onclick="const _sy=window.scrollY;scaricoSerata.sort='${key}';render();requestAnimationFrame(()=>window.scrollTo(0,_sy))" style="font-size:10px;font-weight:${active?'700':'500'};padding:4px 12px;border:1px solid ${active?'rgba(255,159,10,.5)':'var(--border2)'};color:${active?'var(--amber)':'var(--txt3)'};background:${active?'rgba(255,159,10,.1)':'none'};cursor:pointer;font-family:inherit;border-radius:6px;transition:all .15s">${label}</button>`;
-  };
-
-  // ── sticky action bar (sempre visibile, anche a lista collassata) ──
-  const actionBarHtml = `
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;background:rgba(28,28,30,.95);border-top:1px solid rgba(255,159,10,.18);position:sticky;bottom:0;z-index:10;backdrop-filter:blur(8px)">
-      <div id="scarico-serata-count" style="font-size:12px;color:var(--txt3)">
-        ${righeValide>0
-          ? `<span style="color:#FF6B6B;font-family:'Montserrat',sans-serif;font-size:1.1rem">${righeValide}</span> vin${righeValide===1?'o':'i'} · <span style="color:var(--amber);font-family:'Montserrat',sans-serif;font-size:1.1rem">${totDaScarico}</span> bottigli${totDaScarico===1?'a':'e'}${ricavoTot>0?` · <span style="color:#30D158;font-family:'Montserrat',sans-serif">${fmt(ricavoTot)}</span>`:''}`
-          : `<span style="color:var(--txt4)">Inserisci le quantità finite</span>`}
-      </div>
-      <button class="btn-primary"
-        style="background:${righeValide>0?"var(--amber3)":"rgba(58,58,60,.5)"};color:${righeValide>0?"#000":"var(--txt4)"};cursor:${righeValide>0?"pointer":"not-allowed"};padding:10px 24px;font-size:11px"
-        ${righeValide===0?"disabled":""}
-        onclick="const _sy=window.scrollY;registraScaricaSerata();_reportInlineOpen=true;setTimeout(()=>{const b=document.getElementById('report-inline-body');const a=document.getElementById('report-inline-arrow');if(b){b.style.display='block';b.innerHTML=_renderReportBody(reportSerataData);}if(a){a.className='report-toggle-arrow open';}window.scrollTo(0,_sy);},200)">
-        Registra ${righeValide>0?righeValide+' scarich'+(righeValide===1?'o':'i'):'scarichi'}
-      </button>
-    </div>`;
-
-  return `<div class="card" style="margin-bottom:16px;padding-bottom:0;overflow:hidden">
-    <div style="padding:20px 20px 16px">
-      <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:16px">
-        <div style="flex:1;min-width:200px">
-          <div style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt3);margin-bottom:6px">Data Serata</div>
-          <input type="date" class="form-input" style="max-width:200px" value="${scaricoSerata.data}"
-            oninput="scaricoSerata.data=this.value">
-        </div>
-        <div style="flex:2;min-width:200px">
-          <div style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt3);margin-bottom:6px">Note</div>
-          <input class="form-input" placeholder="Note serata..." value="${h(scaricoSerata.note||'')}"
-            oninput="scaricoSerata.note=this.value">
-        </div>
-      </div>
-
-      <!-- header collassabile lista vini -->
-      <div onclick="scaricoSerata.listCollapsed=!scaricoSerata.listCollapsed;render()"
-        style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;padding:10px 14px;border-radius:8px;border:1px solid ${listCollapsed?'rgba(255,159,10,.3)':'var(--border2)'};background:${listCollapsed?'rgba(255,159,10,.06)':'rgba(41,37,36,.3)'};margin-bottom:${listCollapsed?'0':'14px'};transition:all .2s;user-select:none">
-        <div style="display:flex;align-items:center;gap:10px">
-          <span style="font-size:14px">🍷</span>
-          <div>
-            <span style="font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:${listCollapsed?'var(--amber)':'var(--txt2)'}">Lista Vini</span>
-            <span style="font-size:10px;color:var(--txt4);margin-left:8px">${winiDisponibili.length} referenze disponibili</span>
-          </div>
-          ${righeValide>0?`<span style="font-size:10px;padding:2px 8px;border-radius:12px;background:rgba(255,69,58,.15);border:1px solid rgba(255,69,58,.3);color:#FF6B6B;font-family:'Montserrat',sans-serif">${righeValide} selezionat${righeValide===1?'o':'i'}</span>`:''}
-        </div>
-        <span style="color:var(--amber3);font-size:12px;font-weight:600;transition:transform .2s;display:inline-block;transform:rotate(${listCollapsed?'0':'180'}deg)">▼</span>
-      </div>
-    </div>
-
-    <!-- corpo lista vini (collassabile) -->
-    <div id="ssp-list-body" style="display:${listCollapsed?'none':'block'}">
-      <div style="padding:0 20px 10px">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
-          <span style="font-size:10px;color:var(--txt4);letter-spacing:.1em;text-transform:uppercase">Ordina:</span>
-          ${sortBtn('nome','↕ Nome')}
-          ${sortBtn('tipo','↕ Tipo')}
-          ${sortBtn('giacenza','↕ Giacenza ↓')}
-          <div style="flex:1;min-width:160px;position:relative;margin-left:8px">
-            <span style="position:absolute;left:9px;top:50%;transform:translateY(-50%);color:var(--txt3);pointer-events:none;font-size:12px">&#128269;</span>
-            <input type="text" class="form-input" style="padding-left:28px" placeholder="Cerca vino, produttore, annata..."
-              oninput="(function(v){document.querySelectorAll('#ssp-list .ssp-card').forEach(c=>{const txt=c.textContent.toLowerCase();c.style.display=txt.includes(v.toLowerCase())?'':'none'})})(this.value)">
-          </div>
-        </div>
-      </div>
-      <div id="ssp-list" style="display:flex;flex-direction:column;gap:8px;padding:0 14px 8px">
-        ${winiDisponibili.map(w=>{
-          // Antibug: record parziale/corrotto → fallback silenzioso, nessun crash
-          if(!w||!w.id) return "";
-          const nome=h(w.nome||"— senza nome —");
-          const prod=h((w.produttore||"").trim()||"—");
-          const annata=w.annata?h(w.annata):"N.V.";
-          const tipo=w.tipologia||"";
-          const giac=parseInt(w.giacenza)||0;
-          const carta=parseFloat(w.prezzoCarta)||0;
-          const qVal=scaricoSerata.qtys[w.id]||"";
-          const qNum=parseInt(qVal)||0;
-          const overLimit=qNum>giac;
-          const hasVal=qNum>0;
-          return `<div class="ssp-card" data-wid="${w.id}" style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:14px;border:1px solid ${hasVal?'rgba(255,69,58,.35)':'var(--border2)'};background:${hasVal?'rgba(255,69,58,.06)':'rgba(28,28,30,.5)'};transition:border-color .15s,background .15s">
-            <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px">
-              <div style="font-size:15px;font-weight:600;color:${hasVal?'var(--txt)':'var(--txt1)'};word-break:break-word;line-height:1.2">${nome}</div>
-              <div style="font-size:12px;color:var(--txt4);display:flex;align-items:center;gap:6px;flex-wrap:wrap;line-height:1.3">
-                <span>${prod}</span><span style="opacity:.45">·</span><span style="color:var(--amber)">${annata}</span>${tipo?`<span style="opacity:.45">·</span>${badge(tipo)}`:''}
-              </div>
-              <div style="font-size:11px;color:var(--txt4);margin-top:1px">Giacenza <span class="ssp-giac" style="color:var(--amber3);font-family:'Montserrat',sans-serif">${giac}</span> bt<span class="ssp-ric" style="color:${hasVal&&carta?'#30D158':'var(--txt4)'};margin-left:8px">${hasVal&&carta?'· ricavo '+fmt(qNum*carta):''}</span></div>
-            </div>
-            <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
-              <button type="button" onclick="_sspStep('${w.id}',-1)" aria-label="Diminuisci"
-                style="width:46px;height:46px;border-radius:12px;border:1px solid var(--border2);background:rgba(58,58,60,.4);color:var(--txt2);font-size:24px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;touch-action:manipulation">−</button>
-              <input type="number" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" min="0" max="${giac}" step="1" class="ssp-qty"
-                value="${qVal}" placeholder="0"
-                style="width:54px;height:46px;text-align:center;font-family:'Montserrat',sans-serif;font-size:1.2rem;border-radius:10px;border:1px solid ${overLimit?'#ef4444':hasVal?'rgba(239,68,68,.5)':'var(--border2)'};background:var(--bg);color:${overLimit?'#FF453A':hasVal?'#FF6B6B':'var(--txt)'}"
-                oninput="_sspInput('${w.id}',this.value)">
-              <button type="button" onclick="_sspStep('${w.id}',1)" aria-label="Aumenta"
-                style="width:46px;height:46px;border-radius:12px;border:1px solid rgba(255,69,58,.4);background:rgba(255,69,58,.15);color:#FF6B6B;font-size:24px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;touch-action:manipulation">+</button>
-              <button type="button" onclick="registraScaricaSingoloVino('${w.id}')" title="Scarica ora questo vino"
-                style="width:46px;height:46px;border-radius:12px;border:1px solid rgba(48,209,88,.4);background:rgba(48,209,88,.12);color:#30D158;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;touch-action:manipulation">✓</button>
-            </div>
-          </div>`;
-        }).join("")}
-      </div>
-    </div>
-
-    ${actionBarHtml}
-  </div>
-  <div class="report-inline-panel">
-    <div class="report-inline-toggle" onclick="toggleReportInline()">
-      <div class="report-toggle-label">📋 Report & Storico Serata</div>
-      <span class="report-toggle-arrow${_reportInlineOpen?' open':''}" id="report-inline-arrow">▼</span>
-    </div>
-    <div id="report-inline-body" style="display:${_reportInlineOpen?'block':'none'};padding-bottom:24px">
-      ${_reportInlineOpen ? _renderReportBody(reportSerataData) : ""}
-    </div>
-  </div>
-  <style>
-    @media(min-width:600px){
-      .ssp-col-desktop{display:table-cell!important}
-      .ssp-prod-mobile{display:none!important}
-    }
-    @media(max-width:599px){
-      .ssp-col-desktop{display:none!important}
-      .ssp-prod-mobile{display:block!important}
-    }
-  </style>
-`;
-
-}
-
-var reportSerataData = today();
-var _reportInlineOpen = false;
-function toggleReportInline(){
-  _reportInlineOpen = !_reportInlineOpen;
-  const body = document.getElementById("report-inline-body");
-  const arrow = document.getElementById("report-inline-arrow");
-  if(body){ body.style.display = _reportInlineOpen ? "block" : "none"; }
-  if(arrow){ arrow.className = "report-toggle-arrow" + (_reportInlineOpen ? " open" : ""); }
-  if(_reportInlineOpen){ document.getElementById("report-inline-body").innerHTML = _renderReportBody(reportSerataData); }
-}
-function _renderReportBody(dataSelezionata){
-  const wineMap = Object.fromEntries(wines.map(w=>[w.id,w]));
-  const dateConScarichi = [...new Set(movements.filter(m=>m.tipo==="scarico").map(m=>m.data))].sort((a,b)=>b.localeCompare(a));
-  const scarichi = movements.filter(m=>m.tipo==="scarico"&&m.data===dataSelezionata).sort((a,b)=>(b.ts||0)-(a.ts||0));
-  const totBt = scarichi.reduce((s,m)=>s+m.qty,0);
-  const totRicavoVino = scarichi.reduce((s,m)=>s+calcRicavoMovimento(m,wineMap[m.wineId]),0);
-  const totServizio = scarichi.reduce((s,m)=>s+calcServizioMovimento(m),0);
-  const totRicavo = totRicavoVino + totServizio;
-  const totCosto = scarichi.reduce((s,m)=>s+calcCostoMovimento(m,wineMap[m.wineId]),0);
-  const totMargine = totRicavo - totCosto;
-  const byTipo = {};
-  scarichi.forEach(m=>{const w=wineMap[m.wineId];const t=w?.tipologia||"—";if(!byTipo[t])byTipo[t]={bt:0,ricavo:0};byTipo[t].bt+=m.qty;byTipo[t].ricavo+=calcRicavoMovimento(m,w);});
-  const byWine = {};
-  scarichi.forEach(m=>{const w=wineMap[m.wineId];const k=m.wineId||m.wineName;if(!byWine[k])byWine[k]={nome:m.wineName,produttore:m.produttore||w?.produttore||"",tipologia:w?.tipologia||"",bt:0,ricavo:0};byWine[k].bt+=m.qty;byWine[k].ricavo+=calcRicavoMovimento(m,w);});
-  const topWines = Object.values(byWine).sort((a,b)=>b.bt-a.bt);
-
-  // ── date selector ──
-  const dateSel = `<div style="margin-bottom:14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-    <div><div style="font-size:10px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--txt3);margin-bottom:6px">Data</div>
-    <input type="date" class="form-input" style="max-width:170px" value="${dataSelezionata}"
-      oninput="reportSerataData=this.value;document.getElementById('report-inline-body').innerHTML=_renderReportBody(this.value)"></div>
-    ${dateConScarichi.length>0?`<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end">
-      ${dateConScarichi.slice(0,5).map(d=>`<button onclick="reportSerataData='${d}';document.getElementById('report-inline-body').innerHTML=_renderReportBody('${d}')" style="font-size:11px;font-weight:500;padding:4px 10px;border:1px solid ${d===dataSelezionata?"rgba(255,159,10,.4)":"var(--border2)"};color:${d===dataSelezionata?"var(--amber)":"var(--txt3)"};background:${d===dataSelezionata?"rgba(255,159,10,.08)":"none"};cursor:pointer;font-family:inherit;border-radius:6px">${d}</button>`).join("")}
-    </div>`:""}
-    ${scarichi.length>0?`<button class="btn-outline btn-sm" style="margin-left:auto" onclick="exportReportSerataCSV('${dataSelezionata}')">↓ CSV</button>`:""}
-  </div>`;
-
-  if(scarichi.length===0) return dateSel +
-    `<div style="text-align:center;padding:32px;color:var(--txt4);background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm)">Nessuno scarico per ${dataSelezionata}</div>`;
-
-  // ── KPI strip ──
-  const kpiHtml = `<div class="kpi-grid g4" style="margin-bottom:14px">
-    <div class="kpi-card"><div class="kpi-label">Bottiglie</div><div class="kpi-val c-amber">${totBt}</div></div>
-    <div class="kpi-card"><div class="kpi-label">Ricavo Stimato</div><div class="kpi-val c-green">${fmt(totRicavo)}</div>${totServizio>0?`<div class="kpi-sub">vino ${fmt(totRicavoVino)} + servizio ${fmt(totServizio)}</div>`:""}</div>
-    <div class="kpi-card"><div class="kpi-label">Costo Merce</div><div class="kpi-val c-amber">${fmt(totCosto)}</div></div>
-    <div class="kpi-card"><div class="kpi-label">Margine Lordo</div><div class="kpi-val" style="color:${totMargine>=0?"#30D158":"#FF453A"}">${fmt(totMargine)}</div><div class="kpi-sub">${totRicavo?fmtN(totMargine/totRicavo*100,1)+"% sul ricavo":"—"}</div></div>
-  </div>`;
-
-  // ── breakdown per tipologia + vini ──
-  const breakdownHtml = `<div class="kpi-grid g2" style="margin-bottom:14px">
-    <div class="card">
-      <div class="section-label"><span>Per Tipologia</span></div>
-      ${Object.entries(byTipo).sort((a,b)=>b[1].bt-a[1].bt).map(([t,v])=>`<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">${badge(t)}<div style="flex:1;height:4px;background:var(--bg3);border-radius:2px"><div style="height:4px;background:var(--amber);border-radius:2px;width:${totBt?Math.round(v.bt/totBt*100):0}%"></div></div><span style="color:var(--txt2);font-size:12px;width:40px;text-align:right">${v.bt} bt</span><span style="color:var(--amber);font-size:12px;width:80px;text-align:right">${fmt(v.ricavo)}</span></div>`).join("")}
-    </div>
-    <div class="card">
-      <div class="section-label"><span>Vini Scaricati</span></div>
-      <table style="width:100%;border-collapse:collapse">
-        <thead><tr style="font-size:10px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--txt4)">
-          <td style="padding:4px 8px">Vino</td><td style="padding:4px 8px">Tipo</td><td style="padding:4px 8px;text-align:center">Bt</td><td style="padding:4px 8px;text-align:right">Ricavo</td>
-        </tr></thead>
-        <tbody>${topWines.map(w=>`<tr style="border-top:1px solid var(--border)"><td style="padding:6px 8px"><div style="font-size:12px">${h(w.nome)}</div><div style="font-size:11px;color:var(--txt4)">${h(w.produttore)}</div></td><td style="padding:6px 8px">${badge(w.tipologia)}</td><td style="padding:6px 8px;text-align:center;font-family:'Montserrat',sans-serif;color:var(--amber)">${w.bt}</td><td style="padding:6px 8px;text-align:right;color:var(--amber)">${fmt(w.ricavo)}</td></tr>`).join("")}</tbody>
-      </table>
-    </div>
-  </div>`;
-
-  // ── dettaglio movimenti con delete (ex-storico) ──
-  const dettaglioHtml = `<div class="card" style="padding:0;margin-bottom:0">
-    <div class="tbl-header" style="display:flex;align-items:center;justify-content:space-between">
-      <span style="font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--txt3)">Dettaglio — ${scarichi.length} moviment${scarichi.length===1?'o':'i'}</span>
-    </div>
-    <div>
-      ${scarichi.map(m=>{
-        const w=wineMap[m.wineId];
-        const ric=calcRicavoMovimento(m,w);
-        return `<div class="sc-hist-row" data-mid="${m.id}" style="display:flex;align-items:flex-start;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border);flex-wrap:wrap">
-          <div style="flex:1;min-width:0">
-            <div style="font-size:13px;font-weight:500;color:var(--txt);word-break:break-word;line-height:1.35">${h(m.wineName||'—')}${w?.annata?` <span style="color:var(--amber);font-size:11px">${h(w.annata)}</span>`:''}</div>
-            <div style="font-size:11px;color:var(--txt4);margin-top:2px">${h(m.produttore||w?.produttore||'—')} · ${badge(w?.tipologia||'')} · <span style="color:var(--txt3)">${_fmtDataIT(m.data)||'—'}</span>${m.note?` · <span style="font-style:italic">${h(m.note)}</span>`:''}</div>
-          </div>
-          <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
-            <div style="text-align:right">
-              <div style="font-family:'Montserrat',sans-serif;font-size:1.1rem;color:#FF6B6B;white-space:nowrap">−${m.qty} bt</div>
-              ${ric?`<div style="font-size:11px;color:var(--amber)">${fmt(ric)}</div>`:''}
-            </div>
-            <button onclick="_eliminaScarico('${m.id}')"
-              style="width:34px;height:34px;border-radius:8px;border:1px solid rgba(255,69,58,.3);background:rgba(255,69,58,.1);color:#FF453A;font-size:15px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center"
-              title="Elimina scarico e ripristina giacenza">🗑</button>
-          </div>
-        </div>`;
-      }).join("")}
-    </div>
-    <div style="padding:10px 14px;background:rgba(41,37,36,.3);border-top:1px solid var(--border2);display:flex;justify-content:space-between;align-items:center">
-      <span style="font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--txt3)">Totale</span>
-      <div style="display:flex;gap:20px;align-items:center">
-        <span style="font-family:'Montserrat',sans-serif;color:#FF6B6B">${totBt} bt</span>
-        <span style="color:var(--amber);font-weight:600">${fmt(totRicavo)}</span>
-        <span style="color:var(--txt3);font-size:11px">${fmt(totCosto)} costo</span>
-      </div>
-    </div>
-  </div>`;
-
-  return dateSel + kpiHtml + breakdownHtml + dettaglioHtml;
 }
 
 function exportReportSerataCSV(data){
@@ -5188,39 +5109,6 @@ function exportReportSerataCSV(data){
   notify("Serata esportata");
 }
 
-function _eliminaScarico(movId){
-  const mov=movements.find(m=>m.id===movId);
-  if(!mov){notify("Movimento non trovato","err");return;}
-  _confirmModal(
-    `Eliminare lo scarico di <strong>${mov.qty} bt</strong> — <strong>${h(mov.wineName)}</strong> del ${mov.data}?<br><span style="color:var(--txt3);font-size:11px">La giacenza verrà ripristinata e il FIFO aggiornato.</span>`,
-    ()=>{
-      // Ripristina giacenza e lotti FIFO
-      const wine=wines.find(w=>w.id===mov.wineId);
-      if(wine){
-        // Ricrea il lotto consumato (approssimazione: aggiunge la qty al lotto più recente)
-        const newGiac=(parseInt(wine.giacenza)||0)+mov.qty;
-        const lots=(wine.lots||[]).slice();
-        // Tenta di trovare il lotto che aveva prezzoAcqLotto uguale e ripristinarlo
-        const lotIdx=lots.findIndex(l=>l.prezzoAcq===(mov.prezzoAcqLotto||0)&&l.qtyRimanente<l.qtyCaricata);
-        if(lotIdx>=0){
-          lots[lotIdx]={...lots[lotIdx],qtyRimanente:(lots[lotIdx].qtyRimanente||0)+mov.qty};
-        } else {
-          // Fallback: crea micro-lotto di ripristino
-          lots.push({id:uid(),data:mov.data,fattura:"",fornitore:mov.fornitore||"",
-            prezzoAcq:mov.prezzoAcqLotto||wine.prezzoAcq||0,iva:wine.iva||22,
-            qtyCaricata:mov.qty,qtyRimanente:mov.qty,_ripristino:true});
-        }
-        wines=wines.map(w=>w.id===wine.id?{...w,giacenza:newGiac,lots}:w);
-      }
-      movements=movements.filter(m=>m.id!==movId);
-      scheduleSave();
-      clearTimeout(saveTimer);
-      _flushSave();
-      notify(`✅ Scarico eliminato — giacenza ripristinata`);
-      render();
-    }
-  );
-}
 
 function _movTipologiaChange(val){
   movForm._tipologia = val;
@@ -5391,6 +5279,7 @@ function registraMovimento(){
   // Refresh date if the field was left empty (e.g. session crossed midnight)
   if(!movForm.data) movForm.data=today();
   const {tipo,qty,data,fattura,fornitore,note,prezzoAcqLotto}=movForm;
+  if(_bloccaChiuso(data,"Registrazione")) return;
   const segno = movForm.segno==="-" ? "-" : "+"; // solo rettifica
   let {wineId}=movForm;
   const q=parseInt(qty)||0;
@@ -5414,7 +5303,7 @@ function registraMovimento(){
       annata:(movForm._newAnnata||"").trim(),
       vitigni:_normVitigni(movForm._newVitigni),
       tipologia:movForm._newTipologia,
-      regione:(movForm._newRegione||"").trim(),
+      regione:_regioneCanon(movForm._newRegione),
       nazione:(movForm._newNazione||"Italia").trim(),
       zona:(movForm._newZona||"").trim(),
       formato:parseFloat(movForm._newFormato)||0.75,
@@ -7307,6 +7196,61 @@ function _getFornTelefono(forn){ return _fornTelefoni[(forn||"").toLowerCase().t
 function _setFornTelefono(forn, tel){ _fornTelefoni[(forn||"").toLowerCase().trim()]=tel.trim(); _saveFornTelefoni(_fornTelefoni); }
 function _getAllFornTelefoni(){ return _fornTelefoni; }
 
+// ─── PERIODO CONTABILE CHIUSO ─────────────────────────────────────────────────
+// Data fino alla quale (compresa) i numeri sono già stati consegnati al
+// commercialista: quei movimenti non si registrano, modificano, eliminano o
+// stornano più. Le correzioni si fanno con una rettifica datata oggi.
+// Condivisa tra postazioni via cm_settings, copia locale per l'offline.
+var _chiusoFino=(()=>{ try{ return localStorage.getItem(_lsKey("chiuso_fino"))||""; }catch{ return ""; } })();
+function _periodoChiuso(data){ return !!_chiusoFino && !!data && String(data).slice(0,10)<=_chiusoFino; }
+function _bloccaChiuso(data, azione){
+  if(!_periodoChiuso(data)) return false;
+  const msg=`${azione} bloccato: periodo chiuso fino al ${_fmtDataIT(_chiusoFino)}. Per correggere registra una rettifica con data di oggi.`;
+  if(typeof _mobActive!=="undefined"&&_mobActive) alert(msg); else notify(msg,"err");
+  return true;
+}
+function _setChiusoFino(v){
+  _chiusoFino=String(v||"").slice(0,10);
+  try{ localStorage.setItem(_lsKey("chiuso_fino"),_chiusoFino); }catch{}
+  _pushSettings();
+  notify(_chiusoFino?`Periodo chiuso fino al ${_fmtDataIT(_chiusoFino)}`:"Blocco del periodo rimosso");
+  render();
+}
+// ─── REGIONI: varianti di scrittura ──────────────────────────────────────────
+// "Friuli Venezia-Giulia" e "Friuli Venezia Giulia" spezzavano filtri,
+// statistiche e intestazioni della carta. Stessa chiave = stessa regione:
+// vince la forma dell'elenco ufficiale (_ordRegioniPer), altrimenti la più usata.
+const _REG_ALIAS={"vento":"Veneto"};
+function _regKey(s){ return String(s||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase().replace(/[\s\-–—_]+/g," ").trim(); }
+function _regCanonMap(){
+  const uff=new Set(); _ordNazioni().forEach(n=>{ try{ _ordRegioniPer(n).forEach(r=>uff.add(r)); }catch{} });
+  const g={};
+  wines.forEach(w=>{ const r=String(w.regione||"").trim(); if(!r) return; const k=_regKey(r); (g[k]=g[k]||{})[r]=(g[k][r]||0)+1; });
+  const map={};
+  Object.entries(g).forEach(([k,vs])=>{
+    const nomi=Object.keys(vs);
+    map[k]=_REG_ALIAS[k]||nomi.find(n=>uff.has(n))||nomi.sort((a,b)=>vs[b]-vs[a])[0];
+  });
+  uff.forEach(r=>{ const k=_regKey(r); if(!map[k]) map[k]=r; });
+  return map;
+}
+function _regioneCanon(s){ const r=String(s||"").trim(); if(!r) return ""; return _regCanonMap()[_regKey(r)]||_REG_ALIAS[_regKey(r)]||r; }
+function normalizzaRegioni(){
+  const map=_regCanonMap(), cambi={};
+  wines.forEach(w=>{ const r=String(w.regione||"").trim(); if(!r) return; const c=map[_regKey(r)]||r; if(c!==r){ const k=r+"→"+c; cambi[k]=cambi[k]||{da:r,a:c,n:0}; cambi[k].n++; } });
+  const distr=new Set(wines.map(w=>_regKey(w.distributore)).filter(Boolean));
+  const sospette=[...new Set(wines.map(w=>String(w.regione||"").trim()).filter(r=>r&&distr.has(_regKey(r))))];
+  const lista=Object.values(cambi);
+  const sosp=sospette.length?`<div style="margin-top:12px;font-size:11px;color:var(--txt3)">Da verificare a mano (la regione coincide con un distributore): <strong>${sospette.map(h).join(", ")}</strong> — ${wines.filter(w=>sospette.includes(String(w.regione||"").trim())).length} referenze. Filtra l'inventario per regione per correggerle.</div>`:"";
+  if(!lista.length){ _confirmModal(`Nessuna variante da unificare.${sosp}`,"OK",()=>{},"warn"); return; }
+  _confirmModal(`<div style="margin-bottom:8px">Unificare queste varianti di regione?</div>${lista.map(c=>`<div style="font-size:12px">${h(c.da)} → <strong>${h(c.a)}</strong> <span style="color:var(--txt4)">(${c.n})</span></div>`).join("")}${sosp}`,
+    "Unifica", ()=>{
+      wines=wines.map(w=>{ const r=String(w.regione||"").trim(); const c=r&&map[_regKey(r)]; return c&&c!==r?{...w,regione:c}:w; });
+      scheduleSave(); clearTimeout(saveTimer); _flushSave();
+      notify(`Regioni unificate: ${lista.reduce((s,c)=>s+c.n,0)} referenze`); render();
+    },"warn");
+}
+
 // ─── IMPOSTAZIONI PERSISTENTI SUL CLOUD (cm_settings) ────────────────────────
 // Tipologie e rubriche fornitori vivevano SOLO in localStorage: su origine
 // file:// Chrome lo azzera con facilità (pulizia dati, cambio profilo/cartella)
@@ -7318,7 +7262,8 @@ function _settingsSnapshot(){
   return {
     tipologie:    [...TIPOLOGIE],
     fornEmails:   { ..._fornEmails },
-    fornTelefoni: { ..._fornTelefoni }
+    fornTelefoni: { ..._fornTelefoni },
+    chiusoFino: _chiusoFino
   };
 }
 async function _sbReadSettings(){
@@ -7367,6 +7312,10 @@ async function _syncSettings(){
   if(Object.keys(mT).length !== Object.keys(remT).length) dirty = true;
   _fornEmails   = mE; try{ localStorage.setItem(_lsKey("forn_emails"), JSON.stringify(_fornEmails)); }catch{}
   _fornTelefoni = mT; try{ localStorage.setItem(_lsKey("forn_tel"),    JSON.stringify(_fornTelefoni)); }catch{}
+
+  // Periodo chiuso: il cloud vince (vale per tutte le postazioni).
+  if(typeof r.chiusoFino==="string"){ if(r.chiusoFino!==_chiusoFino){ _chiusoFino=r.chiusoFino; try{ localStorage.setItem(_lsKey("chiuso_fino"),_chiusoFino); }catch{} } }
+  else if(_chiusoFino) dirty = true;
 
   if(dirty) await _sbUpsertSettings(); // porta sul cloud ciò che esisteva solo qui
 }
@@ -7783,7 +7732,19 @@ function renderImpostazioni(){
     <div style="display:flex;gap:4px;align-items:center"><input class="form-input" style="font-size:11px;flex:1" placeholder="+39 333 1234567" value="${ft}" onchange="_setFornTelefono('${fh}',this.value);notify('✓ Telefono salvato')">${waBtn}</div>
   </div>`;
 }).join('')}</div>`;
-  return `<div class="kpi-grid g2" style="gap:20px">
+  return `<div class="card" style="margin-bottom:20px">
+  <div class="section-label"><span>🔒 Chiusura periodo contabile</span></div>
+  <p style="font-size:11px;color:var(--txt3);margin-bottom:10px;line-height:1.5">I movimenti con data fino a questo giorno (compreso) non si possono più registrare, modificare, eliminare o stornare: sono i numeri già consegnati al commercialista. Le correzioni si registrano con una rettifica datata oggi.</p>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <input type="date" class="form-input" style="max-width:180px" value="${h(_chiusoFino)}" onchange="_setChiusoFino(this.value)">
+    ${_chiusoFino?`<button class="btn-outline btn-sm" onclick="_setChiusoFino('')">Rimuovi blocco</button>`:""}
+    <span style="font-size:11px;color:var(--txt4)">di norma l'ultimo giorno del mese inviato</span>
+  </div>
+  <div class="section-label" style="margin-top:20px"><span>🌍 Regioni</span></div>
+  <p style="font-size:11px;color:var(--txt3);margin-bottom:10px">Unifica le varianti di scrittura (trattini, accenti, maiuscole) che spezzano filtri, statistiche e carta vini. Mostra l'anteprima prima di modificare.</p>
+  <button class="btn-outline btn-sm" onclick="normalizzaRegioni()">Analizza e unifica regioni</button>
+</div>
+<div class="kpi-grid g2" style="gap:20px">
     <div class="card">
       <div class="section-label"><span>🏠 Dati del Locale</span></div>
       <div class="form-grid g2">
@@ -8404,6 +8365,8 @@ function bulkDeleteMovimenti(){
   if(selIds.size===0) return;
   const n=selIds.size;
   const snap = new Set(selIds);
+  const _inChiuso=movements.find(m=>snap.has(m.id)&&_periodoChiuso(m.data));
+  if(_inChiuso && _bloccaChiuso(_inChiuso.data,"Eliminazione")) return;
   _confirmModal(
     `Eliminare <strong>${n} moviment${n===1?'o':'i'}</strong>?<br><span style="font-size:11px;color:var(--txt4)">La giacenza dei soli vini coinvolti verrà corretta invertendo l'effetto dei movimenti eliminati.</span>`,
     `🗑️ Elimina`,
@@ -9567,11 +9530,12 @@ function registraMovimentoMobileQty(wineId, delta){
         const c = Math.min(rem,l.qtyRimanente); rem-=c;
         return {...l, qtyRimanente:l.qtyRimanente-c};
       });
-      return {...w, giacenza:w.giacenza-qty, lots:updLots};
+      _fifoShort(w.id, w.nome, rem);
+    return {...w, giacenza:w.giacenza-qty, lots:updLots};
     }
   });
   const newMov = {id:movId, wineId, wineName:wine.nome, produttore:wine.produttore,
-    tipo, qty, data:dataMov, fattura, fornitore:"", note:"[mobile]", ts:Date.now(),
+    tipo, qty, data:dataMov, fattura, fornitore:"", note:"[mobile]", ts:Date.now(), nazione:wine.nazione||"",
     ...(tipo==="scarico" ? {costoUnitarioIva:calcCostoIvaBottiglia(wine), servizio:_servizioSnap(dataMov), prezzoCartaSnap:parseFloat(wine.prezzoCarta)||0} : {})};
   movements = [newMov, ...movements];
 
@@ -9657,13 +9621,14 @@ async function registraMovimentoMobile(wineId, delta){
         const c = Math.min(rem,l.qtyRimanente); rem-=c;
         return {...l, qtyRimanente:l.qtyRimanente-c};
       });
-      return {...w, giacenza:w.giacenza-qty, lots:updLots};
+      _fifoShort(w.id, w.nome, rem);
+    return {...w, giacenza:w.giacenza-qty, lots:updLots};
     }
   });
 
   const movId = uid();
   const newMov = {id:movId, wineId, wineName:wine.nome, produttore:wine.produttore,
-    tipo, qty, data:dataMov, fattura, fornitore:"", note:"[mobile]", ts:Date.now(),
+    tipo, qty, data:dataMov, fattura, fornitore:"", note:"[mobile]", ts:Date.now(), nazione:wine.nazione||"",
     ...(tipo==="scarico" ? {costoUnitarioIva:calcCostoIvaBottiglia(wine), servizio:_servizioSnap(dataMov), prezzoCartaSnap:parseFloat(wine.prezzoCarta)||0} : {})};
   movements = [newMov, ...movements];
 
@@ -9988,10 +9953,24 @@ function _renderMobStorico(){
 // resta, la giacenza torna su e in storico si legge quando e perche'.
 const MOB_STORNO_MS = 20*60*1000;
 function _movEta(m){ const t=parseInt(m&&m.ts)||0; return t ? (Date.now()-t) : Infinity; }
+// Storno. Uno SCARICO stornato non è mai stato una vendita: il movimento stesso
+// diventa "scarico-stornato" — resta nello storico (traccia: quando e perché) ma
+// esce da ricavi, costo merce, bottiglie vendute e saldo giacenza (_ledgerDelta
+// → 0), perché ogni aggregato filtra tipo==="scarico". Prima si aggiungeva una
+// rettifica +: la bottiglia tornava in giacenza ma la vendita restava a ricavo.
+// Per gli altri tipi resta la rettifica di segno opposto.
 function _stornoMovimento(mov, motivo){
   if(!mov) return null;
   const q=Math.abs(parseInt(mov.qty)||0);
   if(!q) return null;
+  if(_periodoChiuso(mov.data)) return null; // periodo contabile chiuso
+  if(mov.tipo==="scarico"){
+    const st={...mov, tipo:"scarico-stornato", stornatoIl:today(),
+      note:[mov.note,(motivo||"Storno")+" il "+_fmtDataIT(today())].filter(Boolean).join(" · ")};
+    wines=wines.map(w=>w.id===mov.wineId?_reverseMovEffect(w,mov):w);
+    movements=movements.map(m=>m.id===mov.id?st:m);
+    return st;
+  }
   const d=_ledgerDelta(mov);
   if(!d) return null;
   const st={ id:uid(), wineId:mov.wineId, wineName:mov.wineName||"", produttore:mov.produttore||"",
@@ -10010,6 +9989,7 @@ async function mobAnnullaStorico(movId){
 
   const {wineId, prevGiacenza, prevLots} = entry;
   const _mov = movements.find(m => m.id === movId);
+  if(_mov && _bloccaChiuso(_mov.data,"Annullo")) return;
   const _nomeW = (wines.find(w => w.id === wineId)||{}).nome || "questo vino";
   if(!confirm(`Annullare lo scarico di ${_nomeW}?\n\nLa bottiglia torna in giacenza.`)) return;
 
@@ -10088,6 +10068,7 @@ async function mobConfirmEdit(){
 
   // 1. Annulla il vecchio movimento: a caldo si cancella, dopo si storna
   const _movOld = movements.find(m => m.id === movId);
+  if(_movOld && _bloccaChiuso(_movOld.data,"Correzione")) return;
   if(_movOld && _movEta(_movOld) > MOB_STORNO_MS){
     _stornoMovimento(_movOld, "Correzione quantita da mobile");
   } else {
@@ -10126,6 +10107,7 @@ function openMovModal(id){
           <option value="carico" ${m.tipo==="carico"?"selected":""}>📦 Carico</option>
           <option value="scarico" ${m.tipo==="scarico"?"selected":""}>🍾 Scarico</option>
           ${_isRettifica(m.tipo)?'<option value="'+m.tipo+'" selected>🩹 Rettifica giacenza (± senza spesa)</option>':''}
+            ${m.tipo==="scarico-stornato"?'<option value="scarico-stornato" selected>Scarico stornato (nessun ricavo)</option>':''}
         </select>
       </div>
     </div>
@@ -10189,6 +10171,7 @@ function saveMovEdit(){
   const newTipo = get("me-tipo");
   const newQty  = qty;
   const newData = get("me-data") || oldData;
+  if(oldMov && (_bloccaChiuso(oldMov.data,"Modifica")||_bloccaChiuso(newData,"Modifica"))) return;
 
   // B1 + B6 FIX: ricalcola giacenza E lotti FIFO se tipo, qty O data cambiano.
   // La data cambia l'ordine cronologico del replay FIFO, quindi è necessario
