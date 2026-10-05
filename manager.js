@@ -2491,7 +2491,7 @@ const _IC={
  minus:'<path d="M5 12h14"/>'
 };
 function ic(n,cls){ return `<svg class="ic${cls?" "+cls:""}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${_IC[n]||""}</svg>`; }
-const _NAV_IC={dashboard:"chart",inventario:"bottle",movimenti:"swap",fallate:"alert",ordini:"cart",trasferimenti:"truck",export:"download",amministrazione:"euro",impostazioni:"gear"};
+const _NAV_IC={gruppo:"layers",dashboard:"chart",inventario:"bottle",movimenti:"swap",fallate:"alert",ordini:"cart",trasferimenti:"truck",export:"download",amministrazione:"euro",impostazioni:"gear"};
 Object.assign(_IC,{
  checkCircle:'<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>',
  clipboard:'<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 10h6M9 14h6M9 18h4"/>',
@@ -2607,6 +2607,7 @@ function go(s){
   if(s==="analytics") s="dashboard"; // sezioni fuse in "Plancia"
  if(s==="scarico-serata"||s==="report-serata"){ s="movimenti"; movUi.tab="scarico"; } // sezione fusa in Movimenti
   if(s==="trasferimenti" && !CONFIG.trasferimenti) s="dashboard"; // feature off su questo locale
+  if(s==="gruppo" && !_grpEnabled()) s="dashboard"; // vista gruppo: solo admin e solo se configurata
   section=s;
   if(selMode) exitSel(); // NAV-03: resetta selezione multipla al cambio sezione
   if(s!=="inventario"){ filterTipo="tutti"; filterVitigni.clear(); filterFormato="tutti"; filterDistrib="tutti"; filterProduttore="tutti"; filterRegione="tutti"; filterNazione="tutti"; filterGiacenza="tutti"; _hideTopbarActions(); }
@@ -3062,6 +3063,7 @@ function render(){
   else if(section==="trasferimenti") c.innerHTML=renderTrasferimenti();
   else if(section==="export") c.innerHTML=renderExport();
   else if(section==="amministrazione") c.innerHTML=renderAmministrazione();
+  else if(section==="gruppo") c.innerHTML=renderGruppo();
   else if(section==="impostazioni") c.innerHTML=renderImpostazioni();
   afterRender();
 }
@@ -13170,4 +13172,249 @@ function _acInit(root){
     console.log(`✅ ${nuovi.length} rettifiche di allineamento scritte nel ledger + flush. Giacenze invariate.`);
     return report;
   };
+})();
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// GRUPPO — vista consolidata multi-locale (SOLA LETTURA)
+// Stessa ragione sociale, magazzini separati: questo locale legge i database
+// degli altri locali elencati in CONFIG.gruppo e li affianca ai propri dati.
+// Non scrive MAI sui database remoti. Visibile solo agli amministratori.
+//   CONFIG.gruppo = [{ id:"portland", nome:"Portland",
+//                      url:"https://<ref>.supabase.co", key:"sb_publishable_…",
+//                      dbUser:"portland" }]
+// Se il database remoto richiede login (RLS chiusa), la sezione chiede le
+// credenziali di QUEL progetto; la sessione resta separata (storageKey propria).
+// ═══════════════════════════════════════════════════════════════════════════════
+var _grp = { remote:{}, per:"mese", loading:false };
+_IC.layers = '<path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/>';
+SECTION_TITLES.gruppo = "Gruppo";
+
+function _grpEnabled(){ return Array.isArray(CONFIG.gruppo) && CONFIG.gruppo.length>0 && !_isStaff(); }
+
+function _grpRemote(cfg){
+  let r=_grp.remote[cfg.id];
+  if(!r) r=_grp.remote[cfg.id]={ cfg, sb:null, data:null, err:null, ts:0, needLogin:false, email:"" };
+  if(!r.sb && typeof supabase!=="undefined"){
+    r.sb=supabase.createClient(cfg.url, cfg.key, { auth:{ persistSession:true, autoRefreshToken:true,
+      detectSessionInUrl:false, storageKey:_lsKey("grp_"+cfg.id+"_auth") } });
+  }
+  return r;
+}
+
+async function _grpFetch(r){
+  const sb=r.sb, u=r.cfg.dbUser;
+  const { data:sess } = await sb.auth.getSession();
+  r.email = sess?.session?.user?.email || "";
+  const [w,f] = await Promise.all([
+    sb.from("cm_wines").select("data").eq("user_id",u),
+    sb.from("cm_fatture").select("data").eq("user_id",u)
+  ]);
+  if(w.error) throw w.error;
+  const wines=(w.data||[]).flatMap(x=>Array.isArray(x.data)?x.data:[]);
+  const fatt = f.error ? null : (f.data||[]).flatMap(x=>Array.isArray(x.data)?x.data:[]);
+  const PAGE=1000, mov=[];
+  for(let from=0;;from+=PAGE){
+    const { data, error } = await sb.from("cm_movements_ledger").select("payload,deleted")
+      .eq("user_id",u).order("id",{ascending:true}).range(from,from+PAGE-1);
+    if(error) throw error;
+    if(!data||!data.length) break;
+    data.forEach(x=>{ if(!x.deleted && x.payload && !x.payload.deleted) mov.push(x.payload); });
+    if(data.length<PAGE) break;
+  }
+  // RLS chiusa + nessuna sessione = risposta vuota senza errore: serve il login
+  r.needLogin = !r.email && wines.length===0;
+  r.data = { wines, movements:mov, fatture:fatt };
+  r.err=null; r.ts=Date.now();
+}
+
+async function _grpLoadAll(force){
+  if(_grp.loading || !_grpEnabled()) return;
+  const stale=CONFIG.gruppo.some(c=>{ const r=_grp.remote[c.id]; return !r||!r.ts||Date.now()-r.ts>60000; });
+  if(!force && !stale) return;
+  _grp.loading=true;
+  await Promise.all(CONFIG.gruppo.map(async c=>{
+    const r=_grpRemote(c);
+    if(!r.sb){ r.err="Libreria Supabase non disponibile"; return; }
+    try{ await _grpFetch(r); }catch(e){ r.err=(e&&e.message)||String(e); console.warn("[gruppo]",c.id,r.err); }
+  }));
+  _grp.loading=false;
+  if(section==="gruppo") render();
+}
+function grpRefresh(){ _grpLoadAll(true); notify("Aggiornamento dati di gruppo…"); }
+
+async function grpLogin(id){
+  const cfg=(CONFIG.gruppo||[]).find(c=>c.id===id); if(!cfg) return;
+  const r=_grpRemote(cfg);
+  const em=(document.getElementById("grp-em-"+id)||{}).value||"";
+  const pw=(document.getElementById("grp-pw-"+id)||{}).value||"";
+  if(!em||!pw){ notify("Inserisci email e password","err"); return; }
+  const { error } = await r.sb.auth.signInWithPassword({ email:em.trim(), password:pw });
+  if(error){ notify("Accesso "+cfg.nome+" non riuscito: "+error.message,"err"); return; }
+  notify("Collegata a "+cfg.nome);
+  _grpLoadAll(true);
+}
+async function grpLogout(id){
+  const r=_grp.remote[id]; if(!r||!r.sb) return;
+  await r.sb.auth.signOut(); r.ts=0; r.data=null; _grpLoadAll(true);
+}
+
+function _grpSetPer(p){ _grp.per=p; render(); }
+function _grpRange(){
+  const o=new Date(); let da=new Date(o.getFullYear(),o.getMonth(),1), a=o, lbl="Mese corrente";
+  if(_grp.per==="oggi"){ da=o; lbl="Oggi"; }
+  else if(_grp.per==="7g"){ da=new Date(o); da.setDate(o.getDate()-6); lbl="Ultimi 7 giorni"; }
+  else if(_grp.per==="meseScorso"){ da=new Date(o.getFullYear(),o.getMonth()-1,1); a=new Date(o.getFullYear(),o.getMonth(),0); lbl="Mese scorso"; }
+  else if(_grp.per==="anno"){ da=new Date(o.getFullYear(),0,1); lbl="Anno "+o.getFullYear(); }
+  return { da:_isoDate(da), a:_isoDate(a), lbl };
+}
+
+// Statistiche di un locale. Ricavo e costo usano gli snapshot fotografati allo
+// scarico (stessa regola della Plancia), con fallback alla scheda vino.
+function _grpStats(d, rg){
+  const wines=d.wines||[], wm={}; wines.forEach(w=>{ if(w&&w.id) wm[w.id]=w; });
+  const st={ ref:0, bt:0, valCosto:0, valCarta:0, venduteBt:0, ricavo:0, costo:0, top:{}, mesi:{},
+             esposizione:0, scaduto:0, in30:0, aperte:0, fattOk:Array.isArray(d.fatture) };
+  wines.forEach(w=>{ const g=parseInt(w.giacenza)||0; if(g<=0) return;
+    st.ref++; st.bt+=g; st.valCosto+=calcValore(w); st.valCarta+=calcValoreCarta(w); });
+  (d.movements||[]).forEach(m=>{
+    if(!m||m.deleted||m.tipo!=="scarico") return;
+    const q=parseInt(m.qty)||0, dt=String(m.data||"").slice(0,10), w=wm[m.wineId];
+    const mk=dt.slice(0,7); st.mesi[mk]=(st.mesi[mk]||0)+q;
+    if(dt<rg.da||dt>rg.a) return;
+    st.venduteBt+=q;
+    st.ricavo+=calcRicavoMovimento(m,w)+(m.servizio!=null?q*(parseFloat(m.servizio)||0):0);
+    st.costo+=q*(m.costoUnitarioIva!=null?(parseFloat(m.costoUnitarioIva)||0):(w?calcCostoIvaBottiglia(w):0));
+    const k=w?((w.produttore?w.produttore+" · ":"")+(w.nome||"")+(w.annata?" "+w.annata:"")):(m.wineName||"—");
+    st.top[k]=(st.top[k]||0)+q;
+  });
+  (d.fatture||[]).forEach(f=>{
+    const s=_fattStato(f); if(s==="soluto") return;
+    const res=_fattResiduo(f), g=_fattGiorniAScadenza(f);
+    st.aperte++; st.esposizione+=res;
+    if(s==="scaduta"||s==="parziale_scaduta") st.scaduto+=res;
+    else if(g!==null&&g>=0&&g<=30) st.in30+=res;
+  });
+  return st;
+}
+
+function renderGruppo(){
+  if(!_grpEnabled()) return `<div class="card">Vista di gruppo non configurata.</div>`;
+  _grpLoadAll(false);
+  const rg=_grpRange();
+  const locali=[{ id:"_local", nome:CONFIG.nomeLocale||"Questo locale", data:{ wines, movements, fatture }, local:true }];
+  CONFIG.gruppo.forEach(c=>{ const r=_grpRemote(c); locali.push({ id:c.id, nome:c.nome, r, data:r.data }); });
+  const ok=locali.filter(l=>l.data && !(l.r&&l.r.needLogin));
+  ok.forEach(l=>l.st=_grpStats(l.data,rg));
+
+  const sum=k=>ok.reduce((s,l)=>s+(l.st[k]||0),0);
+  const cell=(v,col)=>`<td class="r" style="font-family:'Montserrat',sans-serif;${col?"color:"+col:""}">${v}</td>`;
+  const pct=(n,d)=>d?fmtN(n/d*100,1)+"%":"—";
+
+  let html=`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px">
+    ${[["oggi","Oggi"],["7g","7 giorni"],["mese","Mese"],["meseScorso","Mese scorso"],["anno","Anno"]]
+      .map(([v,l])=>`<button class="${_grp.per===v?"btn-primary":"btn-outline"} btn-sm" onclick="_grpSetPer('${v}')">${l}</button>`).join("")}
+    <span style="flex:1"></span>
+    <span style="font-size:11px;color:var(--txt4)">${_grp.loading?"Caricamento…":""}</span>
+    <button class="btn-outline btn-sm" onclick="grpRefresh()">${ic("refresh")} Aggiorna</button>
+  </div>`;
+
+  // Stato connessione / login dei locali remoti
+  locali.filter(l=>!l.local).forEach(l=>{
+    const r=l.r;
+    if(r.err) html+=`<div class="card" style="margin-bottom:12px;border-left:3px solid var(--red)"><strong>${h(l.nome)}</strong>: errore di lettura — ${h(r.err)}</div>`;
+    else if(r.needLogin) html+=`<div class="card" style="margin-bottom:12px;border-left:3px solid var(--orange)">
+      <div style="margin-bottom:8px"><strong>${h(l.nome)}</strong> richiede l'accesso con il tuo account amministratore di ${h(l.nome)}.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <input class="form-input" style="max-width:240px" id="grp-em-${l.id}" type="email" placeholder="email" autocomplete="username">
+        <input class="form-input" style="max-width:200px" id="grp-pw-${l.id}" type="password" placeholder="password" autocomplete="current-password">
+        <button class="btn-primary btn-sm" onclick="grpLogin('${l.id}')">Accedi</button></div></div>`;
+    else if(!r.data) html+=`<div class="card" style="margin-bottom:12px;color:var(--txt3)">${h(l.nome)}: caricamento…</div>`;
+  });
+
+  const head=`<thead><tr><th></th>${ok.map(l=>`<th class="r">${h(l.nome)}</th>`).join("")}${ok.length>1?`<th class="r">Totale</th>`:""}</tr></thead>`;
+  const row=(lbl,k,f,col)=>`<tr><td>${lbl}</td>${ok.map(l=>cell(f(l.st[k]),col)).join("")}${ok.length>1?cell(f(sum(k)),col):""}</tr>`;
+  const rowC=(lbl,fn)=>`<tr><td>${lbl}</td>${ok.map(l=>cell(fn(l.st))).join("")}${ok.length>1?cell(fn(ok.reduce((a,l)=>{Object.keys(l.st).forEach(k=>{if(typeof l.st[k]==="number")a[k]=(a[k]||0)+l.st[k];});return a;},{}))):""}</tr>`;
+  const card=(title,body)=>`<div class="card" style="padding:0;margin-bottom:20px">
+    <div class="tbl-header"><span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt3)">${title}</span></div>
+    <div class="tbl-wrap"><table>${head}<tbody>${body}</tbody></table></div></div>`;
+
+  html+=card("Fatture fornitori — da pagare",
+    row("Esposizione totale","esposizione",fmt)+
+    row("Scaduto","scaduto",fmt,"var(--red)")+
+    row("In scadenza 30 gg","in30",fmt,"var(--orange)")+
+    row("Fatture aperte","aperte",v=>fmtN(v,0)));
+  html+=card("Magazzino — situazione attuale",
+    row("Referenze in giacenza","ref",v=>fmtN(v,0))+
+    row("Bottiglie","bt",v=>fmtN(v,0))+
+    row("Valore a costo (netto IVA)","valCosto",fmt)+
+    row("Valore potenziale carta","valCarta",fmt,"var(--green)"));
+  html+=card("Vendite — "+h(rg.lbl)+` <span style="text-transform:none;letter-spacing:0;color:var(--txt4)">(${h(_fmtDataIT(rg.da))} → ${h(_fmtDataIT(rg.a))})</span>`,
+    row("Bottiglie vendute","venduteBt",v=>fmtN(v,0))+
+    row("Ricavo (IVA incl.)","ricavo",fmt)+
+    row("Costo merce venduta","costo",fmt)+
+    rowC("Costo merce %",s=>pct(s.costo,s.ricavo)));
+
+  // Trend bottiglie vendute: ultimi 6 mesi
+  const oggi=new Date(), mesi=[];
+  for(let i=5;i>=0;i--){ const d=new Date(oggi.getFullYear(),oggi.getMonth()-i,1); mesi.push(_isoDate(d).slice(0,7)); }
+  html+=`<div class="card" style="padding:0;margin-bottom:20px">
+    <div class="tbl-header"><span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt3)">Bottiglie vendute per mese</span></div>
+    <div class="tbl-wrap"><table><thead><tr><th>Mese</th>${ok.map(l=>`<th class="r">${h(l.nome)}</th>`).join("")}${ok.length>1?`<th class="r">Totale</th>`:""}</tr></thead><tbody>
+    ${mesi.map(mk=>`<tr><td>${h(_meseLabelIT(mk))}</td>${ok.map(l=>cell(fmtN(l.st.mesi[mk]||0,0))).join("")}${ok.length>1?cell(fmtN(ok.reduce((s,l)=>s+(l.st.mesi[mk]||0),0),0)):""}</tr>`).join("")}
+    </tbody></table></div></div>`;
+
+  // Scadenzario consolidato
+  const righe=[];
+  ok.forEach(l=>(l.data.fatture||[]).forEach(f=>{ if(_fattStato(f)!=="soluto") righe.push({l,f}); }));
+  righe.sort((a,b)=>(_fattScadenza(a.f)||"9999").localeCompare(_fattScadenza(b.f)||"9999"));
+  html+=`<div class="card" style="padding:0;margin-bottom:20px">
+    <div class="tbl-header"><span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt3)">Scadenzario consolidato — ${righe.length} fatture aperte</span></div>
+    <div class="tbl-wrap"><table><thead><tr><th>Scadenza</th><th>Locale</th><th>Fornitore</th><th>Numero</th><th class="r">Residuo</th><th>Stato</th></tr></thead><tbody>
+    ${righe.length===0?`<tr><td colspan="6" style="text-align:center;padding:28px;color:var(--txt4)">Nessuna fattura aperta</td></tr>`
+      : righe.map(({l,f})=>{ const s=_fattStato(f), m=_STATO_META[s], g=_fattGiorniAScadenza(f);
+        return `<tr><td style="color:var(--txt2)">${h(_fmtDataIT(_fattScadenza(f)))}${g===null?"":`<div style="font-size:10px;color:${g<0?"var(--red)":"var(--txt4)"}">${g<0?(-g)+" gg fa":"fra "+g+" gg"}</div>`}</td>
+          <td>${h(l.nome)}</td><td>${h(f.fornitore||"—")}</td><td style="color:var(--txt3)">${h(f.numero||"—")}</td>
+          <td class="r" style="font-family:'Montserrat',sans-serif;color:${m.col}">${fmt(_fattResiduo(f))}</td>
+          <td><span style="color:${m.col};font-size:10px;letter-spacing:.08em;text-transform:uppercase">${m.lbl}</span></td></tr>`; }).join("")}
+    </tbody></table></div></div>`;
+
+  // Top 5 vini venduti nel periodo per locale
+  html+=`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-bottom:20px">
+    ${ok.map(l=>{ const top=Object.entries(l.st.top).sort((a,b)=>b[1]-a[1]).slice(0,5);
+      return `<div class="card"><div style="font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--txt3);margin-bottom:8px">Più venduti · ${h(l.nome)}</div>
+        ${top.length?top.map(([k,q])=>`<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:3px 0"><span>${h(k)}</span><span style="color:var(--txt2)">${q} bt</span></div>`).join("")
+          :`<div style="font-size:12px;color:var(--txt4)">Nessuna vendita nel periodo</div>`}</div>`; }).join("")}
+  </div>`;
+
+  // Account remoti collegati
+  const conn=locali.filter(l=>!l.local && l.r.email);
+  if(conn.length) html+=`<div style="font-size:11px;color:var(--txt4)">${conn.map(l=>`${h(l.nome)}: ${h(l.r.email)} · <a href="#" onclick="grpLogout('${l.id}');return false">esci</a>`).join(" — ")}</div>`;
+  html+=`<div style="font-size:11px;color:var(--txt4);margin-top:6px">Sola lettura: i dati degli altri locali non si modificano da qui. Aggiornamento automatico ogni minuto all'apertura della sezione.</div>`;
+  return html;
+}
+
+function _grpInstallNav(){
+  if(!Array.isArray(CONFIG.gruppo)||!CONFIG.gruppo.length) return true;
+  const nav=document.getElementById("sidebar-nav")
+    || document.querySelector('.sidebar-nav, #sidebar nav, nav.sidebar, #sidebar')
+    || (document.querySelector('.nav-btn')||{}).parentNode;
+  if(!nav) return false;
+  if(nav.querySelector('[data-section="gruppo"]')) return true;
+  const btn=document.createElement("button");
+  btn.className="nav-btn";
+  btn.setAttribute("data-section","gruppo");
+  btn.setAttribute("data-label","Gruppo");
+  btn.setAttribute("onclick","go('gruppo')");
+  btn.innerHTML=`<span class="nav-icon">${ic("layers")}</span><span class="nav-btn-label"> Gruppo</span>`;
+  const ref=nav.querySelector('[data-section="dashboard"]');
+  if(ref&&ref.nextSibling) ref.parentNode.insertBefore(btn,ref.nextSibling); else nav.appendChild(btn);
+  return true;
+}
+(function _grpInstallNavRetry(){
+  if(typeof document==="undefined") return;
+  let n=0;
+  const run=()=>{ if(_grpInstallNav()||++n>20) return; setTimeout(run,300); };
+  if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",run,{once:true});
+  else run();
+  window.addEventListener("load",()=>_grpInstallNav(),{once:true});
 })();

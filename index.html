@@ -661,10 +661,19 @@ html:has(#mob-screen[style*="flex"]) body{background:var(--n-50);color:var(--ink
     ],
     serviziGiorno:       { 6:2 },
     authEmail:           true,
-    authAdmins:          ["rossguidi90@gmail.com"]
+    authAdmins:          ["rossguidi90@gmail.com"],
+
+    // Vista "Gruppo" (solo admin, sola lettura): affianca i dati degli altri
+    // locali della stessa ragione sociale. La chiave e' quella pubblica del
+    // progetto Portland; se la sua RLS richiede login, la sezione lo chiede.
+    gruppo: [
+      { id:"portland", nome:"Portland", dbUser:"portland",
+        url:"https://ixhxkqhggskmfdbzbdii.supabase.co",
+        key:"sb_publishable_XahUMQq5VMlOfo3xYFiPUQ_3sMR7wzW" }
+    ]
   };
 </script>
-<script src="manager.js?v=20261003a"></script>
+<script src="manager.js?v=20261005a"></script>
 
 <!-- NOTE VELOCE MODAL -->
 <div class="modal-backdrop hidden" id="note-veloce-backdrop" onclick="closeNoteVeloce(event)">
