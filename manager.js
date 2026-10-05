@@ -13210,7 +13210,7 @@ async function _grpFetch(r){
     sb.from("cm_fatture").select("data").eq("user_id",u)
   ]);
   if(w.error) throw w.error;
-  const wines=(w.data||[]).flatMap(x=>Array.isArray(x.data)?x.data:[]);
+  const rWines=(w.data||[]).flatMap(x=>Array.isArray(x.data)?x.data:[]);
   const fatt = f.error ? null : (f.data||[]).flatMap(x=>Array.isArray(x.data)?x.data:[]);
   const PAGE=1000, mov=[];
   for(let from=0;;from+=PAGE){
@@ -13222,8 +13222,18 @@ async function _grpFetch(r){
     if(data.length<PAGE) break;
   }
   // RLS chiusa + nessuna sessione = risposta vuota senza errore: serve il login
-  r.needLogin = !r.email && wines.length===0;
-  r.data = { wines, movements:mov, fatture:fatt };
+  r.needLogin = !r.email && rWines.length===0;
+  // La giacenza nel blob remoto puo' essere indietro: la verita' e' il ledger.
+  // Si applica la STESSA riconciliazione del gestionale remoto, scambiando per un
+  // istante (sincrono, nessun salvataggio) i globali locali, poi ripristinati.
+  let wr=rWines;
+  if(_movV2Available && rWines.length){
+    const W=wines, M=movements;
+    try{ wines=wr.map(x=>({...x})); movements=mov; _reconcileGiacenze({silent:true}); wr=wines; }
+    catch(e){ console.warn("[gruppo] riconciliazione giacenze remota:",e); }
+    finally{ wines=W; movements=M; }
+  }
+  r.data = { wines:wr, movements:mov, fatture:fatt };
   r.err=null; r.ts=Date.now();
 }
 
