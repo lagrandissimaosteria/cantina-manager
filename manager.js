@@ -728,7 +728,7 @@ function _isCaricoIniziale(m){
 function _isAcquisto(m){ return !!m && !m.deleted && m.tipo==="carico" && !_isCaricoIniziale(m); }
 function _movVis(m){ const t=m&&m.tipo;
   if(t==="scarico-stornato") return {s:"",i:"\u21ba",c:"var(--txt4)"};
-  if(t==="scarico") return {s:"-",i:"\u2b07",c:"#FF453A"};
+  if(t==="scarico") return {s:"-",i:"\u2b07",c:"var(--txt2)"};
   if(t==="trasferimento-uscita") return {s:"-",i:"\u2b07",c:"#5AC8FA"};
   if(t==="trasferimento-entrata") return {s:"+",i:"\u2b06",c:"#5AC8FA"};
   if(_isRettifica(t)) return {s:(m.segno==="-"?"-":"+"),i:"\u00b1",c:"#5AC8FA"};
@@ -961,13 +961,13 @@ function _ensureAuthModal(){
     +   'style="width:100%;box-sizing:border-box;margin-bottom:8px;padding:8px">'
     + '<input id="auth-pw" type="password" placeholder="password" autocomplete="current-password" '
     +   'style="width:100%;box-sizing:border-box;margin-bottom:8px;padding:8px">'
-    + '<div id="auth-msg" style="min-height:16px;font-size:12px;margin-bottom:8px"></div>'
+    + '<div id="auth-msg" style="min-height:16px;font-size:13px;margin-bottom:8px"></div>'
     + '<div style="display:flex;gap:8px;justify-content:flex-end">'
     +   '<button type="button" onclick="_closeAuthModal()">Chiudi</button>'
     +   '<button type="button" id="auth-signout-btn" onclick="authSignOut()">Esci</button>'
     +   '<button type="button" onclick="authSignIn(document.getElementById(\'auth-email\').value,document.getElementById(\'auth-pw\').value)">Accedi</button>'
     + '</div>'
-    + '<label style="display:block;margin-top:12px;font-size:12px;opacity:.75">'
+    + '<label style="display:block;margin-top:12px;font-size:13px;opacity:.75">'
     +   '<input type="checkbox" id="auth-require-chk" onchange="_authToggleRequired(this.checked)"> Richiedi login all\'avvio'
     + '</label>'
     + '</div>';
@@ -1691,7 +1691,7 @@ function _syncEnsureCss(){
   box-shadow:0 2px 14px rgba(0,0,0,.45);display:flex;flex-wrap:wrap;align-items:center;gap:10px}
 #cm-sync-banner.bypass{background:#78350f}
 #cm-sync-banner .cm-sb-txt{flex:1 1 260px;min-width:220px}
-#cm-sync-banner .cm-sb-sub{display:block;font-weight:400;opacity:.9;font-size:12px;margin-top:2px}
+#cm-sync-banner .cm-sb-sub{display:block;font-weight:400;opacity:.9;font-size:13px;margin-top:2px}
 #cm-sync-banner button{border:0;border-radius:6px;padding:7px 11px;font:600 12px/1 inherit;cursor:pointer;color:#fff;background:#b91c1c}
 #cm-sync-banner button.pri{background:#fff;color:#7f1d1d}
 #cm-sync-banner button.gh{background:transparent;box-shadow:inset 0 0 0 1px rgba(255,255,255,.45)}
@@ -2258,7 +2258,7 @@ async function loadData(){
       _renderMobList();
       if(wines.length === 0){
         const list = document.getElementById("mob-list");
-        if(list && list.innerHTML === "") list.innerHTML = `<div style="text-align:center;padding:32px 24px;color:var(--txt4);font-size:11px;line-height:1.8">⚠️ Supabase connesso ma nessun dato trovato.<br><span style="font-size:10px;opacity:.7">Verifica l'USER_ID nella config e le policy RLS.<br>Apri la console (F12) per i dettagli.</span></div>`;
+        if(list && list.innerHTML === "") list.innerHTML = `<div style="text-align:center;padding:32px 24px;color:var(--txt4);font-size:12px;line-height:1.8">⚠️ Supabase connesso ma nessun dato trovato.<br><span style="font-size:12px;opacity:.7">Verifica l'USER_ID nella config e le policy RLS.<br>Apri la console (F12) per i dettagli.</span></div>`;
       }
       _renderMobLog(); updateSidebar();
     } else render(); // re-render after async load
@@ -2575,9 +2575,9 @@ function _uiPolish(){
 .nav-icon{display:inline-flex;align-items:center;justify-content:center;min-width:18px}.nav-icon .ic{width:18px;height:18px}
 .sidebar-logo h1 .ic{width:20px;height:20px;color:var(--amber)}
 .cm-seg{display:flex;gap:2px;padding:3px;margin-bottom:16px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;width:fit-content;max-width:100%;overflow-x:auto}
-.cm-seg button{display:inline-flex;align-items:center;gap:7px;padding:7px 14px;border-radius:8px;font-size:12px;font-weight:500;color:var(--txt3);white-space:nowrap;transition:background .15s,color .15s}
+.cm-seg button{display:inline-flex;align-items:center;gap:7px;padding:7px 14px;border-radius:8px;font-size:13px;font-weight:500;color:var(--txt3);white-space:nowrap;transition:background .15s,color .15s}
 .cm-seg button:hover{color:var(--txt)}.cm-seg button.active{background:var(--bg3);color:var(--amber)}
-.cm-chip{font-size:11px;font-weight:500;padding:5px 11px;border:1px solid var(--border2);border-radius:999px;color:var(--txt3);background:none;transition:all .15s;white-space:nowrap}
+.cm-chip{font-size:12px;font-weight:500;padding:5px 11px;border:1px solid var(--border2);border-radius:999px;color:var(--txt3);background:none;transition:all .15s;white-space:nowrap}
 .cm-chip:hover{color:var(--txt)}.cm-chip.active{color:var(--amber);border-color:var(--amber3);background:rgba(var(--amber-rgb,255,159,10),.08)}
 .cm-search{flex:1;min-width:180px;position:relative;display:flex;align-items:center}.cm-search .ic{position:absolute;left:10px;color:var(--txt4);pointer-events:none}.cm-search .form-input{padding-left:32px}
 .ssp-step{display:flex;align-items:center;gap:6px;flex-shrink:0}
@@ -2586,10 +2586,10 @@ function _uiPolish(){
 .ssp-qty{width:54px;height:44px;text-align:center;font-size:1.1rem;font-weight:600;border-radius:10px;border:1px solid var(--border2);background:var(--bg);color:var(--txt)}
 .cm-actionbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 18px;position:sticky;bottom:0;z-index:10;background:var(--bg2);border-top:1px solid var(--border)}
 .cm-actionbar .btn-primary:disabled{cursor:not-allowed}
-.cm-tag{font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
+.cm-tag{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
 .cm-ico-btn{width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border2);border-radius:6px;color:var(--txt3);margin-left:4px;transition:all .15s}
 .cm-ico-btn:hover{color:var(--amber);border-color:var(--amber3)}.cm-ico-btn.danger:hover{color:#FF453A;border-color:rgba(255,69,58,.5)}
-.cm-empty{text-align:center;padding:28px;color:var(--txt4);font-size:12px}`;
+.cm-empty{text-align:center;padding:28px;color:var(--txt4);font-size:13px}`;
     document.head.appendChild(s);
   }
   document.querySelector('.nav-btn[data-section="scarico-serata"]')?.remove();
@@ -2690,12 +2690,12 @@ function _updateTopbarActions(id){ /* tba buttons removed — noop */ }
   menu.id = 'inv-row-menu';
   menu.style.cssText = 'position:fixed;z-index:9999;min-width:172px;background:var(--bg2,#1c1917);border:1px solid var(--border2,rgba(68,64,60,.6));border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.04);padding:4px 0;display:none;user-select:none';
   menu.innerHTML = `
-    <div data-action="edit"  style="padding:9px 14px;cursor:pointer;font-size:12px;color:var(--txt2,#e7e5e4);display:flex;align-items:center;gap:9px;transition:background .1s">✏️ <span>Modifica scheda</span></div>
-    <div data-action="dup"   style="padding:9px 14px;cursor:pointer;font-size:12px;color:var(--txt2,#e7e5e4);display:flex;align-items:center;gap:9px;transition:background .1s">⧉ <span>Duplica scheda</span></div>
-    <div data-action="note"  style="padding:9px 14px;cursor:pointer;font-size:12px;color:var(--txt2,#e7e5e4);display:flex;align-items:center;gap:9px;transition:background .1s">📝 <span>Nota veloce</span></div>
-    <div data-action="rett"  style="padding:9px 14px;cursor:pointer;font-size:12px;color:#30D158;display:flex;align-items:center;gap:9px;transition:background .1s">⚖️ <span>Rettifica giacenza</span></div>
+    <div data-action="edit"  style="padding:9px 14px;cursor:pointer;font-size:13px;color:var(--txt2,#e7e5e4);display:flex;align-items:center;gap:9px;transition:background .1s">✏️ <span>Modifica scheda</span></div>
+    <div data-action="dup"   style="padding:9px 14px;cursor:pointer;font-size:13px;color:var(--txt2,#e7e5e4);display:flex;align-items:center;gap:9px;transition:background .1s">⧉ <span>Duplica scheda</span></div>
+    <div data-action="note"  style="padding:9px 14px;cursor:pointer;font-size:13px;color:var(--txt2,#e7e5e4);display:flex;align-items:center;gap:9px;transition:background .1s">📝 <span>Nota veloce</span></div>
+    <div data-action="rett"  style="padding:9px 14px;cursor:pointer;font-size:13px;color:#30D158;display:flex;align-items:center;gap:9px;transition:background .1s">⚖️ <span>Rettifica giacenza</span></div>
     <div style="height:1px;background:var(--border,rgba(68,64,60,.4));margin:3px 8px"></div>
-    <div data-action="delete" style="padding:9px 14px;cursor:pointer;font-size:12px;color:#FF453A;display:flex;align-items:center;gap:9px;transition:background .1s">🗑️ <span>Elimina voce</span></div>
+    <div data-action="delete" style="padding:9px 14px;cursor:pointer;font-size:13px;color:#FF453A;display:flex;align-items:center;gap:9px;transition:background .1s">🗑️ <span>Elimina voce</span></div>
   `;
   document.body.appendChild(menu);
 
@@ -2708,14 +2708,14 @@ function _updateTopbarActions(id){ /* tba buttons removed — noop */ }
   function _rebuildBulkMenu(){
     const n = selIds.size;
     bulkMenu.innerHTML = `
-      <div style="padding:6px 14px 4px;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--txt4,#a8a29e);font-weight:700">${n} vino${n===1?'':'i'} selezionat${n===1?'o':'i'}</div>
+      <div style="padding:6px 14px 4px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--txt4,#a8a29e);font-weight:700">${n} vino${n===1?'':'i'} selezionat${n===1?'o':'i'}</div>
       <div style="height:1px;background:var(--border,rgba(68,64,60,.4));margin:3px 8px 5px"></div>
-      <div data-bulk="edit"    style="padding:9px 14px;cursor:pointer;font-size:12px;color:var(--txt2,#e7e5e4);display:flex;align-items:center;gap:9px;transition:background .1s">✏️ <span>Modifica campi</span></div>
-      <div data-bulk="ordine"  style="padding:9px 14px;cursor:pointer;font-size:12px;color:#30D158;display:flex;align-items:center;gap:9px;transition:background .1s">🛒 <span>Crea basi ordine</span></div>
+      <div data-bulk="edit"    style="padding:9px 14px;cursor:pointer;font-size:13px;color:var(--txt2,#e7e5e4);display:flex;align-items:center;gap:9px;transition:background .1s">✏️ <span>Modifica campi</span></div>
+      <div data-bulk="ordine"  style="padding:9px 14px;cursor:pointer;font-size:13px;color:#30D158;display:flex;align-items:center;gap:9px;transition:background .1s">🛒 <span>Crea basi ordine</span></div>
       <div style="height:1px;background:var(--border,rgba(68,64,60,.4));margin:3px 8px"></div>
-      <div data-bulk="delete"  style="padding:9px 14px;cursor:pointer;font-size:12px;color:#FF453A;display:flex;align-items:center;gap:9px;transition:background .1s">🗑️ <span>Elimina selezionati</span></div>
+      <div data-bulk="delete"  style="padding:9px 14px;cursor:pointer;font-size:13px;color:#FF453A;display:flex;align-items:center;gap:9px;transition:background .1s">🗑️ <span>Elimina selezionati</span></div>
       <div style="height:1px;background:var(--border,rgba(68,64,60,.4));margin:3px 8px"></div>
-      <div data-bulk="cancel"  style="padding:8px 14px;cursor:pointer;font-size:12px;color:var(--txt4,#a8a29e);display:flex;align-items:center;gap:9px;transition:background .1s">✕ <span>Annulla selezione</span></div>
+      <div data-bulk="cancel"  style="padding:8px 14px;cursor:pointer;font-size:13px;color:var(--txt4,#a8a29e);display:flex;align-items:center;gap:9px;transition:background .1s">✕ <span>Annulla selezione</span></div>
     `;
     // hover via delegation — no listener accumulation (click handler is on bulkMenu, set once below)
     bulkMenu.querySelectorAll('[data-bulk]').forEach(item=>{
@@ -2843,21 +2843,21 @@ function openRettificaGiacenza(id){
       </div>
       <div class="modal-body">
         <div style="font-size:13px;font-weight:500;color:var(--txt);margin-bottom:4px">${h(w.nome)}</div>
-        <div style="font-size:11px;color:var(--txt4);margin-bottom:20px">${h(w.produttore||'')}${w.annata?' · '+h(w.annata):''}</div>
+        <div style="font-size:12px;color:var(--txt4);margin-bottom:20px">${h(w.produttore||'')}${w.annata?' · '+h(w.annata):''}</div>
         <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;padding:14px;background:var(--bg3);border-radius:var(--radius-sm)">
           <div style="text-align:center;flex:1">
-            <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--txt4);margin-bottom:4px">Giacenza attuale</div>
+            <div style="font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--txt4);margin-bottom:4px">Giacenza attuale</div>
             <div style="font-family:'Montserrat',sans-serif;font-size:2rem;font-weight:300;color:var(--amber)">${giacAttuale}</div>
           </div>
           <div style="font-size:20px;color:var(--txt4)">→</div>
           <div style="text-align:center;flex:1">
-            <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--txt4);margin-bottom:4px">Giacenza reale</div>
+            <div style="font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--txt4);margin-bottom:4px">Giacenza reale</div>
             <input id="rett-qty" type="number" min="0" step="1" value="${giacAttuale}"
               class="form-input" style="text-align:center;font-family:'Montserrat',sans-serif;font-size:1.6rem;font-weight:300;color:#30D158;width:100%;padding:6px"
               oninput="document.getElementById('rett-delta').textContent=_rettDelta(this.value,${giacAttuale})">
           </div>
         </div>
-        <div id="rett-delta" style="text-align:center;font-size:12px;color:var(--txt3);margin-bottom:16px">${_rettDelta(giacAttuale,giacAttuale)}</div>
+        <div id="rett-delta" style="text-align:center;font-size:13px;color:var(--txt3);margin-bottom:16px">${_rettDelta(giacAttuale,giacAttuale)}</div>
         <div class="form-row">
           <label class="form-label">Nota (opzionale)</label>
           <input id="rett-note" class="form-input" placeholder="es. Inventario fisico 04/06/2026">
@@ -2979,7 +2979,7 @@ function inlineEdit(evt, field, wineId, currentVal){
   inp.step = field==="prezzoCarta" ? "1" : (isNum ? "0.01" : undefined);
   inp.min = isNum ? "0" : undefined;
   inp.value = currentVal;
-  inp.style.cssText = `width:100%;min-width:${isNum?80:120}px;font-size:12px;padding:4px 8px;font-family:inherit;text-align:${isNum?"right":"left"}`;
+  inp.style.cssText = `width:100%;min-width:${isNum?80:120}px;font-size:13px;padding:4px 8px;font-family:inherit;text-align:${isNum?"right":"left"}`;
   td.innerHTML = "";
   td.appendChild(inp);
   inp.focus(); inp.select();
@@ -3120,13 +3120,13 @@ function _invGroupHdr(list,i,cntMap){
     let out="";
     if(newP){
       const n=list.filter(x=>_regKey(_somPaese(x))===_regKey(pz)).length;
-      out+=cell(`<span style="font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--amber);font-weight:700">${h(pz)}</span>&emsp;<span style="font-size:9px;color:var(--txt4)">${n} etich.</span>`);
+      out+=cell(`<span style="font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:var(--amber);font-weight:700">${h(pz)}</span>&emsp;<span style="font-size:11px;color:var(--txt4)">${n} etich.</span>`);
     }
-    if(newR&&rg) out+=`<tr style="background:var(--bg)"><td colspan="12" style="padding:4px 16px 4px 28px;border-bottom:1px solid var(--border)"><span style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--txt3);font-weight:600">${h(rg)}</span></td></tr>`;
+    if(newR&&rg) out+=`<tr style="background:var(--bg)"><td colspan="12" style="padding:4px 16px 4px 28px;border-bottom:1px solid var(--border)"><span style="font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--txt3);font-weight:600">${h(rg)}</span></td></tr>`;
     return out;
   }
   if(invSort==="tipologia"&&filterTipo==="tutti"&&(!prev||prev.tipologia!==w.tipologia))
-    return cell(`<span style="font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--amber);font-weight:700">${h(w.tipologia)}</span>&emsp;<span style="font-size:9px;color:var(--txt4)">${cntMap[w.tipologia]||0} etich.</span>`);
+    return cell(`<span style="font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:var(--amber);font-weight:700">${h(w.tipologia)}</span>&emsp;<span style="font-size:11px;color:var(--txt4)">${cntMap[w.tipologia]||0} etich.</span>`);
   return "";
 }
 
@@ -3291,7 +3291,7 @@ function _syncInvFilterBar(){
     advBtn.style.color        = hasAdv ? "#0A84FF"             : "var(--txt3)";
     let badge = advBtn.querySelector("span[data-adv-badge]");
     if(hasAdv){
-      if(!badge){ badge=document.createElement("span"); badge.dataset.advBadge="1"; badge.style.cssText="background:#0A84FF;color:#fff;border-radius:10px;padding:0 5px;font-size:8px;font-weight:700;line-height:15px;min-width:15px;text-align:center"; advBtn.appendChild(badge); }
+      if(!badge){ badge=document.createElement("span"); badge.dataset.advBadge="1"; badge.style.cssText="background:#0A84FF;color:#fff;border-radius:10px;padding:0 5px;font-size:10px;font-weight:700;line-height:15px;min-width:15px;text-align:center"; advBtn.appendChild(badge); }
       badge.textContent=advCount;
     } else { badge && badge.remove(); }
   }
@@ -3309,7 +3309,7 @@ function _syncInvFilterBar(){
   if(clearWrap){
     const hasAny = _hasActiveFilters();
     if(hasAny && !clearWrap.querySelector('[data-clear-btn]')){
-      clearWrap.innerHTML = `<button data-clear-btn="1" onclick="_resetInvFilters()" title="Cancella tutti i filtri" style="display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:8px;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.07);color:#FF453A;font-size:10px;font-weight:600;cursor:pointer;flex-shrink:0;white-space:nowrap;transition:all .15s ease">✕</button>`;
+      clearWrap.innerHTML = `<button data-clear-btn="1" onclick="_resetInvFilters()" title="Cancella tutti i filtri" style="display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:8px;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.07);color:#FF453A;font-size:12px;font-weight:600;cursor:pointer;flex-shrink:0;white-space:nowrap;transition:all .15s ease">✕</button>`;
     } else if(!hasAny){
       clearWrap.innerHTML = '';
     }
@@ -3497,20 +3497,20 @@ function _plKpiCard(k){
 }
 function _plBigCard(label,val,sub,color){
   return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:18px 20px">
-    <div style="font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:10px">${label}</div>
-    <div style="font-family:'Montserrat',sans-serif;font-weight:300;font-size:1.9rem;line-height:1;color:${color||'var(--txt)'}">${val}</div>
-    <div style="font-size:11px;color:var(--txt4);margin-top:8px">${sub}</div>
+    <div style="font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:10px">${label}</div>
+    <div class="kpi-val" style="color:${color||'var(--txt)'}">${val}</div>
+    <div style="font-size:12px;color:var(--txt4);margin-top:8px">${sub}</div>
   </div>`;
 }
 function _plSegBtn(attivo,val,label,fn){
-  return `<button onclick="${fn}('${val}')" style="padding:6px 12px;font-size:11px;font-family:inherit;letter-spacing:.04em;cursor:pointer;border:1px solid ${attivo?"rgba(var(--amber3-rgb,180,83,9),.55)":"var(--border)"};background:${attivo?"rgba(var(--amber-rgb,255,159,10),.14)":"transparent"};color:${attivo?"var(--amber)":"var(--txt3)"}">${label}</button>`;
+  return `<button onclick="${fn}('${val}')" style="padding:6px 12px;font-size:12px;font-family:inherit;letter-spacing:.04em;cursor:pointer;border:1px solid ${attivo?"rgba(var(--amber3-rgb,180,83,9),.55)":"var(--border)"};background:${attivo?"rgba(var(--amber-rgb,255,159,10),.14)":"transparent"};color:${attivo?"var(--amber)":"var(--txt3)"}">${label}</button>`;
 }
 // Tabella generica top-10 (dead stock, rotazione).
 function _plTbl(title,icon,rows,cols,empty){
   return `<div class="card" style="padding:0">
-    <div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px"><span style="color:var(--amber3)">${icon}</span><span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">${title}</span>${rows.length>10?`<span style="margin-left:auto;font-size:10px;color:var(--txt4)">top 10 di ${rows.length}</span>`:""}</div>
-    ${rows.length===0?`<div style="padding:28px;text-align:center;color:#30D158;font-size:11px">${empty}</div>`:`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">
-      <thead><tr style="border-bottom:1px solid var(--border)">${cols.map(c=>`<th style="text-align:${c.r?'right':'left'};padding:7px ${c.r?'12px':'20px'};color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.08em;text-transform:uppercase">${c.h}</th>`).join("")}</tr></thead>
+    <div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px"><span style="color:var(--amber3)">${icon}</span><span style="font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">${title}</span>${rows.length>10?`<span style="margin-left:auto;font-size:12px;color:var(--txt4)">top 10 di ${rows.length}</span>`:""}</div>
+    ${rows.length===0?`<div style="padding:28px;text-align:center;color:#30D158;font-size:12px">${empty}</div>`:`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="border-bottom:1px solid var(--border)">${cols.map(c=>`<th style="text-align:${c.r?'right':'left'};padding:7px ${c.r?'12px':'20px'};color:var(--txt4);font-weight:500;font-size:11px;letter-spacing:.08em;text-transform:uppercase">${c.h}</th>`).join("")}</tr></thead>
       <tbody>${rows.slice(0,10).map(row=>`<tr style="border-bottom:1px solid var(--border)">${cols.map(c=>`<td style="padding:7px ${c.r?'12px':'20px'};text-align:${c.r?'right':'left'};${c.style||'color:var(--txt2)'}">${c.render(row)}</td>`).join("")}</tr>`).join("")}</tbody>
     </table></div>`}
   </div>`;
@@ -3810,19 +3810,19 @@ function _plCompute(){
 // ─── PLANCIA · SEZIONI DI RENDER ──────────────────────────────────────────────
 // §1 · DIREZIONE / PATRIMONIO
 function _plSec1Direzione(D){
-  return `<div style="font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4);margin-bottom:10px">Direzione · Stato Patrimoniale</div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:16px">
+  return `<div style="font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4);margin-bottom:10px">Direzione · Stato Patrimoniale</div>
+    <div class="pl-big4 kpi-compact" style="margin-bottom:16px">
       ${_plBigCard("Capitale Immobilizzato",fmt(D.capImmob),"costo inventario corrente (ex IVA)","var(--amber)")}
       ${_plBigCard("Valore Potenziale di Realizzo",fmt(D.valRealizzo),"prezzo carta × giacenza","#30D158")}
       ${_plBigCard("Margine Teorico Medio",fmtN(D.margPct,1)+"%","≈ "+fmt(D.margAbs)+" potenziale","#007AFF")}
       ${_plBigCard("Volume Fisico Totale",fmtN(D.s.refAttive,0)+" ref.",fmtN(D.s.giacenzaTot,0)+" bottiglie totali","var(--amber3)")}
     </div>
     <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px 20px;margin-bottom:22px">
-      <div style="font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:12px">Conto Economico · Cassa ultimi 30 giorni</div>
+      <div style="font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:12px">Conto Economico · Cassa ultimi 30 giorni</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px">
-        <div><div style="font-size:11px;color:var(--txt4);margin-bottom:4px">Costo Carichi</div><div style="font-family:'Montserrat',sans-serif;font-size:1.3rem;color:#FF453A">${fmt(D.costo30)}</div><div style="font-size:10px;color:var(--txt4)">${fmtN(D.cQ30,0)} bt · IVA incl. · ultimi 30 gg</div></div>
-        <div><div style="font-size:11px;color:var(--txt4);margin-bottom:4px">Ricavo Scarichi</div><div style="font-family:'Montserrat',sans-serif;font-size:1.3rem;color:#30D158">${fmt(D.ricavo30)}</div><div style="font-size:10px;color:var(--txt4)">${fmtN(D.sQ30,0)} bt · a carta · ultimi 30 gg</div></div>
-        <div><div style="font-size:11px;color:var(--txt4);margin-bottom:4px">Flusso Netto</div><div style="font-family:'Montserrat',sans-serif;font-size:1.3rem;color:${D.netto30>=0?'#30D158':'#FF453A'}">${D.netto30>=0?'+':''}${fmt(D.netto30)}</div><div style="font-size:10px;color:var(--txt4)">ricavo − costo carichi</div></div>
+        <div><div style="font-size:12px;color:var(--txt4);margin-bottom:4px">Costo Carichi</div><div style="font-family:'Montserrat',sans-serif;font-size:1.3rem;color:var(--txt)">${fmt(D.costo30)}</div><div style="font-size:12px;color:var(--txt4)">${fmtN(D.cQ30,0)} bt · IVA incl. · ultimi 30 gg</div></div>
+        <div><div style="font-size:12px;color:var(--txt4);margin-bottom:4px">Ricavo Scarichi</div><div style="font-family:'Montserrat',sans-serif;font-size:1.3rem;color:#30D158">${fmt(D.ricavo30)}</div><div style="font-size:12px;color:var(--txt4)">${fmtN(D.sQ30,0)} bt · a carta · ultimi 30 gg</div></div>
+        <div><div style="font-size:12px;color:var(--txt4);margin-bottom:4px">Flusso Netto</div><div style="font-family:'Montserrat',sans-serif;font-size:1.3rem;color:${D.netto30>=0?'#30D158':'#FF453A'}">${D.netto30>=0?'+':''}${fmt(D.netto30)}</div><div style="font-size:12px;color:var(--txt4)">ricavo − costo carichi</div></div>
       </div>
     </div>`;
 }
@@ -3830,10 +3830,10 @@ function _plSec1Direzione(D){
 // §2 · VENDITE & ROTAZIONE (filtri, selettore periodo, KPI, grafici, best sellers)
 function _plSec2Vendite(D){
   const {R,P}=D;
-  let html=`<div style="font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4);margin:28px 0 10px">Vendite & Rotazione</div>`;
+  let html=`<div style="font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4);margin:28px 0 10px">Vendite & Rotazione</div>`;
   // Filtri performance
   html+=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
-    <span style="font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4)">Performance</span>
+    <span style="font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4)">Performance</span>
     <select class="form-select" style="width:auto" onchange="analyticsNazione=this.value;analyticsRegione='';render()">
       <option value="">Tutte le nazioni</option>
       ${D.nazioni.map(n=>`<option value="${h(n)}" ${analyticsNazione===n?"selected":""}>${h(n)}</option>`).join("")}
@@ -3847,7 +3847,7 @@ function _plSec2Vendite(D){
       ${D.tipoList.map(t=>`<option value="${t}" ${analyticsTipo===t?"selected":""}>${h(t)}</option>`).join("")}
     </select>
     ${(analyticsNazione||analyticsRegione||analyticsTipo)?`<button class="btn-outline btn-sm" onclick="analyticsNazione='';analyticsRegione='';analyticsTipo='';render()">✕ Reset</button>`:""}
-    <span style="margin-left:auto;font-size:10px;color:var(--txt4)">${D.totQty} bottiglie vendute</span>
+    <span style="margin-left:auto;font-size:12px;color:var(--txt4)">${D.totQty} bottiglie vendute</span>
   </div>`;
   // ── SELETTORE PERIODO + GRANULARITÀ (pilota tutta la pagina) ──
   html+=`<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
@@ -3855,30 +3855,30 @@ function _plSec2Vendite(D){
       ${[["oggi","Oggi"],["7g","7 giorni"],["mese","Mese corrente"],["meseScorso","Mese scorso"]].map(([v,l])=>_plSegBtn(_plPer===v,v,l,"_plSetPer")).join("")}
     </div>
     <div style="display:flex;gap:6px;align-items:center">
-      <input type="date" class="form-input" style="width:auto;font-size:11px;padding:4px 8px" value="${h(_plDa||R.da)}" onchange="_plSetData('da',this.value)">
-      <span style="color:var(--txt4);font-size:11px">→</span>
-      <input type="date" class="form-input" style="width:auto;font-size:11px;padding:4px 8px" value="${h(_plA||R.a)}" onchange="_plSetData('a',this.value)">
+      <input type="date" class="form-input" style="width:auto;font-size:12px;padding:4px 8px" value="${h(_plDa||R.da)}" onchange="_plSetData('da',this.value)">
+      <span style="color:var(--txt4);font-size:12px">→</span>
+      <input type="date" class="form-input" style="width:auto;font-size:12px;padding:4px 8px" value="${h(_plA||R.a)}" onchange="_plSetData('a',this.value)">
     </div>
     <div style="display:flex;gap:1px;margin-left:auto">
-      <span style="align-self:center;font-size:10px;color:var(--txt4);margin-right:8px;letter-spacing:.1em;text-transform:uppercase">Vista</span>
+      <span style="align-self:center;font-size:12px;color:var(--txt4);margin-right:8px;letter-spacing:.1em;text-transform:uppercase">Vista</span>
       ${[["giorno","Giorno"],["settimana","Settimana"],["mese","Mese"]].map(([v,l])=>_plSegBtn(_plGran===v,v,l,"_plSetGran")).join("")}
     </div>
   </div>
-  <div style="font-size:10px;color:var(--txt4);margin-bottom:14px;letter-spacing:.04em">
+  <div style="font-size:12px;color:var(--txt4);margin-bottom:14px;letter-spacing:.04em">
     ${h(R.label)} · ${h(R.dLabel)} · ${R.giorni} giorni di calendario · <span style="color:var(--amber3)">${D.serviziPer} servizi di apertura</span>${(()=>{const n=_notaChiusure(R.da,R.a);return n?` · <span style="color:var(--txt4)">${h(n)}</span>`:"";})()}
     &nbsp;·&nbsp; confronto con ${h(_parseD(R.prevDa).toLocaleDateString("it-IT"))} → ${h(_parseD(R.prevA).toLocaleDateString("it-IT"))}
   </div>`;
   // KPI performance
-  html+=`<div class="kpi-grid g4" style="margin-bottom:20px">
+  html+=`<div class="kpi-grid g4 kpi-hero" style="margin-bottom:20px">
     ${[
       {label:"Ricavo Totale",v:fmt(D.totRicavo),cls:"c-green",sub:_plDelta(D.totRicavo,P.ricavo)+(D.totServizio>0?`<br><span style="color:var(--txt4)">vino ${fmt(D.totRicavoVino)} + servizio ${fmt(D.totServizio)}</span>`:"")},
       {label:"Bottiglie Vendute",v:D.totQty,cls:"c-amber",sub:_plDelta(D.totQty,P.qty)+`<br><span style="color:var(--txt4)">${fmtN(D.btPerServizio,1)} per servizio</span>`},
-      {label:"Costo Merce",v:`${fmtN(D.foodCostPct,1)}%`,cls:D.foodCostPct<=35?"c-blue":"c-red",sub:`${fmt(D.totCosto)} sul venduto<br><span style="color:var(--txt4)">obiettivo ≤ 35%</span>`},
+      {label:"Costo Merce",v:`${fmtN(D.foodCostPct,1)}%`,cls:D.foodCostPct<=35?"c-blue":"c-red",sub:`${fmt(D.totCosto)} sul venduto<div class="kpi-meter"><i style="width:${Math.min(100,D.foodCostPct/50*100).toFixed(1)}%" class="${D.foodCostPct<=35?"ok":"ko"}"></i><b style="left:70%"></b></div><span style="color:var(--txt4)">obiettivo ≤ 35%</span>`},
       {label:"Margine Realizzato",v:fmt(D.totMargine),cls:D.totMargine>=0?"c-blue":"c-red",sub:_plDelta(D.totMargine,P.margine)+`<br><span style="color:var(--txt4)">${D.totRicavo?fmtN(D.totMargine/D.totRicavo*100,1)+"% del ricavo":"—"}</span>`},
     ].map(k=>`<div class="kpi-card"><div class="kpi-label">${k.label}</div><div class="kpi-val ${k.cls}">${k.v}</div><div class="kpi-sub">${k.sub}</div></div>`).join("")}
   </div>`;
   // KPI operativi: la lettura "per servizio" è quella che conta in un wine bar
-  html+=`<div class="kpi-grid g4" style="margin-bottom:20px">
+  html+=`<div class="kpi-grid g4 kpi-compact" style="margin-bottom:20px">
     ${[
       {label:"Ricavo per Servizio",v:fmt(D.ricavoPerServizio),cls:"c-green",sub:_plDelta(D.ricavoPerServizio,P.ricavo/D.serviziPrev)},
       {label:"Ricavo Medio/Bottiglia",v:fmt(D.ricavoPerBt),cls:"c-amber",sub:`<span style="color:var(--txt4)">servizio incluso</span>`},
@@ -3890,35 +3890,35 @@ function _plSec2Vendite(D){
   html+=`<div class="kpi-grid g2" style="margin-bottom:20px">
     <div class="card">
       <div class="section-label"><span>📈 Andamento per ${_plGran==="giorno"?"Giorno":_plGran==="settimana"?"Settimana":"Mese"}</span></div>
-      <div style="font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt3);margin:4px 0 4px"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#30D158;margin-right:6px;vertical-align:middle"></span>Ricavo</div><div class="chart-container" style="height:130px"><canvas id="ch-trend"></canvas></div>
-      <div style="font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt3);margin:10px 0 4px"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#3b82f6;margin-right:6px;vertical-align:middle"></span>Margine</div><div class="chart-container" style="height:130px"><canvas id="ch-trend-margine"></canvas></div>
+      <div style="font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt3);margin:4px 0 4px"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#30D158;margin-right:6px;vertical-align:middle"></span>Ricavo</div><div class="chart-container" style="height:130px"><canvas id="ch-trend"></canvas></div>
+      <div style="font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt3);margin:10px 0 4px"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#3b82f6;margin-right:6px;vertical-align:middle"></span>Margine</div><div class="chart-container" style="height:130px"><canvas id="ch-trend-margine"></canvas></div>
     </div>
     <div class="card">
       <div class="section-label"><span>💰 Top 10 per Margine Realizzato</span></div>
-      ${D.topMargin.length===0?`<div style="text-align:center;padding:24px;color:var(--txt4);font-size:11px">Nessuna vendita registrata</div>`:`<div class="chart-container" style="height:300px"><canvas id="ch-topmargin"></canvas></div>`}
+      ${D.topMargin.length===0?`<div style="text-align:center;padding:24px;color:var(--txt4);font-size:12px">Nessuna vendita registrata</div>`:`<div class="chart-container" style="height:300px"><canvas id="ch-topmargin"></canvas></div>`}
     </div>
   </div>`;
   // Best Sellers Top 5
   html+=`<div class="card" style="padding:0;margin-bottom:12px">
-    <div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px"><span style="color:var(--amber3)">🏆</span><span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Best Sellers — Top 5 per Bottiglie</span></div>
+    <div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px"><span style="color:var(--amber3)">🏆</span><span style="font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Best Sellers — Top 5 per Bottiglie</span></div>
     <div style="padding:16px;display:flex;flex-direction:column;gap:12px">
-      ${D.bestSellers.length===0?`<div style="text-align:center;padding:24px;color:var(--txt4);font-size:11px">Nessuna vendita registrata</div>`:
+      ${D.bestSellers.length===0?`<div style="text-align:center;padding:24px;color:var(--txt4);font-size:12px">Nessuna vendita registrata</div>`:
       D.bestSellers.map((b,i)=>{const marg=b.ricavo-b.costo;const mp=b.ricavo?(marg/b.ricavo*100):0;return `<div>
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
-          <span style="font-size:10px;color:var(--txt4);width:16px">#${i+1}</span>
-          <div style="flex:1;min-width:0"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px">${h(b.wineName)}</div><div style="color:var(--txt4);font-size:10px">${h(b.produttore)}</div></div>
-          <div style="text-align:right"><div style="color:var(--amber);font-family:'Montserrat',sans-serif;font-size:1rem">${b.qty} bt</div><div style="color:${mp>=0?"#30D158":"#FF453A"};font-size:10px">${fmtN(mp,1)}% marg.</div></div>
+          <span style="font-size:12px;color:var(--txt4);width:16px">#${i+1}</span>
+          <div style="flex:1;min-width:0"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">${h(b.wineName)}</div><div style="color:var(--txt4);font-size:12px">${h(b.produttore)}</div></div>
+          <div style="text-align:right"><div style="color:var(--amber);font-family:'Montserrat',sans-serif;font-size:1rem">${b.qty} bt</div><div style="color:${mp>=0?"#30D158":"#FF453A"};font-size:12px">${fmtN(mp,1)}% marg.</div></div>
         </div>
         <div style="display:flex;align-items:center;gap:8px;padding-left:26px">
           <div class="mini-bar"><div class="mini-bar-fill" style="width:${Math.min(100,(b.qty/D.maxQty)*100)}%"></div></div>
-          <span style="font-size:10px;color:#30D158;width:72px;text-align:right">${fmt(marg)}</span>
+          <span style="font-size:12px;color:#30D158;width:72px;text-align:right">${fmt(marg)}</span>
         </div>
       </div>`}).join("")}
     </div>
   </div>`;
   // Rotazione Lenta (subito dopo Best Sellers)
   const rotCard=_plTbl("Rotazione Lenta · giorni di giacenza (DIO, base 90 gg)","🐌",D.rotazione,[
-    {h:"Vino",render:r=>`<div style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(r.nome)}${r.annata?` <span style="color:var(--txt4);font-size:10px">${h(r.annata)}</span>`:""}</div><div style="color:var(--txt4);font-size:10px">${h(r.produttore||'—')}</div>`},
+    {h:"Vino",render:r=>`<div style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(r.nome)}${r.annata?` <span style="color:var(--txt4);font-size:12px">${h(r.annata)}</span>`:""}</div><div style="color:var(--txt4);font-size:12px">${h(r.produttore||'—')}</div>`},
     {h:"Giac.",r:true,style:"color:var(--txt3)",render:r=>r.g},
     {h:"Venduti 90gg",r:true,style:"color:var(--txt3)",render:r=>r.venduti90},
     {h:"Giorni stock",r:true,style:"font-family:'Montserrat',sans-serif;color:var(--amber)",render:r=>r.dio===Infinity?"∞":Math.round(r.dio)},
@@ -3931,7 +3931,7 @@ function _plSec2Vendite(D){
 function _plSec3Fornitori(D){
   const {wineMap,periodoLabels,acquistiData}=D;
   let html=`<style>@media(max-width:640px){.pl-forn-grid{grid-template-columns:1fr!important}}</style>
-  <div style="font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4);margin:28px 0 8px">Approvvigionamento & Fornitori · da gen 2026</div>
+  <div style="font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4);margin:28px 0 8px">Approvvigionamento & Fornitori · da gen 2026</div>
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:14px">
     ${_plBigCard("Totale Speso",fmt(D.fTot),"carichi IVA incl. · da gen 2026","#30D158")}
     ${_plBigCard("Bottiglie Comprate",fmtN(D.fBt,0),"volume acquistato · da gen 2026","var(--amber)")}
@@ -3940,31 +3940,31 @@ function _plSec3Fornitori(D){
   </div>
   <div class="pl-forn-grid" style="display:grid;grid-template-columns:3fr 2fr;gap:14px;margin-bottom:24px">
     <div class="card" style="padding:0">
-      <div style="padding:12px 18px;border-bottom:1px solid var(--border);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--txt2)">🏭 Classifica Fornitori · spesa</div>
-      ${D.fManqRighe>0?`<div style="margin:8px 12px;padding:9px 12px;background:rgba(var(--amber-rgb,255,159,10),.12);border:1px solid rgba(var(--amber3-rgb,180,83,9),.5);border-radius:8px;font-size:11px;color:var(--amber);line-height:1.45">
+      <div style="padding:12px 18px;border-bottom:1px solid var(--border);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--txt2)">🏭 Classifica Fornitori · spesa</div>
+      ${D.fManqRighe>0?`<div style="margin:8px 12px;padding:9px 12px;background:rgba(var(--amber-rgb,255,159,10),.12);border:1px solid rgba(var(--amber3-rgb,180,83,9),.5);border-radius:8px;font-size:12px;color:var(--amber);line-height:1.45">
         ⚠️ <b>${fmtN(D.fManqRighe,0)}</b> carich${D.fManqRighe===1?'i':'i'} su <b>${fmtN(D.fCarichiLen,0)}</b> (<b>${fmtN(D.fManqBt,0)}</b> bt) senza <code>prezzoAcqLotto</code> → stimati sul costo corrente della scheda, potenzialmente svalutato.
         <span style="color:var(--txt3)">Valore su fallback: <b style="color:var(--amber)">${fmt(D.fManqImp)}</b> · ${D.fTot>0?fmtN(D.fManqImp/D.fTot*100,0):0}% del totale poggia su costi non affidabili.</span>
       </div>`:""}
       <div style="padding:4px 0">
-        ${D.fRank.length===0?`<div style="padding:24px;text-align:center;color:var(--txt4);font-size:11px">Nessun carico dal ${D.fEpoch}</div>`:
+        ${D.fRank.length===0?`<div style="padding:24px;text-align:center;color:var(--txt4);font-size:12px">Nessun carico dal ${D.fEpoch}</div>`:
         D.fRank.slice(0,12).map((r,i)=>`<div onclick="drillFornitore('${encodeURIComponent(r.forn)}')" title="Vedi i carichi e gli ordini di ${h(r.forn)}" style="display:flex;align-items:center;gap:12px;padding:9px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(var(--amber-rgb,255,159,10),.06)'" onmouseout="this.style.background='none'">
-          <span style="font-size:11px;color:var(--txt4);width:18px;font-family:'Montserrat',sans-serif">${i+1}</span>
+          <span style="font-size:12px;color:var(--txt4);width:18px;font-family:'Montserrat',sans-serif">${i+1}</span>
           <div style="flex:1;min-width:0">
-            <div style="font-size:13px;color:var(--txt1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${h(r.forn)}${r.manqBt>0?` <span title="${fmtN(r.manqRighe,0)} carichi senza costo lotto · ${fmt(r.manqImp)} su fallback" style="display:inline-block;font-size:9px;color:var(--amber);border:1px solid rgba(var(--amber3-rgb,180,83,9),.5);background:rgba(var(--amber-rgb,255,159,10),.12);border-radius:4px;padding:0 5px;vertical-align:middle;font-family:'Montserrat',sans-serif">⚠ ${fmtN(r.manqBt,0)}</span>`:""}</div>
-            <div style="font-size:10px;color:var(--txt4)">${fmtN(r.bt,0)} bt · ${r.nOrdini} ordin${r.nOrdini===1?'e':'i'} · <span style="color:var(--amber3)">dettaglio ›</span></div>
+            <div style="font-size:13px;color:var(--txt1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${h(r.forn)}${r.manqBt>0?` <span title="${fmtN(r.manqRighe,0)} carichi senza costo lotto · ${fmt(r.manqImp)} su fallback" style="display:inline-block;font-size:11px;color:var(--amber);border:1px solid rgba(var(--amber3-rgb,180,83,9),.5);background:rgba(var(--amber-rgb,255,159,10),.12);border-radius:4px;padding:0 5px;vertical-align:middle;font-family:'Montserrat',sans-serif">⚠ ${fmtN(r.manqBt,0)}</span>`:""}</div>
+            <div style="font-size:12px;color:var(--txt4)">${fmtN(r.bt,0)} bt · ${r.nOrdini} ordin${r.nOrdini===1?'e':'i'} · <span style="color:var(--amber3)">dettaglio ›</span></div>
           </div>
           <div style="font-family:'Montserrat',sans-serif;color:var(--amber);font-size:.95rem;white-space:nowrap">${fmt(r.spesa)}</div>
         </div>`).join("")}
       </div>
     </div>
     <div class="card" style="padding:0">
-      <div style="padding:12px 18px;border-bottom:1px solid var(--border);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--txt2)">🗓 Ultimi Carichi</div>
+      <div style="padding:12px 18px;border-bottom:1px solid var(--border);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--txt2)">🗓 Ultimi Carichi</div>
       <div style="padding:4px 0">
-        ${D.fDiary.length===0?`<div style="padding:24px;text-align:center;color:var(--txt4);font-size:11px">—</div>`:
+        ${D.fDiary.length===0?`<div style="padding:24px;text-align:center;color:var(--txt4);font-size:12px">—</div>`:
         D.fDiary.map(m=>{const w=wineMap[m.wineId];const key=((m.fornitore||w?.distributore||"").trim())||"Fornitore Sconosciuto";const p=costoCarico(m,w);const iva=(parseInt(w?.iva)||22)/100;const q=parseInt(m.qty)||0;const imp=p*(1+iva)*q;return `<div style="display:flex;align-items:center;gap:10px;padding:9px 18px;border-bottom:1px solid var(--border)">
           <div style="flex:1;min-width:0">
-            <div style="font-size:12px;color:var(--txt1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${h(key)}</div>
-            <div style="font-size:10px;color:var(--txt4)">${_fmtDataIT(m.data)||'—'} · ${fmtN(q,0)} bt</div>
+            <div style="font-size:13px;color:var(--txt1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${h(key)}</div>
+            <div style="font-size:12px;color:var(--txt4)">${_fmtDataIT(m.data)||'—'} · ${fmtN(q,0)} bt</div>
           </div>
           <div style="font-family:'Montserrat',sans-serif;color:var(--txt2);font-size:.9rem;white-space:nowrap">${fmt(imp)}</div>
         </div>`;}).join("")}
@@ -3977,13 +3977,13 @@ function _plSec3Fornitori(D){
   html+=`<div style="background:${owColor};border:1px solid ${owBorder};padding:14px 20px;margin-bottom:24px;display:flex;align-items:center;gap:20px;flex-wrap:wrap">
     <div style="font-size:1.6rem">${D.ordiniOpen.length>0?"📦":"✅"}</div>
     <div style="flex:1;min-width:0">
-      <div style="font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt3);margin-bottom:4px">Ordini Fornitore Aperti</div>
+      <div style="font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt3);margin-bottom:4px">Ordini Fornitore Aperti</div>
       ${D.ordiniOpen.length===0
         ? `<div style="font-family:'Montserrat',sans-serif;font-weight:300;font-size:1.15rem;color:#30D158">Nessun ordine in sospeso</div>`
         : `<div style="display:flex;align-items:baseline;gap:16px;flex-wrap:wrap">
             <div style="font-family:'Montserrat',sans-serif;font-weight:300;font-size:1.5rem;color:var(--amber)">${D.ordiniOpen.length} <span style="font-size:.85rem;color:var(--txt3)">ordini</span></div>
-            <div style="font-size:11px;color:var(--txt2)">${D.ordiniQtyTot} bottiglie · <span style="color:var(--amber)">${fmt(D.ordiniValTot)}</span> stimato IVA incl.</div>
-            ${D.ordiniPending.length>0?`<div style="font-size:10px;padding:2px 8px;background:#16a34a22;border:1px solid #16a34a55;color:#30D158">${D.ordiniPending.length} ricevut${D.ordiniPending.length===1?"o":"i"}, da caricare</div>`:""}
+            <div style="font-size:12px;color:var(--txt2)">${D.ordiniQtyTot} bottiglie · <span style="color:var(--amber)">${fmt(D.ordiniValTot)}</span> stimato IVA incl.</div>
+            ${D.ordiniPending.length>0?`<div style="font-size:12px;padding:2px 8px;background:#16a34a22;border:1px solid #16a34a55;color:#30D158">${D.ordiniPending.length} ricevut${D.ordiniPending.length===1?"o":"i"}, da caricare</div>`:""}
           </div>`}
     </div>
     <button class="btn-outline btn-sm" onclick="go('ordini')" style="${D.ordiniOpen.length>0?"border-color:var(--amber3);color:var(--amber)":"border-color:rgba(21,128,61,.5);color:#30D158"}">${D.ordiniOpen.length>0?"Vai agli ordini →":"Crea ordine →"}</button>
@@ -3991,12 +3991,12 @@ function _plSec3Fornitori(D){
   // Acquisti per periodo (chart, splittato)
   html+=`<div class="card" style="padding:0;margin-bottom:20px">
     <div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
-      <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--amber3)">📦</span><span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Acquisti per ${periodoLabels[analyticsAcquistiPeriodo]}</span>${(CARICO_MANUALE_NON_SPESA||CARICO_INIT_FINO)?`<span style="font-size:9px;color:var(--txt4);text-transform:none;letter-spacing:0"> \u00b7 solo carichi da ordine ricevuto</span>`:''}</div>
+      <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--amber3)">📦</span><span style="font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Acquisti per ${periodoLabels[analyticsAcquistiPeriodo]}</span>${(CARICO_MANUALE_NON_SPESA||CARICO_INIT_FINO)?`<span style="font-size:11px;color:var(--txt4);text-transform:none;letter-spacing:0"> \u00b7 solo carichi da ordine ricevuto</span>`:''}</div>
       <div style="display:flex;gap:4px">${["giorno","settimana","mese"].map(p=>`<button class="${analyticsAcquistiPeriodo===p?"btn-primary btn-sm":"btn-outline btn-sm"}" onclick="analyticsAcquistiPeriodo='${p}';render()">${periodoLabels[p]}</button>`).join("")}</div>
     </div>
-    ${acquistiData.length===0?`<div style="padding:32px;text-align:center;color:var(--txt4);font-size:11px">Nessun carico registrato</div>`:`<div style="padding:16px 20px;display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px">
-      <div><div style="font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt3);margin:0 0 4px"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--amber);margin-right:6px;vertical-align:middle"></span>Bottiglie acquistate</div><div class="chart-container" style="height:180px"><canvas id="chart-acquisti"></canvas></div></div>
-      <div><div style="font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt3);margin:0 0 4px"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#FF453A;margin-right:6px;vertical-align:middle"></span>Spesa (IVA incl.)</div><div class="chart-container" style="height:180px"><canvas id="chart-acquisti-spesa"></canvas></div></div>
+    ${acquistiData.length===0?`<div style="padding:32px;text-align:center;color:var(--txt4);font-size:12px">Nessun carico registrato</div>`:`<div style="padding:16px 20px;display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px">
+      <div><div style="font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt3);margin:0 0 4px"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--amber);margin-right:6px;vertical-align:middle"></span>Bottiglie acquistate</div><div class="chart-container" style="height:180px"><canvas id="chart-acquisti"></canvas></div></div>
+      <div><div style="font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt3);margin:0 0 4px"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#FF453A;margin-right:6px;vertical-align:middle"></span>Spesa (IVA incl.)</div><div class="chart-container" style="height:180px"><canvas id="chart-acquisti-spesa"></canvas></div></div>
     </div>`}
   </div>`;
   // Storico Acquisti (KPI + dettaglio)
@@ -4010,13 +4010,13 @@ function _plSec3Fornitori(D){
   </div>`;
   html+=`<div class="card" style="padding:0;margin-bottom:20px">
     <div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
-      <div style="display:flex;align-items:center;gap:6px"><span style="color:#c084fc">📋</span><span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Dettaglio Acquisti per ${periodoLabels[analyticsAcquistiPeriodo]}</span></div>
+      <div style="display:flex;align-items:center;gap:6px"><span style="color:#c084fc">📋</span><span style="font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Dettaglio Acquisti per ${periodoLabels[analyticsAcquistiPeriodo]}</span></div>
       <div style="display:flex;gap:4px">${["giorno","settimana","mese"].map(p=>`<button class="${analyticsAcquistiPeriodo===p?"btn-primary btn-sm":"btn-outline btn-sm"}" onclick="analyticsAcquistiPeriodo='${p}';render()">${periodoLabels[p]}</button>`).join("")}</div>
     </div>
-    ${acquistiData.length===0?`<div style="padding:32px;text-align:center;color:var(--txt4);font-size:11px">Nessun carico registrato</div>`:`
-    <div style="overflow-x:auto;max-height:300px;overflow-y:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">
+    ${acquistiData.length===0?`<div style="padding:32px;text-align:center;color:var(--txt4);font-size:12px">Nessun carico registrato</div>`:`
+    <div style="overflow-x:auto;max-height:300px;overflow-y:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
       <thead><tr style="border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg2)">
-        ${[periodoLabels[analyticsAcquistiPeriodo],"Bottiglie","Netto","IVA","Totale IVA incl."].map((c,i)=>`<th style="text-align:${i?'right':'left'};padding:8px ${i?'12px':'20px'};color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase">${c}</th>`).join("")}
+        ${[periodoLabels[analyticsAcquistiPeriodo],"Bottiglie","Netto","IVA","Totale IVA incl."].map((c,i)=>`<th style="text-align:${i?'right':'left'};padding:8px ${i?'12px':'20px'};color:var(--txt4);font-weight:500;font-size:11px;letter-spacing:.1em;text-transform:uppercase">${c}</th>`).join("")}
       </tr></thead>
       <tbody>${[...acquistiData].reverse().map(d=>`<tr style="border-bottom:1px solid var(--border)">
         <td style="padding:7px 20px;color:var(--txt2)">${h(d.key)}</td>
@@ -4026,7 +4026,7 @@ function _plSec3Fornitori(D){
         <td style="padding:7px 12px;text-align:right;color:#30D158;font-weight:600">${fmt(d.costoConIva)}</td>
       </tr>`).join("")}</tbody>
       <tfoot><tr style="border-top:2px solid var(--border2)">
-        <td style="padding:10px 20px;color:var(--txt3);font-size:9px;letter-spacing:.1em;text-transform:uppercase">Totale</td>
+        <td style="padding:10px 20px;color:var(--txt3);font-size:11px;letter-spacing:.1em;text-transform:uppercase">Totale</td>
         <td style="padding:10px 12px;text-align:right;color:var(--amber)">${fmtN(D.totAcqQty,0)}</td>
         <td style="padding:10px 12px;text-align:right;color:var(--txt2)">${fmt(D.totAcqNetto)}</td>
         <td style="padding:10px 12px;text-align:right;color:var(--txt3)">${fmt(D.totAcqIva)}</td>
@@ -4038,27 +4038,27 @@ function _plSec3Fornitori(D){
   html+=`<div class="card" style="padding:0;margin-bottom:20px">
     <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap">
       <span style="color:#007AFF">🏭</span>
-      <span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Ordini per Fornitore · gen→oggi</span><span style="font-size:9px;color:var(--txt4)">solo fornitori con acquisti nel periodo</span>
-      <span style="margin-left:auto;text-align:right"><span style="font-family:'Montserrat',sans-serif;color:#30D158;font-size:.95rem">${fmt(D.totSpesaForn)}</span><span style="color:var(--txt4);font-size:9px;letter-spacing:.1em;text-transform:uppercase;margin-left:6px">${fmtN(D.totBtForn,0)} bt · ${D.reportForn.length} fornitori</span></span>
+      <span style="font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Ordini per Fornitore · gen→oggi</span><span style="font-size:11px;color:var(--txt4)">solo fornitori con acquisti nel periodo</span>
+      <span style="margin-left:auto;text-align:right"><span style="font-family:'Montserrat',sans-serif;color:#30D158;font-size:.95rem">${fmt(D.totSpesaForn)}</span><span style="color:var(--txt4);font-size:11px;letter-spacing:.1em;text-transform:uppercase;margin-left:6px">${fmtN(D.totBtForn,0)} bt · ${D.reportForn.length} fornitori</span></span>
     </div>
-    ${D.reportForn.length===0?`<div style="padding:32px;text-align:center;color:var(--txt4);font-size:11px">Nessun carico registrato</div>`:`
-    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">
+    ${D.reportForn.length===0?`<div style="padding:32px;text-align:center;color:var(--txt4);font-size:12px">Nessun carico registrato</div>`:`
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
       <thead><tr style="border-bottom:1px solid var(--border)">
-        <th style="text-align:left;padding:9px 20px;color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase">#</th>
-        <th style="text-align:left;padding:9px 12px;color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase">Fornitore</th>
-        <th style="text-align:right;padding:9px 12px;color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase">Bottiglie</th>
-        <th style="text-align:right;padding:9px 12px;color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase">Importo Pagato</th>
-        <th style="text-align:right;padding:9px 20px;color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase">Valore a Magazzino</th>
+        <th style="text-align:left;padding:9px 20px;color:var(--txt4);font-weight:500;font-size:11px;letter-spacing:.1em;text-transform:uppercase">#</th>
+        <th style="text-align:left;padding:9px 12px;color:var(--txt4);font-weight:500;font-size:11px;letter-spacing:.1em;text-transform:uppercase">Fornitore</th>
+        <th style="text-align:right;padding:9px 12px;color:var(--txt4);font-weight:500;font-size:11px;letter-spacing:.1em;text-transform:uppercase">Bottiglie</th>
+        <th style="text-align:right;padding:9px 12px;color:var(--txt4);font-weight:500;font-size:11px;letter-spacing:.1em;text-transform:uppercase">Importo Pagato</th>
+        <th style="text-align:right;padding:9px 20px;color:var(--txt4);font-weight:500;font-size:11px;letter-spacing:.1em;text-transform:uppercase">Valore a Magazzino</th>
       </tr></thead>
       <tbody>${D.pageForn.map((r,i)=>`<tr style="border-bottom:1px solid var(--border)">
-        <td style="padding:9px 20px;color:var(--txt4);font-family:'Montserrat',sans-serif;font-size:10px">${D.pageStart+i+1}</td>
+        <td style="padding:9px 20px;color:var(--txt4);font-family:'Montserrat',sans-serif;font-size:12px">${D.pageStart+i+1}</td>
         <td style="padding:9px 12px;color:var(--txt1);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(r.forn)}</td>
         <td style="padding:9px 12px;text-align:right;color:var(--txt3)">${fmtN(r.bottiglie,0)}</td>
         <td style="padding:9px 12px;text-align:right;font-family:'Montserrat',sans-serif;color:var(--amber)">${fmt(r.spesa)}</td>
         <td style="padding:9px 20px;text-align:right;font-family:'Montserrat',sans-serif;color:var(--txt2)">${fmt(r.valMag)}</td>
       </tr>`).join("")}</tbody>
       <tfoot><tr style="border-top:2px solid var(--border2)">
-        <td colspan="2" style="padding:11px 20px;color:var(--txt3);font-size:9px;letter-spacing:.1em;text-transform:uppercase">Totale (tutti)</td>
+        <td colspan="2" style="padding:11px 20px;color:var(--txt3);font-size:11px;letter-spacing:.1em;text-transform:uppercase">Totale (tutti)</td>
         <td style="padding:11px 12px;text-align:right;color:var(--txt2)">${fmtN(D.totBtForn,0)}</td>
         <td style="padding:11px 12px;text-align:right;font-family:'Montserrat',sans-serif;color:#30D158;font-weight:600">${fmt(D.totSpesaForn)}</td>
         <td style="padding:11px 20px;text-align:right;font-family:'Montserrat',sans-serif;color:var(--txt2)">${fmt(D.totValMag)}</td>
@@ -4066,7 +4066,7 @@ function _plSec3Fornitori(D){
     </table></div>
     ${D.nPagesF>1?`<div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:10px">
       <button class="btn-outline btn-sm" ${planciaFornPage===0?"disabled style=\"opacity:.35;cursor:default\"":""} onclick="planciaFornPage--;render()">‹ Prec</button>
-      <span style="font-size:10px;color:var(--txt4);letter-spacing:.08em">${D.pageStart+1}–${Math.min(D.pageStart+D.FORN_PAGE,D.reportForn.length)} di ${D.reportForn.length} · pag. ${planciaFornPage+1}/${D.nPagesF}</span>
+      <span style="font-size:12px;color:var(--txt4);letter-spacing:.08em">${D.pageStart+1}–${Math.min(D.pageStart+D.FORN_PAGE,D.reportForn.length)} di ${D.reportForn.length} · pag. ${planciaFornPage+1}/${D.nPagesF}</span>
       <button class="btn-outline btn-sm" ${planciaFornPage>=D.nPagesF-1?"disabled style=\"opacity:.35;cursor:default\"":""} onclick="planciaFornPage++;render()">Succ ›</button>
     </div>`:""}`}
   </div>`;
@@ -4074,22 +4074,22 @@ function _plSec3Fornitori(D){
   html+=`<div class="card" style="padding:0;margin-bottom:20px">
     <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap">
       <span style="color:var(--amber)">\u{1F3F7}\u{FE0F}</span>
-      <span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Valore a Magazzino per Fornitore</span>
-      <span style="font-size:9px;color:var(--txt4)">tutti i fornitori \u00b7 giacenza attuale</span>
-      <span style="margin-left:auto;text-align:right"><span style="font-family:'Montserrat',sans-serif;color:var(--txt2);font-size:.95rem">${fmt(D.totMagVal)}</span><span style="color:var(--txt4);font-size:9px;letter-spacing:.1em;text-transform:uppercase;margin-left:6px">${fmtN(D.totMagBt,0)} bt \u00b7 ${D.reportMag.length} fornitori</span></span>
+      <span style="font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Valore a Magazzino per Fornitore</span>
+      <span style="font-size:11px;color:var(--txt4)">tutti i fornitori \u00b7 giacenza attuale</span>
+      <span style="margin-left:auto;text-align:right"><span style="font-family:'Montserrat',sans-serif;color:var(--txt2);font-size:.95rem">${fmt(D.totMagVal)}</span><span style="color:var(--txt4);font-size:11px;letter-spacing:.1em;text-transform:uppercase;margin-left:6px">${fmtN(D.totMagBt,0)} bt \u00b7 ${D.reportMag.length} fornitori</span></span>
     </div>
-    ${D.reportMag.length===0?`<div style="padding:32px;text-align:center;color:var(--txt4);font-size:11px">Nessuna giacenza</div>`:`
-    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">
+    ${D.reportMag.length===0?`<div style="padding:32px;text-align:center;color:var(--txt4);font-size:12px">Nessuna giacenza</div>`:`
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
       <thead><tr style="border-bottom:1px solid var(--border)">
-        <th style="text-align:left;padding:9px 20px;color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase">#</th>
-        <th style="text-align:left;padding:9px 12px;color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase">Fornitore</th>
-        <th style="text-align:right;padding:9px 12px;color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase">Ref.</th>
-        <th style="text-align:right;padding:9px 12px;color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase">Bottiglie</th>
-        <th style="text-align:right;padding:9px 12px;color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase">Val. Costo</th>
-        <th style="text-align:right;padding:9px 20px;color:var(--txt4);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase">Val. Carta</th>
+        <th style="text-align:left;padding:9px 20px;color:var(--txt4);font-weight:500;font-size:11px;letter-spacing:.1em;text-transform:uppercase">#</th>
+        <th style="text-align:left;padding:9px 12px;color:var(--txt4);font-weight:500;font-size:11px;letter-spacing:.1em;text-transform:uppercase">Fornitore</th>
+        <th style="text-align:right;padding:9px 12px;color:var(--txt4);font-weight:500;font-size:11px;letter-spacing:.1em;text-transform:uppercase">Ref.</th>
+        <th style="text-align:right;padding:9px 12px;color:var(--txt4);font-weight:500;font-size:11px;letter-spacing:.1em;text-transform:uppercase">Bottiglie</th>
+        <th style="text-align:right;padding:9px 12px;color:var(--txt4);font-weight:500;font-size:11px;letter-spacing:.1em;text-transform:uppercase">Val. Costo</th>
+        <th style="text-align:right;padding:9px 20px;color:var(--txt4);font-weight:500;font-size:11px;letter-spacing:.1em;text-transform:uppercase">Val. Carta</th>
       </tr></thead>
       <tbody>${D.pageMag.map((r,i)=>`<tr style="border-bottom:1px solid var(--border)">
-        <td style="padding:9px 20px;color:var(--txt4);font-family:'Montserrat',sans-serif;font-size:10px">${D.magStart+i+1}</td>
+        <td style="padding:9px 20px;color:var(--txt4);font-family:'Montserrat',sans-serif;font-size:12px">${D.magStart+i+1}</td>
         <td style="padding:9px 12px;color:var(--txt1);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(r.forn)}</td>
         <td style="padding:9px 12px;text-align:right;color:var(--txt4)">${fmtN(r.referenze,0)}</td>
         <td style="padding:9px 12px;text-align:right;color:var(--txt3)">${fmtN(r.bottiglie,0)}</td>
@@ -4097,7 +4097,7 @@ function _plSec3Fornitori(D){
         <td style="padding:9px 20px;text-align:right;font-family:'Montserrat',sans-serif;color:var(--amber)">${fmt(r.valCarta)}</td>
       </tr>`).join("")}</tbody>
       <tfoot><tr style="border-top:2px solid var(--border2)">
-        <td colspan="3" style="padding:11px 20px;color:var(--txt3);font-size:9px;letter-spacing:.1em;text-transform:uppercase">Totale (tutti)</td>
+        <td colspan="3" style="padding:11px 20px;color:var(--txt3);font-size:11px;letter-spacing:.1em;text-transform:uppercase">Totale (tutti)</td>
         <td style="padding:11px 12px;text-align:right;color:var(--txt2)">${fmtN(D.totMagBt,0)}</td>
         <td style="padding:11px 12px;text-align:right;font-family:'Montserrat',sans-serif;color:var(--txt2);font-weight:600">${fmt(D.totMagVal)}</td>
         <td style="padding:11px 20px;text-align:right;font-family:'Montserrat',sans-serif;color:var(--amber);font-weight:600">${fmt(D.totMagCarta)}</td>
@@ -4105,14 +4105,14 @@ function _plSec3Fornitori(D){
     </table></div>
     ${D.nPagesM>1?`<div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:10px">
       <button class="btn-outline btn-sm" ${planciaMagPage===0?"disabled style=\"opacity:.35;cursor:default\"":""} onclick="planciaMagPage--;render()">\u2039 Prec</button>
-      <span style="font-size:10px;color:var(--txt4);letter-spacing:.08em">${D.magStart+1}\u2013${Math.min(D.magStart+D.MAG_PAGE,D.reportMag.length)} di ${D.reportMag.length} \u00b7 pag. ${planciaMagPage+1}/${D.nPagesM}</span>
+      <span style="font-size:12px;color:var(--txt4);letter-spacing:.08em">${D.magStart+1}\u2013${Math.min(D.magStart+D.MAG_PAGE,D.reportMag.length)} di ${D.reportMag.length} \u00b7 pag. ${planciaMagPage+1}/${D.nPagesM}</span>
       <button class="btn-outline btn-sm" ${planciaMagPage>=D.nPagesM-1?"disabled style=\"opacity:.35;cursor:default\"":""} onclick="planciaMagPage++;render()">Succ \u203a</button>
     </div>`:""}`}
   </div>`;
   // Cash Flow (uscite)
   html+=`<div class="card" style="margin-bottom:16px">
     <div class="section-label"><span>💶 Cash Flow Mensile · da gen 2026</span></div>
-    <div style="font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt3);margin:4px 0 4px"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#30D158;margin-right:6px;vertical-align:middle"></span>Incassi stimati <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#FF453A;margin:0 6px 0 10px;vertical-align:middle"></span>Uscite (IVA incl.)</div>
+    <div style="font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt3);margin:4px 0 4px"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#30D158;margin-right:6px;vertical-align:middle"></span>Incassi stimati <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#FF453A;margin:0 6px 0 10px;vertical-align:middle"></span>Uscite (IVA incl.)</div>
     <div class="chart-container" style="height:220px"><canvas id="ch-cashflow"></canvas></div>
   </div>`;
   return html;
@@ -4120,7 +4120,7 @@ function _plSec3Fornitori(D){
 
 // §4 · STATO CANTINA / ALERT
 function _plSec4Cantina(D){
-  let html=`<div style="font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4);margin:28px 0 8px">Stato Cantina</div>
+  let html=`<div style="font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4);margin:28px 0 8px">Stato Cantina</div>
     <div class="kpi-grid g3" style="margin-bottom:12px">${D.kpiStato1.map(_plKpiCard).join("")}</div>
     <div class="kpi-grid g3" style="margin-bottom:20px">${D.kpiStato2.map(_plKpiCard).join("")}</div>`;
   // Alert riordino
@@ -4130,7 +4130,7 @@ function _plSec4Cantina(D){
   // Giacenza per Tipologia (pie)
   html+=`<div class="card" style="margin-bottom:16px">
     <div class="section-label"><span>🎯 Giacenza per Tipologia</span></div>
-    ${D.tipoPie.length===0?`<div style="text-align:center;padding:24px;color:var(--txt4);font-size:11px">Nessun dato</div>`:`
+    ${D.tipoPie.length===0?`<div style="text-align:center;padding:24px;color:var(--txt4);font-size:12px">Nessun dato</div>`:`
     <div style="display:flex;align-items:center;gap:16px">
       <div style="width:52%;min-width:130px;height:220px;position:relative"><canvas id="ch-pie"></canvas></div>
       <div class="pie-legend" style="flex:1">${D.tipoPie.map((d,i)=>`<div class="pie-row"><div style="display:flex;align-items:center;gap:6px"><div class="pie-dot" style="background:${PIE_COLORS[i%PIE_COLORS.length]}"></div><span style="color:var(--txt2);text-transform:uppercase">${h(d.name)}</span></div><span style="color:var(--amber)">${d.value} bt</span></div>`).join("")}</div>
@@ -4138,12 +4138,12 @@ function _plSec4Cantina(D){
   </div>`;
   // Dead stock (+ footer capitale fermo)
   const dsCard=_plTbl("Capitale Fermo · nessuna vendita da 180+ gg","🧊",D.deadStock,[
-      {h:"Vino",render:r=>`<div style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(r.nome)}</div><div style="color:var(--txt4);font-size:10px">${h(r.produttore||'—')}</div>`},
+      {h:"Vino",render:r=>`<div style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(r.nome)}</div><div style="color:var(--txt4);font-size:12px">${h(r.produttore||'—')}</div>`},
       {h:"Giac.",r:true,style:"color:var(--txt3)",render:r=>r.g},
       {h:"Valore",r:true,style:"font-family:'Montserrat',sans-serif;color:#FF6B6B",render:r=>fmt(r.valore)},
-      {h:"Ferma da",r:true,style:"color:var(--txt3);font-size:10px",render:r=>r.giorni===null?"mai venduto":`${r.giorni} gg`},
+      {h:"Ferma da",r:true,style:"color:var(--txt3);font-size:12px",render:r=>r.giorni===null?"mai venduto":`${r.giorni} gg`},
     ],"Nessun capitale immobilizzato");
-  const dsFooter=D.deadStock.length?`<div style="padding:10px 20px;border-top:1px solid var(--border2);display:flex;justify-content:space-between;font-size:10px"><span style="color:var(--txt4);text-transform:uppercase;letter-spacing:.1em">Capitale fermo totale</span><span style="font-family:'Montserrat',sans-serif;color:#FF6B6B">${fmt(D.capitaleFermo)}</span></div>`:"";
+  const dsFooter=D.deadStock.length?`<div style="padding:10px 20px;border-top:1px solid var(--border2);display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--txt4);text-transform:uppercase;letter-spacing:.1em">Capitale fermo totale</span><span style="font-family:'Montserrat',sans-serif;color:#FF6B6B">${fmt(D.capitaleFermo)}</span></div>`:"";
   const dsCardFull=dsFooter?dsCard.replace(/<\/div>\s*$/,dsFooter+"</div>"):dsCard;
   html+=`<div style="margin-bottom:20px">${dsCardFull}</div>`;
   return html;
@@ -4151,7 +4151,7 @@ function _plSec4Cantina(D){
 
 // §5 · CARTA / COPERTURA
 function _plSec5Carta(D){
-  return `<div style="font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4);margin:28px 0 10px">Carta & Copertura</div><div class="kpi-grid g4" style="margin-bottom:8px">
+  return `<div style="font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4);margin:28px 0 10px">Carta & Copertura</div><div class="kpi-grid g4" style="margin-bottom:8px">
     ${[
       {label:"Copertura Carta",value:`${fmtN(D.coperturaPct,0)}%`,sub:`${D.inCartaCount} in carta su ${D.s.refAttive} attive`,cls:"c-amber"},
       {label:"In Fresco ❄",value:D.frescoCount,sub:D.cartaSenzaPrezzo?`${D.cartaSenzaPrezzo} attive senza prezzo carta`:"referenze refrigerate",cls:"c-blue"},
@@ -4189,8 +4189,8 @@ function initPlanciaCharts(){
   const _bar1=(el,labels,data,color,fmtTick,fmtTip,colorFn)=>new Chart(el,{type:"bar",data:{labels,datasets:[{data,
       backgroundColor:colorFn?data.map(v=>colorFn(v,.55)):color+"99",borderColor:colorFn?data.map(v=>colorFn(v,1)):color,borderWidth:1,borderRadius:4,borderSkipped:"start",maxBarThickness:28}]},
     options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{..._tt,callbacks:{label:c=>" "+fmtTip(c.raw,c.dataIndex)}}},
-      scales:{x:{ticks:{color:"#8E8E93",font:{family:"Montserrat",size:9},maxRotation:45},grid:{display:false}},
-              y:{beginAtZero:true,ticks:{color:"#8E8E93",font:{family:"Montserrat",size:9},callback:fmtTick,maxTicksLimit:5},grid:{color:"rgba(58,58,60,.35)"}}}}});
+      scales:{x:{ticks:{color:"#8E8E93",font:{family:"Montserrat",size:11},maxRotation:45},grid:{display:false}},
+              y:{beginAtZero:true,ticks:{color:"#8E8E93",font:{family:"Montserrat",size:11},callback:fmtTick,maxTicksLimit:5},grid:{color:"rgba(58,58,60,.35)"}}}}});
   const _euroTip=v=>"€ "+_nf0.format(v);
   const td=window._plTrend||[];
   const e1=document.getElementById("ch-trend"), e1b=document.getElementById("ch-trend-margine");
@@ -4201,7 +4201,7 @@ function initPlanciaCharts(){
   const tm=window._plTopMargin||[];
   const e2=document.getElementById("ch-topmargin");
   if(e2&&tm.length){
-    activeCharts.topmargin=new Chart(e2,{type:"bar",data:{labels:tm.map(d=>d.name.length>24?d.name.slice(0,22)+"…":d.name),datasets:[{label:"Margine €",data:tm.map(d=>d.margine),backgroundColor:_cv("--amber","#FF9F0A"),borderColor:_cv("--amber3","#CC7000"),borderWidth:1}]},options:{indexAxis:"y",responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` €${new Intl.NumberFormat("it-IT",{minimumFractionDigits:2}).format(c.raw)}`}}},scales:{x:{ticks:{color:"#636366",font:{family:"Montserrat",size:9},callback:v=>`€${(v/1000).toFixed(1)}k`},grid:{color:_cv("--border","#3A3A3C")}},y:{ticks:{color:"#8E8E93",font:{family:"Montserrat",size:9}},grid:{display:false}}}}});
+    activeCharts.topmargin=new Chart(e2,{type:"bar",data:{labels:tm.map(d=>d.name.length>24?d.name.slice(0,22)+"…":d.name),datasets:[{label:"Margine €",data:tm.map(d=>d.margine),backgroundColor:_cv("--amber","#FF9F0A"),borderColor:_cv("--amber3","#CC7000"),borderWidth:1}]},options:{indexAxis:"y",responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` €${new Intl.NumberFormat("it-IT",{minimumFractionDigits:2}).format(c.raw)}`}}},scales:{x:{ticks:{color:"#636366",font:{family:"Montserrat",size:11},callback:v=>`€${(v/1000).toFixed(1)}k`},grid:{color:_cv("--border","#3A3A3C")}},y:{ticks:{color:"#8E8E93",font:{family:"Montserrat",size:11}},grid:{display:false}}}}});
   }
   // Doughnut giacenza per tipologia
   const pie=window._plPie||[];
@@ -4215,16 +4215,16 @@ function initPlanciaCharts(){
   if(ecf&&cf&&cf.labels&&cf.labels.length){
     activeCharts.cashflow=new Chart(ecf,{type:"bar",data:{labels:cf.labels,datasets:[
       {label:"Incassi stimati",data:cf.ricavo,backgroundColor:"#30D15899",borderColor:"#30D158",borderWidth:1,borderRadius:4,borderSkipped:"start",maxBarThickness:22},
-      {label:"Uscite (IVA incl.)",data:cf.spesa,backgroundColor:"#FF453A99",borderColor:"#FF453A",borderWidth:1,borderRadius:4,borderSkipped:"start",maxBarThickness:22}
+      {label:"Uscite (IVA incl.)",data:cf.spesa,backgroundColor:"#8E8E9366",borderColor:"#8E8E93",borderWidth:1,borderRadius:4,borderSkipped:"start",maxBarThickness:22}
     ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:"index",intersect:false},plugins:{legend:{display:false},tooltip:{..._tt,callbacks:{label:c=>` ${c.dataset.label}: ${_euroTip(c.raw)}`}}},
-      scales:{x:{ticks:{color:"#8E8E93",font:{family:"Montserrat",size:9}},grid:{display:false}},y:{beginAtZero:true,ticks:{color:"#8E8E93",font:{family:"Montserrat",size:9},callback:_eur,maxTicksLimit:5},grid:{color:"rgba(58,58,60,.35)"}}}}});
+      scales:{x:{ticks:{color:"#8E8E93",font:{family:"Montserrat",size:11}},grid:{display:false}},y:{beginAtZero:true,ticks:{color:"#8E8E93",font:{family:"Montserrat",size:11},callback:_eur,maxTicksLimit:5},grid:{color:"rgba(58,58,60,.35)"}}}}});
   }
   // Acquisti: bottiglie e spesa in due grafici separati.
   const d=window._plAcquisti;
   if(d&&d.labels&&d.labels.length){
     const el=document.getElementById("chart-acquisti"), el2=document.getElementById("chart-acquisti-spesa");
     if(el) activeCharts.acquisti=_bar1(el,d.labels,d.qty,_cv("--amber","#FF9F0A"),v=>_nf0.format(v),v=>`${_nf0.format(v)} bt`);
-    if(el2) activeCharts.acquistiSpesa=_bar1(el2,d.labels,d.spesa,"#FF453A",_eur,v=>"€ "+_nf2.format(v));
+    if(el2) activeCharts.acquistiSpesa=_bar1(el2,d.labels,d.spesa,"#8E8E93",_eur,v=>"€ "+_nf2.format(v));
   }
 }
 
@@ -4240,30 +4240,30 @@ function _renderWineRow(w){
   const rowClass=isEmpty?'alert-empty':isAlert?'alert-low':isRiordino?'alert-riordino':'';
   const cbHtml=selMode==='wines'?`<td class="cb-col"><input type="checkbox" class="cb-sel" data-id="${w.id}" onchange="toggleSel('${w.id}');_updateBulkBar()"></td>`:'';
   const _fmtV=parseFloat(w.formato)||0.75;
-  const fmtBadge=_fmtV!==0.75?` <span style="font-size:8px;font-weight:600;padding:1px 5px;border:1px solid ${_fmtV>=1.5?"rgba(0,122,255,.35)":"rgba(var(--amber-rgb,255,159,10),.4)"};color:${_fmtV>=1.5?"#60a5fa":"#fbbf24"};background:${_fmtV>=1.5?"rgba(0,122,255,.1)":"rgba(var(--amber-rgb,255,159,10),.1)"};border-radius:3px;white-space:nowrap">${_fmtV}L</span>`:'';
-  const zonaHtml=w.zona?`<div class="col-zona" style="font-size:9px;color:var(--txt4)">${h(w.zona)}</div>`:'';
+  const fmtBadge=_fmtV!==0.75?` <span style="font-size:10px;font-weight:600;padding:1px 5px;border:1px solid ${_fmtV>=1.5?"rgba(0,122,255,.35)":"rgba(var(--amber-rgb,255,159,10),.4)"};color:${_fmtV>=1.5?"#60a5fa":"#fbbf24"};background:${_fmtV>=1.5?"rgba(0,122,255,.1)":"rgba(var(--amber-rgb,255,159,10),.1)"};border-radius:3px;white-space:nowrap">${_fmtV}L</span>`:'';
+  const zonaHtml=w.zona?`<div class="col-zona" style="font-size:11px;color:var(--txt4)">${h(w.zona)}</div>`:'';
   const annataHtml=w.annata||`<span style="color:var(--txt4)">N.V.</span>`;
   const regioneHtml=(w.regione?`<span>${h(w.regione)}</span>`:'')+(w.nazione?`${w.regione?' · ':''}<span style="color:var(--amber3);font-weight:600">${h(w.nazione)}</span>`:'');
   const nomeEsc=h(w.nome).replace(/'/g,"\\'");
   return `<tr class="${rowClass}" data-sel-id="${w.id}" data-wine-id="${w.id}" style="cursor:pointer;vertical-align:middle">
     ${cbHtml}
-    <td class="col-fornitore" style="color:var(--txt3);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:90px">${h(w.distributore||'—')}</td>
-    <td style="color:var(--txt2);max-width:150px;line-height:1.3;word-break:break-word;vertical-align:middle">${h(w.produttore)}</td>
-    <td style="vertical-align:middle"><div style="min-width:170px;line-height:1.3;word-break:break-word;font-size:11px">${h(w.nome)}${fmtBadge}</div>${zonaHtml}</td>
-    <td class="col-annata"><span style="color:var(--amber);font-family:'Montserrat',sans-serif;white-space:nowrap;font-size:11px">${annataHtml}</span></td>
-    <td class="col-vitigni" style="color:var(--txt3);font-size:10px;line-height:1.3;word-break:break-word;max-width:150px;vertical-align:middle">${h(w.vitigni||'—')}</td>
+    <td class="col-fornitore" style="color:var(--txt3);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:90px">${h(w.distributore||'—')}</td>
+    <td class="col-prod" title="${h(w.produttore)}" style="color:var(--txt2);vertical-align:middle">${h(w.produttore)}</td>
+    <td style="vertical-align:middle"><div class="col-nome" title="${h(w.nome)}">${h(w.nome)}${fmtBadge}</div>${zonaHtml}</td>
+    <td class="col-annata"><span style="color:var(--amber);font-family:'Montserrat',sans-serif;white-space:nowrap;font-size:12px">${annataHtml}</span></td>
+    <td class="col-vitigni" style="color:var(--txt3);font-size:12px;vertical-align:middle">${h(w.vitigni||'—')}</td>
     <td>${badge(w.tipologia)}</td>
-    <td class="col-regione" style="color:var(--txt3);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:110px">${regioneHtml}</td>
+    <td class="col-regione" style="color:var(--txt3);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:110px">${regioneHtml}</td>
     <td class="r" style="border-left:1px solid var(--border);white-space:nowrap">${fmt(w.prezzoAcq)}</td>
     <td class="r col-ivaincl" style="color:var(--txt3);white-space:nowrap">${fmtRound(calcCostoIvaBottiglia(w))}</td>
     <td class="r col-pcarta" style="white-space:nowrap;${!w.prezzoCarta?'color:var(--txt4)':''}">${w.prezzoCarta?fmt(w.prezzoCarta):'—'}</td>
     <td class="c" style="border-left:1px solid rgba(var(--amber-rgb,255,159,10),.12);background:rgba(var(--amber-rgb,255,159,10),.04);position:relative">
       <div style="display:flex;flex-direction:column;align-items:center;gap:1px">
         <div style="color:${gColor}" class="giacenza-big">${w.giacenza}</div>
-        ${isEmpty?'<div style="font-size:7px;color:#dc2626;text-transform:uppercase;letter-spacing:.08em">esaurito</div>':''}
-        ${!isEmpty&&isAlert?'<div style="font-size:7px;color:#ea580c;text-transform:uppercase;letter-spacing:.08em">scorta bassa</div>':''}
-        ${isRiordino?'<div style="font-size:7px;color:#d97706;text-transform:uppercase;letter-spacing:.08em">riordina</div>':''}
-        <button onclick="event.stopPropagation();_toggleSogliaPop('${w.id}',this)" style="font-size:9px;margin-top:2px;padding:1px 5px;border:1px solid rgba(68,64,60,.5);background:none;color:var(--txt4);cursor:pointer;font-family:inherit;line-height:1.4" title="Imposta soglie alert">
+        ${isEmpty?'<div style="font-size:10px;color:#dc2626;text-transform:uppercase;letter-spacing:.08em">esaurito</div>':''}
+        ${!isEmpty&&isAlert?'<div style="font-size:10px;color:#ea580c;text-transform:uppercase;letter-spacing:.08em">scorta bassa</div>':''}
+        ${isRiordino?'<div style="font-size:10px;color:#d97706;text-transform:uppercase;letter-spacing:.08em">riordina</div>':''}
+        <button onclick="event.stopPropagation();_toggleSogliaPop('${w.id}',this)" style="font-size:11px;margin-top:2px;padding:1px 5px;border:1px solid rgba(68,64,60,.5);background:none;color:var(--txt4);cursor:pointer;font-family:inherit;line-height:1.4" title="Imposta soglie alert">
           <span style="color:#FF453A">${sg.min}</span>·<span style="color:#fbbf24">${sg.riordino}</span>
         </button>
       </div>
@@ -4288,9 +4288,9 @@ function renderInventario(){
       {label:"Potenziale",    v:fmt(s.valoreCarta),   sub:"valore carta",     cls:"c-green"},
       {label:"Margine",       v:fmt(s.margineLordoTot),sub:"lordo potenz.",   cls:"c-blue"},
     ].map(k=>`<div style="flex:1;min-width:0;padding:10px 14px;background:var(--bg2)">
-      <div style="font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--txt4);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${k.label}</div>
+      <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--txt4);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${k.label}</div>
       <div style="font-size:15px;font-weight:700;font-family:'Montserrat',sans-serif;margin:3px 0 1px" class="${k.cls}">${k.v}</div>
-      <div style="font-size:9px;color:var(--txt5)">${k.sub}</div>
+      <div style="font-size:11px;color:var(--txt5)">${k.sub}</div>
     </div>`).join("")}
   </div>`;
 
@@ -4319,7 +4319,7 @@ function renderInventario(){
   const dirIcon=invSortDir===1?"↑":"↓";
 
   // ── Stile unificato controlli toolbar (look Apple, accent system-blue unico) ──
-  const ctrlBase = "height:28px;display:inline-flex;align-items:center;gap:5px;border-radius:8px;padding:0 9px;font-size:11px;font-weight:600;font-family:inherit;cursor:pointer;flex-shrink:0;box-sizing:border-box;transition:all .15s ease";
+  const ctrlBase = "height:28px;display:inline-flex;align-items:center;gap:5px;border-radius:8px;padding:0 9px;font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;flex-shrink:0;box-sizing:border-box;transition:all .15s ease";
   const ctrlOn   = "border:1px solid rgba(10,132,255,.5);background:rgba(10,132,255,.12);color:#0A84FF";
   const ctrlOff  = "border:1px solid var(--border2);background:var(--bg3);color:var(--txt3)";
 
@@ -4327,7 +4327,7 @@ function renderInventario(){
   function _fSection({title, opts, fkey, multi}){
     const esc=v=>String(v).replace(/'/g,"\\'");
     return `<div>
-      <div style="font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--txt4);font-weight:700;margin-bottom:6px">${title}</div>
+      <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--txt4);font-weight:700;margin-bottom:6px">${title}</div>
       <div style="display:flex;flex-wrap:wrap;gap:4px">
         ${opts.map(o=>{
           const isAll=o.v==="tutti";
@@ -4336,7 +4336,7 @@ function renderInventario(){
           const click = multi
             ? (isAll?"_clearVitigni()":`_toggleVitigno('${esc(o.v)}')`)
             : `${_setVarMap[fkey]}='${esc(o.v)}';renderInventarioOnly()`;
-          return `<button data-fkey="${fkey}" data-fval="${h(fval)}" onclick="${click}" style="padding:3px 10px;border-radius:20px;font-size:10px;cursor:pointer;border:1px solid ${active?'rgba(10,132,255,.5)':'var(--border2)'};background:${active?'rgba(10,132,255,.16)':'rgba(255,255,255,.04)'};color:${active?'#0A84FF':'var(--txt3)'};font-weight:${active?'700':'400'};white-space:nowrap;transition:all .12s ease">${h(o.label)}</button>`;
+          return `<button data-fkey="${fkey}" data-fval="${h(fval)}" onclick="${click}" style="padding:3px 10px;border-radius:20px;font-size:12px;cursor:pointer;border:1px solid ${active?'rgba(10,132,255,.5)':'var(--border2)'};background:${active?'rgba(10,132,255,.16)':'rgba(255,255,255,.04)'};color:${active?'#0A84FF':'var(--txt3)'};font-weight:${active?'700':'400'};white-space:nowrap;transition:all .12s ease">${h(o.label)}</button>`;
         }).join("")}
       </div>
     </div>`;
@@ -4353,7 +4353,7 @@ function renderInventario(){
         <div class="search-wrap" style="flex-shrink:0;width:200px"><span class="search-icon">🔍</span><input id="inv-search" class="form-input" style="width:100%;padding-left:28px" placeholder="Cerca vino…  [/]" value="${h(search)}" oninput="search=this.value;renderInventarioOnly()"></div>
 
         <!-- Count -->
-        <span id="inv-count" style="font-size:10px;color:var(--txt4);letter-spacing:.05em;white-space:nowrap;flex-shrink:0">${list.length}<span style="color:var(--txt5);font-weight:400"> / ${wines.length}</span></span>
+        <span id="inv-count" style="font-size:12px;color:var(--txt4);letter-spacing:.05em;white-space:nowrap;flex-shrink:0">${list.length}<span style="color:var(--txt5);font-weight:400"> / ${wines.length}</span></span>
 
         <!-- Separatore -->
         <div style="width:1px;height:18px;background:var(--border);flex-shrink:0"></div>
@@ -4367,7 +4367,7 @@ function renderInventario(){
             {v:"ok",      label:"OK"},
           ].map(seg=>{
             const act = filterGiacenza===seg.v;
-            return `<button data-seg="${seg.v}" onclick="filterGiacenza='${seg.v}';renderInventarioOnly()" style="padding:3px 9px;border-radius:6px;border:none;font-size:10px;font-weight:${act?'700':'500'};cursor:pointer;white-space:nowrap;transition:all .15s ease;${act?'background:var(--bg3);color:var(--txt1);box-shadow:0 1px 4px rgba(0,0,0,.4)':'background:transparent;color:var(--txt4)'}">${seg.label}</button>`;
+            return `<button data-seg="${seg.v}" onclick="filterGiacenza='${seg.v}';renderInventarioOnly()" style="padding:3px 9px;border-radius:6px;border:none;font-size:12px;font-weight:${act?'700':'500'};cursor:pointer;white-space:nowrap;transition:all .15s ease;${act?'background:var(--bg3);color:var(--txt1);box-shadow:0 1px 4px rgba(0,0,0,.4)':'background:transparent;color:var(--txt4)'}">${seg.label}</button>`;
           }).join('')}
         </div>
 
@@ -4376,7 +4376,7 @@ function renderInventario(){
 
         <!-- Tipologia dropdown -->
         <div id="inv-tipo-wrap" style="${ctrlBase};${filterTipo!=='tutti'?ctrlOn:ctrlOff};padding:0 6px 0 9px">
-          <select id="inv-tipo-select" onchange="filterTipo=this.value;renderInventarioOnly()" style="background:transparent;border:none;outline:none;font-size:11px;font-weight:600;color:inherit;cursor:pointer;font-family:inherit;padding:0 2px">
+          <select id="inv-tipo-select" onchange="filterTipo=this.value;renderInventarioOnly()" style="background:transparent;border:none;outline:none;font-size:12px;font-weight:600;color:inherit;cursor:pointer;font-family:inherit;padding:0 2px">
             ${[{v:'tutti',label:'Tutte le tipologie'}, ...activeTipi.map(t=>({v:t,label:t}))].map(o=>`<option value="${h(o.v)}" ${filterTipo===o.v?'selected':''} style="background:var(--bg2);color:var(--txt1)">${h(o.label)}</option>`).join('')}
           </select>
         </div>
@@ -4384,22 +4384,22 @@ function renderInventario(){
         <!-- Ordina: select + direzione -->
         <div style="${ctrlBase};${ctrlOff};gap:3px;padding:0 5px 0 8px">
           <svg width="11" height="11" viewBox="0 0 12 12" fill="none" style="flex-shrink:0;color:currentColor;opacity:.8"><path d="M1 3h10M3 6h6M5 9h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-          <select id="inv-sort-select" onchange="invSort=this.value;renderInventarioOnly()" style="background:transparent;border:none;outline:none;font-size:11px;font-weight:600;color:inherit;cursor:pointer;padding:0 2px;font-family:inherit">
+          <select id="inv-sort-select" onchange="invSort=this.value;renderInventarioOnly()" style="background:transparent;border:none;outline:none;font-size:12px;font-weight:600;color:inherit;cursor:pointer;padding:0 2px;font-family:inherit">
             ${sortOpts.map(o=>`<option value="${o.v}" ${invSort===o.v?'selected':''} style="background:var(--bg2);color:var(--txt1)">${h(o.label)}</option>`).join('')}
           </select>
-          <button id="inv-sort-dir" onclick="invSortDir*=-1;renderInventarioOnly()" style="background:none;border:none;color:currentColor;font-size:12px;cursor:pointer;padding:0 2px;font-weight:700;line-height:1" title="Inverti direzione">${dirIcon}</button>
+          <button id="inv-sort-dir" onclick="invSortDir*=-1;renderInventarioOnly()" style="background:none;border:none;color:currentColor;font-size:13px;cursor:pointer;padding:0 2px;font-weight:700;line-height:1" title="Inverti direzione">${dirIcon}</button>
         </div>
 
         <!-- Filtri Avanzati -->
         <div style="position:relative;flex-shrink:0">
           <button id="inv-filter-btn" onclick="_toggleInvFilterPanel()" style="${ctrlBase};${advCount>0?ctrlOn:ctrlOff};letter-spacing:.02em">
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="3" r="1.5" stroke="currentColor" stroke-width="1.3"/><circle cx="6" cy="9" r="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M1 3h3.5M7.5 3H11M1 9h3.5M7.5 9H11" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
-            Filtri${advCount>0?` <span style="background:#0A84FF;color:#fff;border-radius:10px;padding:0 5px;font-size:8px;font-weight:700;line-height:15px;min-width:15px;text-align:center">${advCount}</span>`:''}
+            Filtri${advCount>0?` <span style="background:#0A84FF;color:#fff;border-radius:10px;padding:0 5px;font-size:10px;font-weight:700;line-height:15px;min-width:15px;text-align:center">${advCount}</span>`:''}
           </button>
         </div>
 
         <!-- Reset filtri (solo se attivi) -->
-        <span id="inv-clear-wrap">${_hasActiveFilters()?`<button data-clear-btn="1" onclick="_resetInvFilters()" title="Cancella tutti i filtri" style="display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:8px;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.07);color:#FF453A;font-size:10px;font-weight:600;cursor:pointer;flex-shrink:0;white-space:nowrap;transition:all .15s ease">✕</button>`:""}</span>
+        <span id="inv-clear-wrap">${_hasActiveFilters()?`<button data-clear-btn="1" onclick="_resetInvFilters()" title="Cancella tutti i filtri" style="display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:8px;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.07);color:#FF453A;font-size:12px;font-weight:600;cursor:pointer;flex-shrink:0;white-space:nowrap;transition:all .15s ease">✕</button>`:""}</span>
 
         <!-- Spazio flessibile (spinge Multipla a destra) -->
         <div style="flex:1;min-width:8px"></div>
@@ -4414,9 +4414,9 @@ function renderInventario(){
     <div id="inv-filter-panel" style="display:none;position:fixed;z-index:300;background:var(--bg2);border:1px solid var(--border2);border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.05);padding:16px;width:320px;max-height:70vh;overflow-y:auto">
 
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-        <span style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--txt3)">Filtri avanzati</span>
+        <span style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--txt3)">Filtri avanzati</span>
         <div style="display:flex;gap:6px;align-items:center">
-          ${advCount>0?`<button onclick="_resetInvFilters()" style="padding:3px 10px;border-radius:6px;border:1px solid rgba(239,68,68,.35);background:rgba(239,68,68,.07);color:#FF453A;font-size:9px;font-weight:600;cursor:pointer">✕ Reset</button>`:''}
+          ${advCount>0?`<button onclick="_resetInvFilters()" style="padding:3px 10px;border-radius:6px;border:1px solid rgba(239,68,68,.35);background:rgba(239,68,68,.07);color:#FF453A;font-size:11px;font-weight:600;cursor:pointer">✕ Reset</button>`:''}
           <button onclick="_closeInvFilterPanel()" style="width:24px;height:24px;border-radius:6px;border:1px solid var(--border2);background:var(--bg3);color:var(--txt3);font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1">×</button>
         </div>
       </div>
@@ -4517,7 +4517,7 @@ function _applyPrezzoCartaSuggerito(overwriteAll){
   if(overwriteAll){
     const n = wines.filter(w=>w.prezzoAcq>0).length;
     _confirmModal(
-      `Ricalcola P.Carta per <strong>${n} vini</strong> con le fasce standard?<br><span style="font-size:11px;color:var(--txt4)">I prezzi già impostati verranno sovrascritti.</span>`,
+      `Ricalcola P.Carta per <strong>${n} vini</strong> con le fasce standard?<br><span style="font-size:12px;color:var(--txt4)">I prezzi già impostati verranno sovrascritti.</span>`,
       "✅ Ricalcola",
       _doApply,
       'warn'
@@ -4544,7 +4544,7 @@ function _toggleSogliaPop(wineId, btn){
     <div class="soglia-pop-title">Alert Soglie</div>
     <div style="display:flex;flex-direction:column;gap:8px">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
-        <span style="font-size:10px;color:#FF453A">🔴 Scorta min.</span>
+        <span style="font-size:12px;color:#FF453A">🔴 Scorta min.</span>
         <div class="soglia-ctrl">
           <button class="soglia-btn" onclick="_setSoglia('${wineId}','min',-1);_refreshPop('${wineId}',this)">−</button>
           <span class="soglia-val sp-min" style="color:#FF453A">${sg.min}</span>
@@ -4552,7 +4552,7 @@ function _toggleSogliaPop(wineId, btn){
         </div>
       </div>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
-        <span style="font-size:10px;color:#fbbf24">🟡 Riordino</span>
+        <span style="font-size:12px;color:#fbbf24">🟡 Riordino</span>
         <div class="soglia-ctrl">
           <button class="soglia-btn" onclick="_setSoglia('${wineId}','riordino',-1);_refreshPop('${wineId}',this)">−</button>
           <span class="soglia-val sp-riord" style="color:#fbbf24">${sg.riordino}</span>
@@ -4560,7 +4560,7 @@ function _toggleSogliaPop(wineId, btn){
         </div>
       </div>
     </div>
-    <div style="font-size:9px;color:var(--txt4);margin-top:8px;line-height:1.5">Rosso = togli da carta<br>Giallo = riordina dal fornitore</div>`;
+    <div style="font-size:11px;color:var(--txt4);margin-top:8px;line-height:1.5">Rosso = togli da carta<br>Giallo = riordina dal fornitore</div>`;
   // Position below the button
   const rect = btn.getBoundingClientRect();
   pop.style.position = 'fixed';
@@ -4772,8 +4772,8 @@ function _renderMovScarico(){
     return `<div class="ssp-card" data-wid="${w.id}" style="display:${_sspMatch(w,scaricoSerata.q)?"flex":"none"};align-items:center;gap:12px;padding:10px 14px;border-radius:12px;border:1px solid ${q?"rgba(255,69,58,.35)":"var(--border2)"};background:${q?"rgba(255,69,58,.06)":"rgba(28,28,30,.5)"}">
       <div style="flex:1;min-width:0">
         <div style="font-size:14px;font-weight:600;color:var(--txt);line-height:1.25;word-break:break-word">${h(w.nome||"— senza nome —")}</div>
-        <div style="font-size:12px;color:var(--txt4);margin-top:2px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">${h((w.produttore||"").trim()||"—")}<span style="color:var(--amber)">${w.annata?h(w.annata):"N.V."}</span>${w.tipologia?badge(w.tipologia):""}</div>
-        <div style="font-size:11px;color:var(--txt4);margin-top:2px">Giacenza <span class="ssp-giac" style="color:var(--amber3)">${giac}</span> bt<span class="ssp-ric" style="margin-left:8px;color:${q&&carta?"#30D158":"var(--txt4)"}">${q&&carta?"· ricavo "+fmt(q*carta):""}</span></div>
+        <div style="font-size:13px;color:var(--txt4);margin-top:2px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">${h((w.produttore||"").trim()||"—")}<span style="color:var(--amber)">${w.annata?h(w.annata):"N.V."}</span>${w.tipologia?badge(w.tipologia):""}</div>
+        <div style="font-size:12px;color:var(--txt4);margin-top:2px">Giacenza <span class="ssp-giac" style="color:var(--amber3)">${giac}</span> bt<span class="ssp-ric" style="margin-left:8px;color:${q&&carta?"#30D158":"var(--txt4)"}">${q&&carta?"· ricavo "+fmt(q*carta):""}</span></div>
       </div>
       <div class="ssp-step">
         <button type="button" onclick="_sspStep('${w.id}',-1)" aria-label="Diminuisci">${ic("minus")}</button>
@@ -4786,7 +4786,7 @@ function _renderMovScarico(){
     <div style="padding:16px 18px 10px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
       <div><label class="form-label">Giornata di servizio</label>
         <input type="date" class="form-input" style="max-width:180px" value="${scaricoSerata.data}" oninput="if(this.value){scaricoSerata.data=this.value;document.getElementById('ssp-giorn').textContent=_labelGiornataServizio(this.value)}">
-        <div id="ssp-giorn" style="font-size:11px;color:var(--txt4);margin-top:4px">${h(_labelGiornataServizio(scaricoSerata.data))}</div></div>
+        <div id="ssp-giorn" style="font-size:12px;color:var(--txt4);margin-top:4px">${h(_labelGiornataServizio(scaricoSerata.data))}</div></div>
       <div style="flex:1;min-width:180px"><label class="form-label">Note</label>
         <input class="form-input" placeholder="Note serata…" value="${h(scaricoSerata.note||"")}" oninput="scaricoSerata.note=this.value"></div>
     </div>
@@ -4796,7 +4796,7 @@ function _renderMovScarico(){
     </div>
     <div id="ssp-list" style="display:flex;flex-direction:column;gap:6px;padding:0 12px 10px">${list.map(card).join("")||`<div class="cm-empty">Nessun vino in giacenza</div>`}</div>
     <div class="cm-actionbar">
-      <div id="scarico-serata-count" style="font-size:12px;color:var(--txt3)"></div>
+      <div id="scarico-serata-count" style="font-size:13px;color:var(--txt3)"></div>
       <button id="ssp-reg-btn" class="btn-primary" onclick="registraScaricaSerata()" disabled></button>
     </div>
   </div>`;
@@ -4830,7 +4830,7 @@ function _reportSerataHtml(data){
       <div class="kpi-card"><div class="kpi-label">Costo merce</div><div class="kpi-val c-amber">${fmt(cos)}</div></div>
       <div class="kpi-card"><div class="kpi-label">Margine lordo</div><div class="kpi-val" style="color:${mar>=0?"#30D158":"#FF453A"}">${fmt(mar)}</div><div class="kpi-sub">${ric?fmtN(mar/ric*100,1)+"% sul ricavo":"—"}</div></div>
     </div>
-    ${Object.entries(byT).sort((a,b)=>b[1].bt-a[1].bt).map(([t,v])=>`<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">${badge(t)}<div style="flex:1;height:4px;background:var(--bg3);border-radius:2px"><div style="height:4px;background:var(--amber);border-radius:2px;width:${Math.round(v.bt/bt*100)}%"></div></div><span style="font-size:12px;color:var(--txt2);width:44px;text-align:right">${v.bt} bt</span><span style="font-size:12px;color:var(--amber);width:84px;text-align:right">${fmt(v.ric)}</span></div>`).join("")}
+    ${Object.entries(byT).sort((a,b)=>b[1].bt-a[1].bt).map(([t,v])=>`<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">${badge(t)}<div style="flex:1;height:4px;background:var(--bg3);border-radius:2px"><div style="height:4px;background:var(--amber);border-radius:2px;width:${Math.round(v.bt/bt*100)}%"></div></div><span style="font-size:13px;color:var(--txt2);width:44px;text-align:right">${v.bt} bt</span><span style="font-size:13px;color:var(--amber);width:84px;text-align:right">${fmt(v.ric)}</span></div>`).join("")}
   </div>`;
 }
 // Costo e ricavo in tabella dagli SNAPSHOT del movimento (come plancia e
@@ -4847,12 +4847,12 @@ function _renderMovStorico(){
     return `<tr data-sel-id="${m.id}">${selMode==="movimenti"?`<td class="cb-col"><input type="checkbox" class="cb-sel" data-id="${m.id}" onchange="toggleSel('${m.id}');_updateBulkBar()"></td>`:""}
       <td style="color:var(--txt2);white-space:nowrap">${h(_fmtDataIT(m.data))}</td>
       <td><span class="cm-tag" style="color:${v.c}">${h(_isRettifica(m.tipo)?"rettifica":String(m.tipo||"").replace("trasferimento-","trasf. ").replace("scarico-stornato","stornato"))}${_isCaricoIniziale(m)?" · inv.":""}</span></td>
-      <td style="max-width:240px"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(m.wineName||"—")} <span style="color:var(--amber)">${w?.annata?h(w.annata):""}</span></div><div style="font-size:11px;color:var(--txt4);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(m.produttore||w?.produttore||"")}</div></td>
-      <td style="color:var(--txt3);font-size:11px">${h([m.fornitore,m.fattura].filter(Boolean).join(" · ")||"—")}</td>
+      <td style="max-width:240px"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(m.wineName||"—")} <span style="color:var(--amber)">${w?.annata?h(w.annata):""}</span></div><div style="font-size:12px;color:var(--txt4);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(m.produttore||w?.produttore||"")}</div></td>
+      <td style="color:var(--txt3);font-size:12px">${h([m.fornitore,m.fattura].filter(Boolean).join(" · ")||"—")}</td>
       <td class="r" style="color:${v.c};font-weight:600">${v.s}${m.qty}</td>
       <td class="r" style="color:var(--txt3);white-space:nowrap">${cU?fmt(cU):"—"}</td>
       <td class="r" style="color:var(--amber);white-space:nowrap">${ric?fmt(ric):"—"}</td>
-      <td style="color:var(--txt4);font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(m.note||"")}</td>
+      <td style="color:var(--txt4);font-size:12px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(m.note||"")}</td>
       <td class="c" style="white-space:nowrap"><button class="cm-ico-btn" title="Modifica" onclick="openMovModal('${m.id}')">${ic("edit")}</button><button class="cm-ico-btn danger" title="Elimina" onclick="_eliminaMov('${m.id}')">${ic("trash")}</button></td></tr>`;
   };
   return `${movUi.data?_reportSerataHtml(movUi.data):""}
@@ -4869,7 +4869,7 @@ function _renderMovStorico(){
           <button class="btn-outline btn-sm" onclick="${movUi.data?`exportReportSerataCSV('${movUi.data}')`:"exportMovimentiCSV()"}">${ic("download")} CSV</button>
         </span>
       </div>
-      <div style="font-size:11px;color:var(--txt4)">${f.length} moviment${f.length===1?"o":"i"}${f.length>rows.length?` · mostrati ${rows.length}`:""}</div>
+      <div style="font-size:12px;color:var(--txt4)">${f.length} moviment${f.length===1?"o":"i"}${f.length>rows.length?` · mostrati ${rows.length}`:""}</div>
     </div>
     <div class="tbl-wrap"><table>
       <thead><tr>${selMode==="movimenti"?`<th class="cb-col"><input type="checkbox" id="cb-sel-all" class="cb-sel" onchange="toggleSelAll()"></th>`:""}<th>Data</th><th>Tipo</th><th>Vino</th><th>Fornitore · Fattura</th><th class="r">Qtà</th><th class="r">Costo+IVA/bt</th><th class="r">Ricavo</th><th>Note</th><th class="c"></th></tr></thead>
@@ -4881,7 +4881,7 @@ function _renderMovStorico(){
 function _eliminaMov(id){
   const m=movements.find(x=>x.id===id); if(!m) return;
   if(_bloccaChiuso(m.data,"Eliminazione")) return;
-  _confirmModal(`Eliminare <strong>${m.qty} bt</strong> — <strong>${h(m.wineName||"")}</strong> (${h(m.tipo)}, ${h(_fmtDataIT(m.data))})?<br><span style="font-size:11px;color:var(--txt4)">La giacenza del vino viene corretta invertendo l'effetto del movimento.</span>`,
+  _confirmModal(`Eliminare <strong>${m.qty} bt</strong> — <strong>${h(m.wineName||"")}</strong> (${h(m.tipo)}, ${h(_fmtDataIT(m.data))})?<br><span style="font-size:12px;color:var(--txt4)">La giacenza del vino viene corretta invertendo l'effetto del movimento.</span>`,
     "Elimina", ()=>{
       wines=wines.map(w=>w.id===m.wineId?_reverseMovEffect(w,m):w);
       movements=movements.filter(x=>x.id!==id);
@@ -4911,12 +4911,12 @@ function _renderMovCarico(){
           <button type="button" onclick="movForm.segno='+';render()" style="flex:1;padding:8px;border:1px solid ${movForm.segno!=='-'?'#5AC8FA':'var(--border2)'};background:${movForm.segno!=='-'?'rgba(90,200,250,.12)':'none'};color:${movForm.segno!=='-'?'#5AC8FA':'var(--txt3)'};cursor:pointer;font-family:inherit;font-weight:600;border-radius:var(--radius-sm)">＋ Aumenta giacenza</button>
           <button type="button" onclick="movForm.segno='-';render()" style="flex:1;padding:8px;border:1px solid ${movForm.segno==='-'?'#FF453A':'var(--border2)'};background:${movForm.segno==='-'?'rgba(255,69,58,.12)':'none'};color:${movForm.segno==='-'?'#FF6B6B':'var(--txt3)'};cursor:pointer;font-family:inherit;font-weight:600;border-radius:var(--radius-sm)">－ Diminuisci giacenza</button>
         </div>
-        <div style="font-size:10px;color:var(--txt4);margin-top:6px">La rettifica non incide su spesa/ricavi: aggiusta solo la giacenza fisica.</div>
+        <div style="font-size:12px;color:var(--txt4);margin-top:6px">La rettifica non incide su spesa/ricavi: aggiusta solo la giacenza fisica.</div>
       </div>`:''}
       ${movForm.tipo!=="scarico"?`
       <div class="form-grid g2" style="margin-bottom:8px">
         <div>
-          <label class="form-label">Fornitore <span style="color:var(--txt4);font-size:9px;text-transform:none;letter-spacing:0">— opzionale</span></label>
+          <label class="form-label">Fornitore <span style="color:var(--txt4);font-size:11px;text-transform:none;letter-spacing:0">— opzionale</span></label>
           <datalist id="mov-forn-dl">${[...new Set([...wines.map(w=>w.distributore),...orders.map(o=>o.fornitore)].filter(Boolean))].sort().map(v=>`<option value="${h(v)}">`).join("")}</datalist>
           <input class="form-input" list="mov-forn-dl" autocomplete="off" value="${h(movForm.fornitore)}" placeholder="es. Vini Italiani Srl" oninput="movForm.fornitore=this.value">
         </div>
@@ -4929,7 +4929,7 @@ function _renderMovCarico(){
         </div>`:'<div></div>'}
       </div>`:``}
       <div class="form-row" style="margin-bottom:8px">
-        <label class="form-label">Vino <span style="color:var(--txt4);font-size:9px;text-transform:none;letter-spacing:0">— cerca per nome, produttore o annata</span></label>
+        <label class="form-label">Vino <span style="color:var(--txt4);font-size:11px;text-transform:none;letter-spacing:0">— cerca per nome, produttore o annata</span></label>
         <datalist id="mov-wine-dl">
           ${wines.map(w=>`<option value="${h(_movWineLabel(w))}">`).join("")}
         </datalist>
@@ -4944,28 +4944,28 @@ function _renderMovCarico(){
         </div>
         ${selW?`<div style="margin-top:6px;display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(var(--amber-rgb,255,159,10),.06);border:1px solid rgba(var(--amber-rgb,255,159,10),.15);border-radius:var(--radius-sm);flex-wrap:wrap">
             ${badge(selW.tipologia)}
-            <span style="color:var(--txt2);font-size:12px;font-weight:500">${h(selW.nome)}</span>
-            <span style="color:var(--txt3);font-size:11px">${h(selW.produttore)}</span>
+            <span style="color:var(--txt2);font-size:13px;font-weight:500">${h(selW.nome)}</span>
+            <span style="color:var(--txt3);font-size:12px">${h(selW.produttore)}</span>
             <span style="color:var(--amber);font-family:'Montserrat',sans-serif">${selW.annata?h(selW.annata):'N.V.'}</span>
             <span style="display:inline-flex;align-items:center;gap:5px;margin-left:auto">
-              <span style="font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--txt4)">Formato</span>
-              <select class="form-select" style="width:auto;font-size:11px;padding:3px 6px" onchange="_movCambiaFormato(this.value)">${_formatoOptsHtml(selW.formato)}</select>
+              <span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--txt4)">Formato</span>
+              <select class="form-select" style="width:auto;font-size:12px;padding:3px 6px" onchange="_movCambiaFormato(this.value)">${_formatoOptsHtml(selW.formato)}</select>
             </span>
-            ${selW.vitigni?('<span style="color:var(--txt4);font-size:10px">\ud83c\udf47 '+h(selW.vitigni)+'</span>'):''}
+            ${selW.vitigni?('<span style="color:var(--txt4);font-size:12px">\ud83c\udf47 '+h(selW.vitigni)+'</span>'):''}
             <span style="margin-left:auto;color:var(--amber);font-family:'Montserrat',sans-serif;font-size:1.1rem">${selW.giacenza} bt</span>
           </div>
-          ${movForm.tipo!=="scarico"?('<div style="margin-top:6px"><button onclick="movForm._newMode=true;movForm.wineId=\'\';movForm._newProduttore=\''+h(selW.produttore)+'\';movForm._newTipologia=\''+selW.tipologia+'\';movForm._newVitigni=\''+h(selW.vitigni||'')+'\';movForm._newRegione=\''+h(selW.regione||'')+'\';movForm._newNazione=\''+h(selW.nazione||'Italia')+'\';movForm._newZona=\''+h(selW.zona||'')+'\';movForm._newFormato=\''+(parseFloat(selW.formato)||0.75)+'\';movForm._wineText=\'\';render()" style="font-size:10px;font-weight:600;padding:4px 12px;border:1px solid rgba(var(--amber-rgb,255,159,10),.4);color:var(--amber);background:rgba(var(--amber-rgb,255,159,10),.1);cursor:pointer;font-family:inherit;border-radius:6px">\u2746 Nuova annata / variante di questo vino</button></div>'):''}`:''
+          ${movForm.tipo!=="scarico"?('<div style="margin-top:6px"><button onclick="movForm._newMode=true;movForm.wineId=\'\';movForm._newProduttore=\''+h(selW.produttore)+'\';movForm._newTipologia=\''+selW.tipologia+'\';movForm._newVitigni=\''+h(selW.vitigni||'')+'\';movForm._newRegione=\''+h(selW.regione||'')+'\';movForm._newNazione=\''+h(selW.nazione||'Italia')+'\';movForm._newZona=\''+h(selW.zona||'')+'\';movForm._newFormato=\''+(parseFloat(selW.formato)||0.75)+'\';movForm._wineText=\'\';render()" style="font-size:12px;font-weight:600;padding:4px 12px;border:1px solid rgba(var(--amber-rgb,255,159,10),.4);color:var(--amber);background:rgba(var(--amber-rgb,255,159,10),.1);cursor:pointer;font-family:inherit;border-radius:6px">\u2746 Nuova annata / variante di questo vino</button></div>'):''}`:''
         }
         ${(!selW&&movForm._wineText&&!movForm.wineId&&!movForm._newMode)?
-          ('<div style="margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-size:10px;color:var(--txt3)">Vino non trovato in cantina.</span>'
-          +(movForm.tipo!=="scarico"?'<button onclick="movForm._newMode=true;render()" style="font-size:10px;font-weight:600;padding:4px 12px;border:1px solid rgba(48,209,88,.35);color:#30D158;background:rgba(48,209,88,.08);cursor:pointer;font-family:inherit;border-radius:6px">\u2746 Crea nuova referenza</button>':'<span style="color:#FF453A;font-size:10px">Impossibile scaricare \u2014 vino non in cantina</span>')
+          ('<div style="margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-size:12px;color:var(--txt3)">Vino non trovato in cantina.</span>'
+          +(movForm.tipo!=="scarico"?'<button onclick="movForm._newMode=true;render()" style="font-size:12px;font-weight:600;padding:4px 12px;border:1px solid rgba(48,209,88,.35);color:#30D158;background:rgba(48,209,88,.08);cursor:pointer;font-family:inherit;border-radius:6px">\u2746 Crea nuova referenza</button>':'<span style="color:#FF453A;font-size:12px">Impossibile scaricare \u2014 vino non in cantina</span>')
           +'</div>')
           :''}
       </div>
 
       ${(movForm.tipo!=="scarico"&&movForm._newMode&&!movForm.wineId)?`
       <div style="background:rgba(48,209,88,.04);border:1px solid rgba(48,209,88,.2);padding:14px;margin-bottom:8px;border-radius:var(--radius-sm)">
-        <div style="font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:#30D158;margin-bottom:12px">\u2746 Nuova Referenza &mdash; dati completi per la carta vini</div>
+        <div style="font-size:12px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:#30D158;margin-bottom:12px">\u2746 Nuova Referenza &mdash; dati completi per la carta vini</div>
         <div class="form-grid g2" style="margin-bottom:8px">
           <div><label class="form-label">Nome Vino *</label>
             <input class="form-input" placeholder="es. Petricore" value="${h(movForm._wineText||'')}"
@@ -5018,7 +5018,7 @@ function _renderMovCarico(){
             </select>
           </div>
           <div style="grid-column:span 2">
-            <div id="mov-new-carta-hint" style="display:none;align-items:center;gap:8px;padding:5px 8px;background:rgba(var(--amber-rgb,255,159,10),.08);border:1px solid rgba(var(--amber-rgb,255,159,10),.12);font-size:10px;color:var(--txt3)"></div>
+            <div id="mov-new-carta-hint" style="display:none;align-items:center;gap:8px;padding:5px 8px;background:rgba(var(--amber-rgb,255,159,10),.08);border:1px solid rgba(var(--amber-rgb,255,159,10),.12);font-size:12px;color:var(--txt3)"></div>
           </div>
           <div><label class="form-label">Prezzo in Carta \u20ac</label>
             <input id="mov-new-carta-inp" class="form-input" type="number" step="0.5" min="0" placeholder="0.00"
@@ -5030,24 +5030,24 @@ function _renderMovCarico(){
               value="${h(movForm._newDistributore||'')}" oninput="movForm._newDistributore=this.value">
           </div>
           <div style="grid-column:span 2">
-            <div id="mov-new-preview" style="display:none;padding:10px 14px;background:rgba(0,122,255,.06);border:1px solid rgba(0,122,255,.2);border-radius:var(--radius-sm);font-size:11px">
-              <span style="font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:#007AFF">📋 Anteprima carta vini</span>
+            <div id="mov-new-preview" style="display:none;padding:10px 14px;background:rgba(0,122,255,.06);border:1px solid rgba(0,122,255,.2);border-radius:var(--radius-sm);font-size:12px">
+              <span style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#007AFF">📋 Anteprima carta vini</span>
               <div id="mov-new-preview-body" style="margin-top:6px;color:var(--txt2)"></div>
             </div>
           </div>
         </div>
         <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
           <button onclick="movForm._newMode=false;movForm.wineId='';movForm._wineText='';render()"
-            style="font-size:10px;padding:4px 10px;border:1px solid var(--border2);color:var(--txt3);background:none;cursor:pointer;font-family:inherit;border-radius:6px">\u2715 Annulla</button>
-          <span style="font-size:10px;color:var(--txt4)">La referenza verrà creata al momento del Registra Carico</span>
+            style="font-size:12px;padding:4px 10px;border:1px solid var(--border2);color:var(--txt3);background:none;cursor:pointer;font-family:inherit;border-radius:6px">\u2715 Annulla</button>
+          <span style="font-size:12px;color:var(--txt4)">La referenza verrà creata al momento del Registra Carico</span>
         </div>
       </div>`:''}
 
       <div class="form-grid g2" style="margin-bottom:8px">
         <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm)">
-          <span style="font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--txt4)">Qtà</span>
+          <span style="font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--txt4)">Qtà</span>
           <input id="mov-qty-input" class="form-input" type="number" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" min="1" value="${movForm.qty}" oninput="movForm.qty=this.value" style="text-align:center;font-family:'Montserrat',sans-serif;font-size:1.2rem;background:none;border:none;padding:0;width:60px">
-          <span style="font-size:11px;color:var(--txt3)">bottiglie</span>
+          <span style="font-size:12px;color:var(--txt3)">bottiglie</span>
         </div>
         <div></div>
       </div>
@@ -5055,14 +5055,14 @@ function _renderMovCarico(){
       ${!movForm._newMode?`
       <div class="form-grid g2" style="margin-bottom:8px">
         <div>
-          <label class="form-label">Prezzo Acquisto Lotto (escl. IVA) € <span style="color:var(--txt4);font-size:9px;text-transform:none;letter-spacing:0">— vuoto = prezzo attuale</span></label>
+          <label class="form-label">Prezzo Acquisto Lotto (escl. IVA) € <span style="color:var(--txt4);font-size:11px;text-transform:none;letter-spacing:0">— vuoto = prezzo attuale</span></label>
           <input class="form-input" type="number" value="${movForm.prezzoAcqLotto}" placeholder="${selW?fmtN(selW.prezzoAcq):"0.00"}" oninput="movForm.prezzoAcqLotto=this.value;_movLottoCartaHint()">
         </div>
         <div style="grid-column:span 2">
-          <div id="mov-lotto-carta-hint" style="display:none;align-items:center;gap:8px;padding:5px 8px;background:rgba(var(--amber-rgb,255,159,10),.08);border:1px solid rgba(var(--amber-rgb,255,159,10),.12);font-size:10px;color:var(--txt3)"></div>
+          <div id="mov-lotto-carta-hint" style="display:none;align-items:center;gap:8px;padding:5px 8px;background:rgba(var(--amber-rgb,255,159,10),.08);border:1px solid rgba(var(--amber-rgb,255,159,10),.12);font-size:12px;color:var(--txt3)"></div>
         </div>
         <div>
-          <label class="form-label">Prezzo in Carta € <span style="color:var(--txt4);font-size:9px;text-transform:none;letter-spacing:0">— opzionale</span></label>
+          <label class="form-label">Prezzo in Carta € <span style="color:var(--txt4);font-size:11px;text-transform:none;letter-spacing:0">— opzionale</span></label>
           <input class="form-input" type="number" step="0.5" min="0" placeholder="${selW?fmtN(selW.prezzoCarta||0):"0.00"}"
             value="${selW?h(String(selW.prezzoCarta||'')):''}'"
             ${selW?'disabled':''}
@@ -5071,24 +5071,24 @@ function _renderMovCarico(){
       </div>`:''
       }
       <div class="form-row" style="margin-bottom:8px">
-        <label class="form-label">N° Fattura <span style="color:var(--txt4);font-size:9px;text-transform:none;letter-spacing:0">— opzionale</span></label>
+        <label class="form-label">N° Fattura <span style="color:var(--txt4);font-size:11px;text-transform:none;letter-spacing:0">— opzionale</span></label>
         <input class="form-input" value="${h(movForm.fattura)}" placeholder="FT-2024-001" oninput="movForm.fattura=this.value">
       </div>`:`
       <div class="form-row" style="margin-bottom:8px">
-        <label class="form-label">N° Fattura <span style="color:var(--txt4);font-size:9px;text-transform:none;letter-spacing:0">— opzionale</span></label>
+        <label class="form-label">N° Fattura <span style="color:var(--txt4);font-size:11px;text-transform:none;letter-spacing:0">— opzionale</span></label>
         <input class="form-input" value="${h(movForm.fattura)}" placeholder="FT-2024-001" oninput="movForm.fattura=this.value">
       </div>`}
       ${movForm.tipo==="scarico"?``:''}
       <div class="form-row" style="margin-top:4px"><label class="form-label">Note</label><input class="form-input" value="${h(movForm.note)}" placeholder="Note aggiuntive…" oninput="movForm.note=this.value"></div>
       ${selW?`<div class="info-panel">
-        <div><div style="font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:4px">P.Carta/bt</div><div style="color:${selW.prezzoCarta?"#30D158":"#fb923c"};font-family:'Montserrat',sans-serif;font-size:13px">${selW.prezzoCarta?fmt(parseFloat(selW.prezzoCarta)):'<span style="font-size:10px;letter-spacing:.1em">⚠ NON IMP.</span>'}</div></div>
-        <div><div style="font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:4px">Costo+IVA/bt</div><div style="color:var(--amber);font-family:inherit;font-size:13px">${fmtRound(calcCostoIvaBottiglia(selW))}</div></div>
-        <div><div style="font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:4px">Marg. Lordo/bt</div><div style="color:${(calcMargineBottiglia(selW)||0)>=0?"#007AFF":"#FF453A"};font-size:13px">${calcMargineBottiglia(selW)===null?"—":fmt(calcMargineBottiglia(selW))}</div></div>
-        <div><div style="font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:4px">Marg. %</div><div style="color:${(calcMarginePerc(selW)||0)>=0?"#30D158":"#FF453A"};font-size:13px">${calcMarginePerc(selW)===null?"—":`${fmtN(calcMarginePerc(selW),1)}%`}</div></div>
+        <div><div style="font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:4px">P.Carta/bt</div><div style="color:${selW.prezzoCarta?"#30D158":"#fb923c"};font-family:'Montserrat',sans-serif;font-size:13px">${selW.prezzoCarta?fmt(parseFloat(selW.prezzoCarta)):'<span style="font-size:12px;letter-spacing:.1em">⚠ NON IMP.</span>'}</div></div>
+        <div><div style="font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:4px">Costo+IVA/bt</div><div style="color:var(--amber);font-family:inherit;font-size:13px">${fmtRound(calcCostoIvaBottiglia(selW))}</div></div>
+        <div><div style="font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:4px">Marg. Lordo/bt</div><div style="color:${(calcMargineBottiglia(selW)||0)>=0?"#007AFF":"#FF453A"};font-size:13px">${calcMargineBottiglia(selW)===null?"—":fmt(calcMargineBottiglia(selW))}</div></div>
+        <div><div style="font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:4px">Marg. %</div><div style="color:${(calcMarginePerc(selW)||0)>=0?"#30D158":"#FF453A"};font-size:13px">${calcMarginePerc(selW)===null?"—":`${fmtN(calcMarginePerc(selW),1)}%`}</div></div>
       </div>
       ${!selW.prezzoCarta?`<div style="margin-top:8px;padding:8px 10px;background:rgba(var(--amber-rgb,255,159,10),.08);border:1px solid rgba(var(--amber3-rgb,180,83,9),.3);display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        <span style="font-size:10px;color:var(--txt3);letter-spacing:.1em;text-transform:uppercase;flex-shrink:0">⚠ Imposta P.Carta ora:</span>
-        <input type="number" id="mov-quick-carta" class="form-input" style="width:100px;padding:4px 8px;font-size:11px" placeholder="0.00" step="0.5" min="0">
+        <span style="font-size:12px;color:var(--txt3);letter-spacing:.1em;text-transform:uppercase;flex-shrink:0">⚠ Imposta P.Carta ora:</span>
+        <input type="number" id="mov-quick-carta" class="form-input" style="width:100px;padding:4px 8px;font-size:12px" placeholder="0.00" step="0.5" min="0">
         <button class="btn-outline btn-sm" onclick="_setQuickCarta('${selW.id}')">Salva</button>
       </div>`:""}
       `:""}
@@ -5099,8 +5099,8 @@ function _renderMovCarico(){
     <div class="card">
       <div class="section-label"><span>Ultimi carichi e rettifiche</span></div>
       <div style="max-height:320px;overflow-y:auto;display:flex;flex-direction:column;gap:6px">
-        ${_logM.length===0?`<div style="text-align:center;padding:28px;color:var(--txt4);font-size:11px">Nessun movimento</div>`:
-        _logM.slice(0,10).map(m=>{const v=_movVis(m);return `<div class="move-log"><span style="color:${v.c}">${v.i}</span><div style="flex:1;min-width:0"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(m.wineName)}</div><div style="color:var(--txt4);font-size:10px">${h(_fmtDataIT(m.data))}${m.fattura?" · "+h(m.fattura):""}</div></div><span style="font-family:'Montserrat',sans-serif;color:${v.c};font-size:1rem">${v.s}${m.qty}</span></div>`;}).join("")}
+        ${_logM.length===0?`<div style="text-align:center;padding:28px;color:var(--txt4);font-size:12px">Nessun movimento</div>`:
+        _logM.slice(0,10).map(m=>{const v=_movVis(m);return `<div class="move-log"><span style="color:${v.c}">${v.i}</span><div style="flex:1;min-width:0"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(m.wineName)}</div><div style="color:var(--txt4);font-size:12px">${h(_fmtDataIT(m.data))}${m.fattura?" · "+h(m.fattura):""}</div></div><span style="font-family:'Montserrat',sans-serif;color:${v.c};font-size:1rem">${v.s}${m.qty}</span></div>`;}).join("")}
       </div>
     </div>
   </div>`;
@@ -5197,7 +5197,7 @@ function _movWineUpdatePanel(){
 // prezzo di acquisto e il prezzo in carta.
 function _movCartaHintHtml(sug,label,applyOnclick){
   return `<span>Suggerito (${h(label)}):</span><span style="color:var(--amber);font-family:'Montserrat',sans-serif">${fmt(sug)}</span>`
-    +(applyOnclick?`<button type="button" onclick="${applyOnclick}" style="margin-left:auto;font-size:9px;letter-spacing:.1em;text-transform:uppercase;padding:2px 8px;border:1px solid rgba(var(--amber3-rgb,180,83,9),.5);color:var(--amber);background:rgba(var(--amber-rgb,255,159,10),.12);cursor:pointer;font-family:inherit">Usa →</button>`:"");
+    +(applyOnclick?`<button type="button" onclick="${applyOnclick}" style="margin-left:auto;font-size:11px;letter-spacing:.1em;text-transform:uppercase;padding:2px 8px;border:1px solid rgba(var(--amber3-rgb,180,83,9),.5);color:var(--amber);background:rgba(var(--amber-rgb,255,159,10),.12);cursor:pointer;font-family:inherit">Usa →</button>`:"");
 }
 function _movLottoCartaHint(){
   const box=document.getElementById("mov-lotto-carta-hint");
@@ -5261,16 +5261,16 @@ function _movUpdateCartaPreview(){
   preview.style.display='block';
   body.innerHTML = `
     <div style="font-family:'Montserrat',sans-serif;font-size:1rem;font-weight:600;color:var(--txt)">${h(nome)}${annata?' <span style="color:var(--amber);font-size:.85rem">'+h(annata)+'</span>':''}</div>
-    <div style="font-size:11px;color:var(--txt3);margin-top:2px">${h(prod)}${zona?' · <span style="color:var(--txt4)">'+h(zona)+'</span>':''}</div>
+    <div style="font-size:12px;color:var(--txt3);margin-top:2px">${h(prod)}${zona?' · <span style="color:var(--txt4)">'+h(zona)+'</span>':''}</div>
     <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;align-items:center">
       ${badge(tipo)}
-      ${formato!==0.75?`<span style="font-size:9px;font-weight:600;padding:1px 6px;border:1px solid rgba(0,122,255,.35);color:#60a5fa;background:rgba(0,122,255,.1);border-radius:3px">${h(_formatoLabel(formato))}</span>`:''}
-      ${vitigni?`<span style="font-size:10px;color:var(--txt4)">🍇 ${h(vitigni)}</span>`:''}
-      ${regione?`<span style="font-size:10px;color:var(--txt3)">${h(regione)}</span>`:''}
+      ${formato!==0.75?`<span style="font-size:11px;font-weight:600;padding:1px 6px;border:1px solid rgba(0,122,255,.35);color:#60a5fa;background:rgba(0,122,255,.1);border-radius:3px">${h(_formatoLabel(formato))}</span>`:''}
+      ${vitigni?`<span style="font-size:12px;color:var(--txt4)">🍇 ${h(vitigni)}</span>`:''}
+      ${regione?`<span style="font-size:12px;color:var(--txt3)">${h(regione)}</span>`:''}
     </div>
-    ${pAcq>0?`<div style="display:flex;gap:16px;margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.06);font-size:11px">
+    ${pAcq>0?`<div style="display:flex;gap:16px;margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.06);font-size:12px">
       <div><span style="color:var(--txt4)">Costo+IVA: </span><span style="color:var(--amber)">${fmt(costoIva)}/bt</span></div>
-      <div><span style="color:var(--txt4)">P.Carta: </span><span style="color:${pCarta?'#30D158':'var(--txt4)'}">${pCarta?fmt(pCarta):'—'}</span>${suggerito&&!pCarta?` <span style="color:var(--txt4);font-size:10px">(suggerito: ${fmt(suggerito)})</span>`:''}</div>
+      <div><span style="color:var(--txt4)">P.Carta: </span><span style="color:${pCarta?'#30D158':'var(--txt4)'}">${pCarta?fmt(pCarta):'—'}</span>${suggerito&&!pCarta?` <span style="color:var(--txt4);font-size:12px">(suggerito: ${fmt(suggerito)})</span>`:''}</div>
       ${pCarta&&costoIva?`<div><span style="color:var(--txt4)">Margine: </span><span style="color:${pCarta-costoIva>=0?'#007AFF':'#FF453A'}">${fmtN((pCarta-costoIva)/pCarta*100,1)}%</span></div>`:''}
     </div>`:''}
   `;
@@ -5411,10 +5411,10 @@ function renderFallate(){
           ${selF?`<button onclick="fallForm.wineId='';fallForm._wineText='';render()" style="flex-shrink:0;padding:0 10px;border:1px solid var(--border2);color:var(--txt3);background:none;cursor:pointer;font-size:13px;border-radius:var(--radius-sm)" title="Cambia vino">\u2715</button>`:""}
         </div>
         ${selF?`<div style="margin-top:6px;display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(var(--amber-rgb,255,159,10),.06);border:1px solid rgba(var(--amber-rgb,255,159,10),.15);border-radius:var(--radius-sm);flex-wrap:wrap">
-          <span style="font-size:11px;color:var(--txt2)">${h(selF.nome)}${selF.annata?` <span style="color:var(--amber)">${h(selF.annata)}</span>`:""}</span>
-          <span style="font-size:10px;color:var(--txt3)">${h(selF.produttore||"")}</span>
-          <span style="margin-left:auto;font-size:11px;color:${(parseInt(selF.giacenza)||0)>0?"#30D158":"#FF6B6B"}">${parseInt(selF.giacenza)||0} bt disponibili</span>
-        </div>`:(fallForm._wineText&&fallForm._wineText.trim()?`<div style="margin-top:6px;font-size:10px;color:#FF6B6B">Nessuna corrispondenza \u2014 scegli una voce dall'elenco</div>`:"")}
+          <span style="font-size:12px;color:var(--txt2)">${h(selF.nome)}${selF.annata?` <span style="color:var(--amber)">${h(selF.annata)}</span>`:""}</span>
+          <span style="font-size:12px;color:var(--txt3)">${h(selF.produttore||"")}</span>
+          <span style="margin-left:auto;font-size:12px;color:${(parseInt(selF.giacenza)||0)>0?"#30D158":"#FF6B6B"}">${parseInt(selF.giacenza)||0} bt disponibili</span>
+        </div>`:(fallForm._wineText&&fallForm._wineText.trim()?`<div style="margin-top:6px;font-size:12px;color:#FF6B6B">Nessuna corrispondenza \u2014 scegli una voce dall'elenco</div>`:"")}
         `;})()}
       </div>
       <div class="form-grid g2">
@@ -5432,18 +5432,18 @@ function renderFallate(){
     <div class="card">
       <div class="section-label"><span>📋 Log Recenti</span></div>
       <div style="max-height:320px;overflow-y:auto;display:flex;flex-direction:column;gap:6px">
-        ${fallate.length===0?`<div style="text-align:center;padding:28px;color:var(--txt4);font-size:11px">Nessuna fallata registrata</div>`:
-        fallate.slice(0,10).map(f=>`<div class="fallate-log"><span style="color:#fb923c">⚠</span><div style="flex:1;min-width:0"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(f.wineName)}</div><div style="color:var(--txt4);font-size:10px">${h(_fmtDataIT(f.data))} · ${h(f.motivo)}</div></div><span style="font-family:'Montserrat',sans-serif;color:#fb923c;font-size:1rem">${f.qty}bt</span></div>`).join("")}
+        ${fallate.length===0?`<div style="text-align:center;padding:28px;color:var(--txt4);font-size:12px">Nessuna fallata registrata</div>`:
+        fallate.slice(0,10).map(f=>`<div class="fallate-log"><span style="color:#fb923c">⚠</span><div style="flex:1;min-width:0"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(f.wineName)}</div><div style="color:var(--txt4);font-size:12px">${h(_fmtDataIT(f.data))} · ${h(f.motivo)}</div></div><span style="font-family:'Montserrat',sans-serif;color:#fb923c;font-size:1rem">${f.qty}bt</span></div>`).join("")}
       </div>
     </div>
   </div>
   <div class="card" style="padding:0">
-    <div class="tbl-header"><span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt3)">Registro Completo — ${fallate.length} fallate</span><button class="btn-outline btn-sm" onclick="exportFallateCSV()">↓ CSV</button></div>
+    <div class="tbl-header"><span style="font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt3)">Registro Completo — ${fallate.length} fallate</span><button class="btn-outline btn-sm" onclick="exportFallateCSV()">↓ CSV</button></div>
     <div class="tbl-wrap"><table>
       <thead><tr><th>Data</th><th>Vino</th><th>Produttore</th><th>Nazione</th><th>Motivo</th><th class="r">Qtà</th><th>Note</th></tr></thead>
       <tbody>
         ${fallate.length===0?`<tr><td colspan="6" style="text-align:center;padding:28px;color:var(--txt4)">Nessuna fallata</td></tr>`:
-        (()=>{ const wMap=Object.fromEntries(wines.map(w=>[w.id,w])); return fallate.map(f=>{const wF=wMap[f.wineId];return`<tr><td style="color:var(--txt2)">${h(_fmtDataIT(f.data))}</td><td>${h(f.wineName)}</td><td style="color:var(--txt2)">${h(f.produttore||"—")}</td><td style="color:var(--amber3);font-size:10px">${h(wF?.nazione||"—")}</td><td style="color:var(--txt3)">${h(f.motivo)}</td><td class="r" style="color:#fb923c;font-family:'Montserrat',sans-serif">${f.qty}</td><td style="color:var(--txt4);font-size:10px">${h(f.note||"—")}</td></tr>`}).join(""); })()}
+        (()=>{ const wMap=Object.fromEntries(wines.map(w=>[w.id,w])); return fallate.map(f=>{const wF=wMap[f.wineId];return`<tr><td style="color:var(--txt2)">${h(_fmtDataIT(f.data))}</td><td>${h(f.wineName)}</td><td style="color:var(--txt2)">${h(f.produttore||"—")}</td><td style="color:var(--amber3);font-size:12px">${h(wF?.nazione||"—")}</td><td style="color:var(--txt3)">${h(f.motivo)}</td><td class="r" style="color:#fb923c;font-family:'Montserrat',sans-serif">${f.qty}</td><td style="color:var(--txt4);font-size:12px">${h(f.note||"—")}</td></tr>`}).join(""); })()}
       </tbody>
     </table></div>
   </div>`;
@@ -5497,7 +5497,7 @@ function renderOrdini(){
     const _sconto=parseFloat(o.sconto)||0;
     const totNetto=totLordo*(1-_sconto/100);
     const valCell=_sconto>0
-      ? `<span style="color:var(--txt4);text-decoration:line-through;font-size:10px">${fmt(totLordo)}</span> <span style="color:#30D158;font-weight:600">${fmt(totNetto)}</span> <span style="font-size:9px;color:#FF453A">−${_sconto}%</span>`
+      ? `<span style="color:var(--txt4);text-decoration:line-through;font-size:12px">${fmt(totLordo)}</span> <span style="color:#30D158;font-weight:600">${fmt(totNetto)}</span> <span style="font-size:11px;color:#FF453A">−${_sconto}%</span>`
       : fmt(totLordo);
     const isPending=o.stato==="confermato_pendente";
     const statoCell=isPending
@@ -5513,10 +5513,10 @@ function renderOrdini(){
       <td><input type="checkbox" class="ord-check" data-id="${o.id}" ${isPending?'checked':''} onchange="toggleOrdineArrivato('${o.id}',this.checked)" style="width:18px;height:18px;cursor:pointer"></td>
       <td>${h(_fmtDataIT(o.dataOrdine))}</td>
       <td style="font-weight:500">${h(o.fornitore||'—')}</td>
-      <td style="color:var(--txt3);font-size:10px">${ref.length} ref.</td>
+      <td style="color:var(--txt3);font-size:12px">${ref.length} ref.</td>
       <td style="color:var(--amber)">${totQty} bt</td>
       <td style="color:var(--txt2)">${valCell}</td>
-      <td><input type="date" class="form-input" style="font-size:10px;padding:3px 6px;width:130px;background:${o.dataArrivo?'rgba(48,209,88,.06)':'rgba(var(--amber-rgb,255,159,10),.06)'};border-color:${o.dataArrivo?'rgba(48,209,88,.25)':'rgba(var(--amber-rgb,255,159,10),.2)'}" value="${o.dataArrivo||''}" placeholder="—" title="Data arrivo prevista" onchange="_setDataArrivo('${o.id}',this.value)"></td>
+      <td><input type="date" class="form-input" style="font-size:12px;padding:3px 6px;width:130px;background:${o.dataArrivo?'rgba(48,209,88,.06)':'rgba(var(--amber-rgb,255,159,10),.06)'};border-color:${o.dataArrivo?'rgba(48,209,88,.25)':'rgba(var(--amber-rgb,255,159,10),.2)'}" value="${o.dataArrivo||''}" placeholder="—" title="Data arrivo prevista" onchange="_setDataArrivo('${o.id}',this.value)"></td>
       <td><div style="display:flex;flex-direction:column;gap:4px">${statoCell}${invBadge}</div></td>
       <td style="display:flex;gap:6px;align-items:center;padding:6px 14px">
         <button class="btn-outline btn-sm" onclick="apriModalRicezione('${o.id}')" title="Conferma arrivo" style="border-color:rgba(22,163,74,.4);color:#30D158">📦 Ricevi</button>
@@ -5553,7 +5553,7 @@ function renderOrdini(){
     let _divider="";
     if(_meseKey && _meseKey!==_lastMese){
       _lastMese=_meseKey;
-      _divider=`<tr class="ord-mese-divider"><td colspan="9" style="padding:8px 14px;background:var(--bg3);border-top:1px solid var(--border);border-bottom:1px solid var(--border);font-family:'Montserrat',sans-serif;font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--amber3)">${h(_meseLabelIT(_meseKey))}</td></tr>`;
+      _divider=`<tr class="ord-mese-divider"><td colspan="9" style="padding:8px 14px;background:var(--bg3);border-top:1px solid var(--border);border-bottom:1px solid var(--border);font-family:'Montserrat',sans-serif;font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--amber3)">${h(_meseLabelIT(_meseKey))}</td></tr>`;
     }
     return _divider+`<tr>
       <td style="padding:6px 8px;text-align:center"><input type="checkbox" class="cb-sel evaso-check" data-id="${o.id}" style="width:13px;height:13px;accent-color:var(--amber);cursor:pointer"></td>
@@ -5564,28 +5564,28 @@ function renderOrdini(){
       <td style="color:var(--txt3);font-size:.8rem">${h(_fmtDataIT(o.dataArrivo))||"—"}</td>
       <td style="color:var(--amber);font-size:.8rem">
         <span id="fatt-val-${o.id}" style="cursor:pointer" title="Clicca per modificare" onclick="editFattura('${o.id}')">${h(o.numeroFattura||o.fattura)||'<span style="color:var(--txt4)">— modifica</span>'}</span>
-        <input id="fatt-inp-${o.id}" class="form-input" style="display:none;width:120px;font-size:11px;padding:2px 6px" value="${h(o.numeroFattura||o.fattura||'')}" placeholder="Es. FT-2025-001"
+        <input id="fatt-inp-${o.id}" class="form-input" style="display:none;width:120px;font-size:12px;padding:2px 6px" value="${h(o.numeroFattura||o.fattura||'')}" placeholder="Es. FT-2025-001"
           onblur="saveFattura('${o.id}',this.value)"
           onkeydown="if(event.key==='Enter')this.blur();if(event.key==='Escape'){this.value=orders.find(x=>x.id==='${o.id}')?.numeroFattura||'';this.blur()}">
       </td>
       <td style="color:var(--txt4);font-size:.75rem">${h(_fmtDataIT(o.dataCarico))||"—"}</td>
       <td style="white-space:nowrap">
-        <button class="btn-outline btn-sm" onclick="mostraDettaglioOrdine('${o.id}')" style="font-size:9px;padding:2px 8px;color:var(--txt4)">dettaglio</button>
-        <button class="btn-outline btn-sm" onclick="apriOrdineEvasoModal('${o.id}')" style="font-size:9px;padding:2px 8px;color:var(--amber);border-color:rgba(var(--amber-rgb,255,159,10),.25)">✏️</button>
-        <button class="btn-outline btn-sm" onclick="duplicaOrdine('${o.id}')" style="font-size:9px;padding:2px 8px;color:#bf5fff;border-color:rgba(191,95,255,.25)" title="Duplica in nuovo ordine">⧉</button>
-        <button class="btn-outline btn-sm" onclick="annullaRicezione('${o.id}')" style="font-size:9px;padding:2px 8px;color:#30D158;border-color:rgba(22,163,74,.3)" title="Annulla ricezione e rimetti in attesa">↩︎ ricezione</button>
-        <button onclick="deleteEvaso('${o.id}')" style="color:#FF453A;font-size:12px;background:none;border:none;cursor:pointer;margin-left:4px;padding:2px 4px" title="Elimina ordine evaso">🗑️</button>
+        <button class="btn-outline btn-sm" onclick="mostraDettaglioOrdine('${o.id}')" style="font-size:11px;padding:2px 8px;color:var(--txt4)">dettaglio</button>
+        <button class="btn-outline btn-sm" onclick="apriOrdineEvasoModal('${o.id}')" style="font-size:11px;padding:2px 8px;color:var(--amber);border-color:rgba(var(--amber-rgb,255,159,10),.25)">✏️</button>
+        <button class="btn-outline btn-sm" onclick="duplicaOrdine('${o.id}')" style="font-size:11px;padding:2px 8px;color:#bf5fff;border-color:rgba(191,95,255,.25)" title="Duplica in nuovo ordine">⧉</button>
+        <button class="btn-outline btn-sm" onclick="annullaRicezione('${o.id}')" style="font-size:11px;padding:2px 8px;color:#30D158;border-color:rgba(22,163,74,.3)" title="Annulla ricezione e rimetti in attesa">↩︎ ricezione</button>
+        <button onclick="deleteEvaso('${o.id}')" style="color:#FF453A;font-size:13px;background:none;border:none;cursor:pointer;margin-left:4px;padding:2px 4px" title="Elimina ordine evaso">🗑️</button>
       </td>
     </tr>
     <tr id="det-${o.id}" class="hidden" style="background:rgba(28,28,30,.6)">
       <td colspan="9" style="padding:0 14px 10px">
-        <table style="width:100%;font-size:10px;border-collapse:collapse">
+        <table style="width:100%;font-size:12px;border-collapse:collapse">
           <tr style="color:var(--txt4)">${["Produttore","Vino","Annata","Vitigni","Tipo","Ord.","Arriv.","P.Acq"].map(c=>`<td style="padding:4px 8px">${c}</td>`).join("")}</tr>
           ${ref.map(r=>`<tr style="border-top:1px solid var(--border)">
             <td style="padding:4px 8px;color:var(--txt3)">${h(r.produttore||'—')}</td>
             <td style="padding:4px 8px">${h(r.nomeVino)}</td>
-            <td style="padding:4px 8px;color:var(--amber);font-family:'Montserrat',sans-serif;font-size:10px;text-align:center">${r.annata?h(r.annata):'<span style="color:var(--txt4)">N.V.</span>'}</td>
-            <td style="padding:4px 8px;color:var(--txt3);font-size:10px">${h(r.vitigni||'—')}</td>
+            <td style="padding:4px 8px;color:var(--amber);font-family:'Montserrat',sans-serif;font-size:12px;text-align:center">${r.annata?h(r.annata):'<span style="color:var(--txt4)">N.V.</span>'}</td>
+            <td style="padding:4px 8px;color:var(--txt3);font-size:12px">${h(r.vitigni||'—')}</td>
             <td style="padding:4px 8px">${badge(r.tipologia)}</td>
             <td style="padding:4px 8px;color:var(--txt2)">${r.qty}</td>
             <td style="padding:4px 8px;color:${(r.qtyArr!==undefined&&r.qtyArr!==r.qty)?"#fb923c":"#30D158"}">${r.qtyArr??r.qty}</td>
@@ -5609,7 +5609,7 @@ function renderOrdini(){
       <span>📋 Ordini Fornitore (${ordiniAttivi.length} aperti, ${ordiniAttesa.length} in attesa)</span>
       <div style="display:flex;gap:8px">
         ${selMode!=='ordini'?`<button class="btn-outline btn-sm" onclick="enterSel('ordini')" style="border-color:rgba(59,130,246,.5);color:#93c5fd">☑ Selezione multipla</button>`:''}
-        <button class="btn-outline btn-sm" onclick="_pulisciDateOrdiniImportati()" title="Rimuove date arrivo/carico errate dagli ordini importati" style="border-color:rgba(255,69,58,.3);color:#FF453A;font-size:9px">🧹 Pulisci date import</button>
+        <button class="btn-outline btn-sm" onclick="_pulisciDateOrdiniImportati()" title="Rimuove date arrivo/carico errate dagli ordini importati" style="border-color:rgba(255,69,58,.3);color:#FF453A;font-size:11px">🧹 Pulisci date import</button>
         <button class="btn-primary" onclick="apriOrdineModal(null)">➕ Nuovo Ordine</button>
       </div>
     </div>
@@ -5692,27 +5692,27 @@ function renderOrdini(){
     <div class="card-header" style="background:rgba(41,37,36,.5);flex-wrap:wrap;gap:8px">
       <span style="color:var(--txt3)">📁 Storico Ordini Evasi (${evasi.length}${filteredEvasi.length!==evasi.length?` · ${filteredEvasi.length} mostrati`:""})</span>
       <div style="display:flex;gap:8px;align-items:center">
-        <button class="btn-danger btn-sm" onclick="deleteEvasiSelezionati()" style="font-size:9px;padding:3px 10px">🗑️ Elimina selezionati</button>
+        <button class="btn-danger btn-sm" onclick="deleteEvasiSelezionati()" style="font-size:11px;padding:3px 10px">🗑️ Elimina selezionati</button>
         <button class="btn-outline btn-sm" onclick="exportStoricoOrdiniCSV()" style="color:var(--txt3);border-color:var(--border)">↓ CSV</button>
       </div>
     </div>
     <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end">
-      <div class="search-wrap" style="flex:1;min-width:160px"><span class="search-icon">🔍</span><input id="storico-search" class="form-input" style="padding-left:28px;font-size:11px" placeholder="Cerca vino, fornitore…" value="${h(storicoQ)}" oninput="storicoQ=this.value;renderOrdiniOnly()"></div>
-      <div style="min-width:140px"><select class="form-select" style="font-size:11px" onchange="storicoForn=this.value;render()">
+      <div class="search-wrap" style="flex:1;min-width:160px"><span class="search-icon">🔍</span><input id="storico-search" class="form-input" style="padding-left:28px;font-size:12px" placeholder="Cerca vino, fornitore…" value="${h(storicoQ)}" oninput="storicoQ=this.value;renderOrdiniOnly()"></div>
+      <div style="min-width:140px"><select class="form-select" style="font-size:12px" onchange="storicoForn=this.value;render()">
         <option value="">Tutti i fornitori</option>
         ${fornEvasi.map(f=>`<option value="${h(f)}" ${storicoForn===f?"selected":""}>${h(f)}</option>`).join("")}
       </select></div>
       <div style="display:flex;align-items:center;gap:6px">
-        <input type="date" class="form-input" style="font-size:11px;width:130px" value="${storicoDataDa}" onchange="storicoDataDa=this.value;render()">
-        <span style="color:var(--txt4);font-size:10px">→</span>
-        <input type="date" class="form-input" style="font-size:11px;width:130px" value="${storicoDataA}" onchange="storicoDataA=this.value;render()">
+        <input type="date" class="form-input" style="font-size:12px;width:130px" value="${storicoDataDa}" onchange="storicoDataDa=this.value;render()">
+        <span style="color:var(--txt4);font-size:12px">→</span>
+        <input type="date" class="form-input" style="font-size:12px;width:130px" value="${storicoDataA}" onchange="storicoDataA=this.value;render()">
       </div>
       ${(storicoQ||storicoForn||storicoDataDa||storicoDataA)?`<button class="btn-outline btn-sm" onclick="storicoQ='';storicoForn='';storicoDataDa='';storicoDataA='';render()" style="color:var(--txt4)">✕ Reset</button>`:""}
     </div>
     <div style="overflow-x:auto">
       <table class="wine-table" style="opacity:.85">
         <thead><tr><th style="width:32px"></th><th>Data Ordine</th><th>Fornitore</th><th>Referenze</th><th>Bottiglie</th><th>Data Arrivo</th><th>Proforma/Fattura</th><th>Caricato il</th><th></th></tr></thead>
-        <tbody>${filteredEvasi.length?righeEvasi:`<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--txt4);font-size:11px">Nessun risultato</td></tr>`}</tbody>
+        <tbody>${filteredEvasi.length?righeEvasi:`<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--txt4);font-size:12px">Nessun risultato</td></tr>`}</tbody>
       </table>
     </div>
   </div>` : ""}
@@ -5785,7 +5785,7 @@ function annullaRicezione(id){
   if(o.stato!=="caricato" && o.stato!=="confermato_pendente"){ notify("L'ordine non risulta ricevuto","err"); return; }
   const totQty=(o.referenze||[]).reduce((s,r)=>s+(parseInt(r.qtyArr??r.qty)||0),0);
   _confirmModal(
-    `Annullare la ricezione di <strong>${h(o.fornitore||'—')}</strong> del ${h(o.dataOrdine||'—')}?<br><span style="color:var(--txt3);font-size:12px">Verranno stornate ${totQty} bottiglie dal magazzino e l'ordine tornerà «in attesa» per una nuova ricezione.</span>`,
+    `Annullare la ricezione di <strong>${h(o.fornitore||'—')}</strong> del ${h(o.dataOrdine||'—')}?<br><span style="color:var(--txt3);font-size:13px">Verranno stornate ${totQty} bottiglie dal magazzino e l'ordine tornerà «in attesa» per una nuova ricezione.</span>`,
     "🔄 Annulla ricezione",
     ()=>{
       _rollbackOrdine(o);
@@ -5900,13 +5900,13 @@ function apriOrdineEvasoModal(id){
 
   const refsHtml = (o.referenze||[]).map((r,i)=>`
     <tr data-evaso-ref-id="${r.id}" style="border-top:1px solid var(--border)">
-      <td style="padding:5px 8px"><input class="form-input" style="font-size:11px" value="${h(r.produttore||'')}" placeholder="Produttore"></td>
-      <td style="padding:5px 8px"><input class="form-input" style="font-size:11px" value="${h(r.nomeVino||'')}" placeholder="Nome vino"></td>
-      <td style="padding:5px 8px"><input class="form-input" style="font-size:11px;width:80px" value="${h(r.annata||'')}" placeholder="Anno"></td>
-      <td style="padding:5px 8px"><select class="form-select" style="font-size:11px" data-prev="${h(r.tipologia)}" onchange="_addTipologiaInline(this);if(this.value!=='__new__')this.dataset.prev=this.value">${_tipoOptsHtml(r.tipologia)}</select></td>
-      <td style="padding:5px 8px;text-align:center"><input type="number" class="form-input" style="font-size:11px;width:60px;text-align:center" value="${r.qty||0}" min="0"></td>
-      <td style="padding:5px 8px;text-align:center"><input type="number" class="form-input" style="font-size:11px;width:60px;text-align:center" value="${r.qtyArr??r.qty??0}" min="0"></td>
-      <td style="padding:5px 8px"><input type="number" class="form-input" style="font-size:11px;width:80px" value="${r.prezzoAcq||''}" step="0.01" min="0" placeholder="0.00"></td>
+      <td style="padding:5px 8px"><input class="form-input" style="font-size:12px" value="${h(r.produttore||'')}" placeholder="Produttore"></td>
+      <td style="padding:5px 8px"><input class="form-input" style="font-size:12px" value="${h(r.nomeVino||'')}" placeholder="Nome vino"></td>
+      <td style="padding:5px 8px"><input class="form-input" style="font-size:12px;width:80px" value="${h(r.annata||'')}" placeholder="Anno"></td>
+      <td style="padding:5px 8px"><select class="form-select" style="font-size:12px" data-prev="${h(r.tipologia)}" onchange="_addTipologiaInline(this);if(this.value!=='__new__')this.dataset.prev=this.value">${_tipoOptsHtml(r.tipologia)}</select></td>
+      <td style="padding:5px 8px;text-align:center"><input type="number" class="form-input" style="font-size:12px;width:60px;text-align:center" value="${r.qty||0}" min="0"></td>
+      <td style="padding:5px 8px;text-align:center"><input type="number" class="form-input" style="font-size:12px;width:60px;text-align:center" value="${r.qtyArr??r.qty??0}" min="0"></td>
+      <td style="padding:5px 8px"><input type="number" class="form-input" style="font-size:12px;width:80px" value="${r.prezzoAcq||''}" step="0.01" min="0" placeholder="0.00"></td>
       <td style="padding:5px 8px;text-align:center"><button onclick="this.closest('tr').remove()" style="background:none;border:none;color:#FF453A;font-size:14px;cursor:pointer" title="Rimuovi riga">🗑️</button></td>
     </tr>`).join("");
 
@@ -5938,7 +5938,7 @@ function apriOrdineEvasoModal(id){
     </div>
     <div style="overflow-x:auto;margin-bottom:10px">
       <table style="width:100%;border-collapse:collapse;min-width:700px">
-        <thead><tr style="font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt4);background:rgba(41,37,36,.5)">
+        <thead><tr style="font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt4);background:rgba(41,37,36,.5)">
           <td style="padding:6px 8px">Produttore</td>
           <td style="padding:6px 8px">Nome Vino</td>
           <td style="padding:6px 8px">Annata</td>
@@ -5952,7 +5952,7 @@ function apriOrdineEvasoModal(id){
       </table>
     </div>
     <button onclick="_addEvasoRefRow()" class="btn-outline btn-sm" style="margin-bottom:8px">+ Aggiungi referenza</button>
-    <div style="padding:10px;background:rgba(28,28,30,.6);border:1px solid var(--border);font-size:10px;color:var(--txt4)">
+    <div style="padding:10px;background:rgba(28,28,30,.6);border:1px solid var(--border);font-size:12px;color:var(--txt4)">
       ⚠️ Modificare quantità arrivate aggiorna lo storico ma <strong style="color:var(--amber3)">non ricalcola automaticamente le giacenze</strong>. Per correggere le giacenze usa un movimento manuale.
     </div>`;
 
@@ -5965,13 +5965,13 @@ function _addEvasoRefRow(){
   const newId = uid();
   tbody.insertAdjacentHTML("beforeend",`
     <tr data-evaso-ref-id="${newId}" style="border-top:1px solid var(--border)">
-      <td style="padding:5px 8px"><input class="form-input" style="font-size:11px" value="" placeholder="Produttore"></td>
-      <td style="padding:5px 8px"><input class="form-input" style="font-size:11px" value="" placeholder="Nome vino"></td>
-      <td style="padding:5px 8px"><input class="form-input" style="font-size:11px;width:80px" value="" placeholder="Anno"></td>
-      <td style="padding:5px 8px"><select class="form-select" style="font-size:11px" data-prev="Rosso" onchange="_addTipologiaInline(this);if(this.value!=='__new__')this.dataset.prev=this.value">${_tipoOptsHtml("")}</select></td>
-      <td style="padding:5px 8px;text-align:center"><input type="number" class="form-input" style="font-size:11px;width:60px;text-align:center" value="0" min="0"></td>
-      <td style="padding:5px 8px;text-align:center"><input type="number" class="form-input" style="font-size:11px;width:60px;text-align:center" value="0" min="0"></td>
-      <td style="padding:5px 8px"><input type="number" class="form-input" style="font-size:11px;width:80px" value="" step="0.01" min="0" placeholder="0.00"></td>
+      <td style="padding:5px 8px"><input class="form-input" style="font-size:12px" value="" placeholder="Produttore"></td>
+      <td style="padding:5px 8px"><input class="form-input" style="font-size:12px" value="" placeholder="Nome vino"></td>
+      <td style="padding:5px 8px"><input class="form-input" style="font-size:12px;width:80px" value="" placeholder="Anno"></td>
+      <td style="padding:5px 8px"><select class="form-select" style="font-size:12px" data-prev="Rosso" onchange="_addTipologiaInline(this);if(this.value!=='__new__')this.dataset.prev=this.value">${_tipoOptsHtml("")}</select></td>
+      <td style="padding:5px 8px;text-align:center"><input type="number" class="form-input" style="font-size:12px;width:60px;text-align:center" value="0" min="0"></td>
+      <td style="padding:5px 8px;text-align:center"><input type="number" class="form-input" style="font-size:12px;width:60px;text-align:center" value="0" min="0"></td>
+      <td style="padding:5px 8px"><input type="number" class="form-input" style="font-size:12px;width:80px" value="" step="0.01" min="0" placeholder="0.00"></td>
       <td style="padding:5px 8px;text-align:center"><button onclick="this.closest('tr').remove()" style="background:none;border:none;color:#FF453A;font-size:14px;cursor:pointer">🗑️</button></td>
     </tr>`);
 }
@@ -6240,7 +6240,7 @@ function _renderOrdineModalBody(allFornitori, allProduttori, allNomi){
       </table>
     </div>
     <button class="btn-outline btn-sm" style="margin-top:10px" onclick="_addRefRow()">+ Aggiungi referenza</button>
-    <div id="omd-totale" style="margin-top:12px;text-align:right;font-size:11px;color:var(--txt2)"></div>`;
+    <div id="omd-totale" style="margin-top:12px;text-align:right;font-size:12px;color:var(--txt2)"></div>`;
   _updateOrdineModalTotale();
   // Inizializza suggerimenti P.Carta per righe con prezzoAcq già valorizzato (es. ordine in modifica)
   ordineModalData.referenze.forEach(r=>{ if(r.prezzoAcq) _updateRefCartaSuggerita(r.id); });
@@ -6260,37 +6260,37 @@ function _refRowHtml(r,i,tipoOpts,ivaOpts,allProduttori,allNomi){
   const isOmaggio = scontoRef>=100;
   const totRigaHtml = totRiga
     ? (isOmaggio
-        ? `<span style="color:#30D158;font-weight:600;font-size:10px">🎁 OMAGGIO</span>`
+        ? `<span style="color:#30D158;font-weight:600;font-size:12px">🎁 OMAGGIO</span>`
         : hasDiscount
-          ? `<span style="color:var(--txt4);text-decoration:line-through;font-size:10px">${fmtRound(totRiga)}</span><br><span style="color:#30D158">${fmtRound(totRigaNetto)}</span>`
+          ? `<span style="color:var(--txt4);text-decoration:line-through;font-size:12px">${fmtRound(totRiga)}</span><br><span style="color:#30D158">${fmtRound(totRigaNetto)}</span>`
           : `<span style="color:var(--txt2)">${fmtRound(totRiga)}</span>`)
     : "—";
   // Colore sfondo cella sconto referenza
   const scBg = scontoRef>=100 ? "rgba(48,209,88,.12)" : scontoRef>0 ? "rgba(255,69,58,.06)" : "transparent";
   return `<tr data-ref-id="${r.id}" style="border-top:1px solid var(--border)">
-    <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;min-width:110px;width:100%" list="omd-prod-dl" autocomplete="off" value="${h(r.produttore)}" placeholder="Produttore" onchange="_refChange('${r.id}','produttore',this.value);_refAutofillSafe('${r.id}')"></td>
-    <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;min-width:110px;width:100%" list="omd-wine-dl" autocomplete="off" value="${h(r.nomeVino)}" placeholder="Nome vino" onchange="_refChange('${r.id}','nomeVino',this.value);_showRefGiacenza('${r.id}',this.value);_refAutofillSafe('${r.id}')"><div id="ref-giac-${r.id}" style="font-size:9px;margin-top:2px"></div></td>
-    <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;min-width:80px;width:100%" data-ac-src="vitigni" data-ac-multi="1" autocomplete="off" value="${h(r.vitigni||'')}" placeholder="es. Nebbiolo" onchange="_refChange('${r.id}','vitigni',this.value.trim())"></td>
-    <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;text-align:center;min-width:52px;width:100%" value="${h(r.annata||'')}" placeholder="es. 2021" onchange="_refChange('${r.id}','annata',this.value.trim());_refAutofillSafe('${r.id}')"></td>
-    <td style="padding:5px 6px"><select class="form-input" style="font-size:11px;min-width:80px;width:100%" data-prev="${h(r.tipologia)}" onchange="_addTipologiaInline(this,(v)=>_refChange('${r.id}','tipologia',v));if(this.value!=='__new__'){this.dataset.prev=this.value;_refChange('${r.id}','tipologia',this.value)}">${selTipo}</select></td>
-    <td style="padding:5px 6px"><select class="form-input" style="font-size:11px;min-width:72px;width:100%" onchange="_refChange('${r.id}','formato',parseFloat(this.value)||0.75);_updateRefCartaSuggerita('${r.id}')">
+    <td style="padding:5px 6px"><input class="form-input" style="font-size:12px;min-width:110px;width:100%" list="omd-prod-dl" autocomplete="off" value="${h(r.produttore)}" placeholder="Produttore" onchange="_refChange('${r.id}','produttore',this.value);_refAutofillSafe('${r.id}')"></td>
+    <td style="padding:5px 6px"><input class="form-input" style="font-size:12px;min-width:110px;width:100%" list="omd-wine-dl" autocomplete="off" value="${h(r.nomeVino)}" placeholder="Nome vino" onchange="_refChange('${r.id}','nomeVino',this.value);_showRefGiacenza('${r.id}',this.value);_refAutofillSafe('${r.id}')"><div id="ref-giac-${r.id}" style="font-size:11px;margin-top:2px"></div></td>
+    <td style="padding:5px 6px"><input class="form-input" style="font-size:12px;min-width:80px;width:100%" data-ac-src="vitigni" data-ac-multi="1" autocomplete="off" value="${h(r.vitigni||'')}" placeholder="es. Nebbiolo" onchange="_refChange('${r.id}','vitigni',this.value.trim())"></td>
+    <td style="padding:5px 6px"><input class="form-input" style="font-size:12px;text-align:center;min-width:52px;width:100%" value="${h(r.annata||'')}" placeholder="es. 2021" onchange="_refChange('${r.id}','annata',this.value.trim());_refAutofillSafe('${r.id}')"></td>
+    <td style="padding:5px 6px"><select class="form-input" style="font-size:12px;min-width:80px;width:100%" data-prev="${h(r.tipologia)}" onchange="_addTipologiaInline(this,(v)=>_refChange('${r.id}','tipologia',v));if(this.value!=='__new__'){this.dataset.prev=this.value;_refChange('${r.id}','tipologia',this.value)}">${selTipo}</select></td>
+    <td style="padding:5px 6px"><select class="form-input" style="font-size:12px;min-width:72px;width:100%" onchange="_refChange('${r.id}','formato',parseFloat(this.value)||0.75);_updateRefCartaSuggerita('${r.id}')">
       ${_formatoOptsHtml(r.formato)}
     </select></td>
-    <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;min-width:80px;width:100%" list="omd-naz-dl" autocomplete="off" value="${h(r.nazione||'')}" placeholder="es. Italia" onchange="_refChangeNazione('${r.id}',this.value.trim())"></td>
-    <td style="padding:5px 6px"><input class="form-input" style="font-size:11px;min-width:90px;width:100%" list="omd-reg-dl-${r.id}" autocomplete="off" value="${h(r.regione||'')}" placeholder="es. Piemonte" onchange="_refChange('${r.id}','regione',this.value.trim())"><datalist id="omd-reg-dl-${r.id}">${_ordRegioniPer(r.nazione||'Italia').map(v=>`<option value="${h(v)}">`).join("")}</datalist></td>
-    <td style="padding:0;width:0;overflow:hidden;max-width:0"><input class="form-input" style="font-size:11px;width:0;border:none;padding:0;background:none" value="${h(r.zona||'')}" onchange="_refChange('${r.id}','zona',this.value.trim())"></td>
-    <td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:11px;min-width:80px;width:100%" value="${r.prezzoAcq||''}" step="0.01" min="0" placeholder="0.00" onchange="_refChange('${r.id}','prezzoAcq',parseFloat(this.value)||0);_updateRefIvaIncl('${r.id}');_updateRefCartaSuggerita('${r.id}')" oninput="_refChange('${r.id}','prezzoAcq',parseFloat(this.value)||0);_updateRefIvaIncl('${r.id}');_updateRefCartaSuggerita('${r.id}');_updateOrdineModalTotale()"></td>
-    <td style="padding:5px 6px"><select class="form-input" style="font-size:11px;min-width:52px;width:100%" onchange="_refChange('${r.id}','iva',parseInt(this.value));_updateRefIvaIncl('${r.id}');_updateRefCartaSuggerita('${r.id}');_updateOrdineModalTotale()">${selIva}</select></td>
-    <td style="padding:5px 6px;text-align:right;font-size:12px;color:var(--amber);font-weight:600;white-space:nowrap;background:rgba(var(--amber-rgb,255,159,10),.06);border-left:1px solid rgba(var(--amber-rgb,255,159,10),.12)" id="ref-ivaincl-${r.id}">${ivaIncl?fmtRound(ivaIncl):"—"}</td>
-    <td style="padding:5px 6px"><input type="number" id="ref-carta-inp-${r.id}" class="form-input" style="font-size:11px;text-align:right;min-width:72px;width:100%" value="${r.prezzoCarta||''}" step="1" min="0" placeholder="0" onchange="_refChange('${r.id}','prezzoCarta',parseFloat(this.value)||0)"><div id="ref-carta-hint-${r.id}" style="font-size:9px;margin-top:2px;white-space:nowrap"></div></td>
-    <td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:12px;text-align:center;min-width:52px;width:100%" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" value="${r.qty||6}" min="1" step="1" oninput="_refChange('${r.id}','qty',parseInt(this.value)||1);_updateOrdineModalTotale()"></td>
+    <td style="padding:5px 6px"><input class="form-input" style="font-size:12px;min-width:80px;width:100%" list="omd-naz-dl" autocomplete="off" value="${h(r.nazione||'')}" placeholder="es. Italia" onchange="_refChangeNazione('${r.id}',this.value.trim())"></td>
+    <td style="padding:5px 6px"><input class="form-input" style="font-size:12px;min-width:90px;width:100%" list="omd-reg-dl-${r.id}" autocomplete="off" value="${h(r.regione||'')}" placeholder="es. Piemonte" onchange="_refChange('${r.id}','regione',this.value.trim())"><datalist id="omd-reg-dl-${r.id}">${_ordRegioniPer(r.nazione||'Italia').map(v=>`<option value="${h(v)}">`).join("")}</datalist></td>
+    <td style="padding:0;width:0;overflow:hidden;max-width:0"><input class="form-input" style="font-size:12px;width:0;border:none;padding:0;background:none" value="${h(r.zona||'')}" onchange="_refChange('${r.id}','zona',this.value.trim())"></td>
+    <td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:12px;min-width:80px;width:100%" value="${r.prezzoAcq||''}" step="0.01" min="0" placeholder="0.00" onchange="_refChange('${r.id}','prezzoAcq',parseFloat(this.value)||0);_updateRefIvaIncl('${r.id}');_updateRefCartaSuggerita('${r.id}')" oninput="_refChange('${r.id}','prezzoAcq',parseFloat(this.value)||0);_updateRefIvaIncl('${r.id}');_updateRefCartaSuggerita('${r.id}');_updateOrdineModalTotale()"></td>
+    <td style="padding:5px 6px"><select class="form-input" style="font-size:12px;min-width:52px;width:100%" onchange="_refChange('${r.id}','iva',parseInt(this.value));_updateRefIvaIncl('${r.id}');_updateRefCartaSuggerita('${r.id}');_updateOrdineModalTotale()">${selIva}</select></td>
+    <td style="padding:5px 6px;text-align:right;font-size:13px;color:var(--amber);font-weight:600;white-space:nowrap;background:rgba(var(--amber-rgb,255,159,10),.06);border-left:1px solid rgba(var(--amber-rgb,255,159,10),.12)" id="ref-ivaincl-${r.id}">${ivaIncl?fmtRound(ivaIncl):"—"}</td>
+    <td style="padding:5px 6px"><input type="number" id="ref-carta-inp-${r.id}" class="form-input" style="font-size:12px;text-align:right;min-width:72px;width:100%" value="${r.prezzoCarta||''}" step="1" min="0" placeholder="0" onchange="_refChange('${r.id}','prezzoCarta',parseFloat(this.value)||0)"><div id="ref-carta-hint-${r.id}" style="font-size:11px;margin-top:2px;white-space:nowrap"></div></td>
+    <td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:13px;text-align:center;min-width:52px;width:100%" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" value="${r.qty||6}" min="1" step="1" oninput="_refChange('${r.id}','qty',parseInt(this.value)||1);_updateOrdineModalTotale()"></td>
     <td style="padding:3px 4px;background:${scBg};border-left:1px solid rgba(255,69,58,.15)">
-      <input type="number" class="form-input" id="ref-sc-${r.id}" style="font-size:11px;text-align:center;min-width:52px;width:100%;background:transparent;border-color:rgba(255,69,58,.2)" min="0" max="100" step="1" value="${scontoRef||''}" placeholder="0"
+      <input type="number" class="form-input" id="ref-sc-${r.id}" style="font-size:12px;text-align:center;min-width:52px;width:100%;background:transparent;border-color:rgba(255,69,58,.2)" min="0" max="100" step="1" value="${scontoRef||''}" placeholder="0"
         oninput="_refChange('${r.id}','scontoRef',parseFloat(this.value)||0)"
         title="Sconto referenza % (100 = omaggio)">
-      ${scontoRef>=100?`<div style="font-size:8px;color:#30D158;text-align:center;margin-top:1px">🎁</div>`:scontoRef>0?`<div style="font-size:8px;color:#FF453A;text-align:center;margin-top:1px">−${scontoRef}%</div>`:''}
+      ${scontoRef>=100?`<div style="font-size:10px;color:#30D158;text-align:center;margin-top:1px">🎁</div>`:scontoRef>0?`<div style="font-size:10px;color:#FF453A;text-align:center;margin-top:1px">−${scontoRef}%</div>`:''}
     </td>
-    <td id="ref-tot-${r.id}" style="padding:5px 8px;text-align:right;font-size:11px;white-space:nowrap;background:rgba(48,209,88,.04);border-left:1px solid rgba(48,209,88,.12)">${totRigaHtml}</td>
+    <td id="ref-tot-${r.id}" style="padding:5px 8px;text-align:right;font-size:12px;white-space:nowrap;background:rgba(48,209,88,.04);border-left:1px solid rgba(48,209,88,.12)">${totRigaHtml}</td>
     <td style="padding:5px 6px;text-align:right"><button onclick="_removeRefRow('${r.id}')" style="color:var(--txt4);font-size:13px;background:none;border:none;cursor:pointer" title="Rimuovi">✕</button></td>
   </tr>`;
 }
@@ -6410,7 +6410,7 @@ function _updateRefCartaSuggerita(refId){
   const sug=_calcPrezzoCartaSuggerito(pseudo);
   const label=_getMoltLabel(pseudo);
   if(!sug){ hint.textContent=""; return; }
-  hint.innerHTML=`<span style="color:var(--txt4)">${label} → </span><button type="button" onclick="_applyCartaSuggerita('${refId}',${sug})" style="background:none;border:none;color:#30D158;font-size:9px;cursor:pointer;padding:0;font-family:inherit;text-decoration:underline;text-underline-offset:2px">applica €${sug}</button>`;
+  hint.innerHTML=`<span style="color:var(--txt4)">${label} → </span><button type="button" onclick="_applyCartaSuggerita('${refId}',${sug})" style="background:none;border:none;color:#30D158;font-size:11px;cursor:pointer;padding:0;font-family:inherit;text-decoration:underline;text-underline-offset:2px">applica €${sug}</button>`;
   // Se il campo P.Carta è ancora vuoto, pre-compila silenziosamente
   if(inp && !inp.value){
     inp.value=sug;
@@ -6422,7 +6422,7 @@ function _applyCartaSuggerita(refId, val){
   if(inp){ inp.value=val; inp.focus(); }
   _refChange(refId,'prezzoCarta',val);
   const hint=document.getElementById(`ref-carta-hint-${refId}`);
-  if(hint) hint.innerHTML=`<span style="color:#30D158;font-size:9px">✓ applicato</span>`;
+  if(hint) hint.innerHTML=`<span style="color:#30D158;font-size:11px">✓ applicato</span>`;
 }
 
 function _showRefGiacenza(refId, nomeVino){
@@ -6474,9 +6474,9 @@ function _updateOrdineModalTotale(){
       const hasDiscount=scontoRef>0||scontoOrd>0;
       rigaEl.innerHTML = rigaLorda
         ? (isOmaggio
-            ? `<span style="color:#30D158;font-weight:600;font-size:10px">🎁 OMAGGIO</span>`
+            ? `<span style="color:#30D158;font-weight:600;font-size:12px">🎁 OMAGGIO</span>`
             : hasDiscount
-              ? `<span style="color:var(--txt4);text-decoration:line-through;font-size:10px">${fmtRound(rigaLorda)}</span><br><span style="color:#30D158">${fmtRound(rigaNetta)}</span>`
+              ? `<span style="color:var(--txt4);text-decoration:line-through;font-size:12px">${fmtRound(rigaLorda)}</span><br><span style="color:#30D158">${fmtRound(rigaNetta)}</span>`
               : `<span style="color:var(--txt2)">${fmtRound(rigaLorda)}</span>`)
         : "—";
     }
@@ -6486,9 +6486,9 @@ function _updateOrdineModalTotale(){
       const badge=scEl.nextElementSibling;
       if(badge){
         badge.innerHTML=scontoRef>=100
-          ?`<div style="font-size:8px;color:#30D158;text-align:center;margin-top:1px">🎁</div>`
+          ?`<div style="font-size:10px;color:#30D158;text-align:center;margin-top:1px">🎁</div>`
           :scontoRef>0
-            ?`<div style="font-size:8px;color:#FF453A;text-align:center;margin-top:1px">−${scontoRef}%</div>`
+            ?`<div style="font-size:10px;color:#FF453A;text-align:center;margin-top:1px">−${scontoRef}%</div>`
             :'';
       }
     }
@@ -6607,7 +6607,7 @@ function _renderRicezioneModalBody(ordine, allForn, allProd, allNomi){
   document.getElementById("ricezione-modal-body").innerHTML=`
     <datalist id="ric-prod-dl">${allProd.map(v=>`<option value="${h(v)}">`).join("")}</datalist>
     <datalist id="ric-wine-dl">${allNomi.map(v=>`<option value="${h(v)}">`).join("")}</datalist>
-    <div style="background:rgba(var(--amber-rgb,255,159,10),.08);border:1px solid rgba(var(--amber3-rgb,180,83,9),.3);padding:10px 14px;margin-bottom:16px;font-size:11px">
+    <div style="background:rgba(var(--amber-rgb,255,159,10),.08);border:1px solid rgba(var(--amber3-rgb,180,83,9),.3);padding:10px 14px;margin-bottom:16px;font-size:12px">
       <span style="color:var(--amber3);font-weight:600">Fornitore:</span> <span style="color:var(--txt2)">${h(ordine.fornitore)}</span>
       &nbsp;·&nbsp;<span style="color:var(--amber3);font-weight:600">Ordine del:</span> <span style="color:var(--txt2)">${h(ordine.dataOrdine)}</span>
       ${ordine.note?`&nbsp;·&nbsp;<span style="color:var(--txt4)">${h(ordine.note)}</span>`:""}
@@ -6649,7 +6649,7 @@ function _renderRicezioneModalBody(ordine, allForn, allProd, allNomi){
       </table>
     </div>
     <button class="btn-outline btn-sm" style="margin-top:10px" onclick="_addRicezioneRow()">+ Referenza non prevista</button>
-    <div id="ric-totale" style="margin-top:12px;text-align:right;font-size:11px;color:var(--txt2)"></div>`;
+    <div id="ric-totale" style="margin-top:12px;text-align:right;font-size:12px;color:var(--txt2)"></div>`;
   _aggiornaRicTotale();
 }
 
@@ -6675,7 +6675,7 @@ function _ricRowHtml(r){
   return `
     <tr data-ric-id="${r.id}" style="border-top:1px solid var(--border)${ex?";background:rgba(var(--amber-rgb,255,159,10),.05)":""}">
       <td style="color:var(--txt3)">${h(r.produttore||'—')}</td>
-      <td>${h(r.nomeVino||'—')}${ex?` <span style="font-size:9px;color:var(--amber3);letter-spacing:.1em">NON PREVISTA</span>`:""}</td>
+      <td>${h(r.nomeVino||'—')}${ex?` <span style="font-size:11px;color:var(--amber3);letter-spacing:.1em">NON PREVISTA</span>`:""}</td>
       <td style="color:var(--amber);text-align:center;white-space:nowrap">${r.annata?h(r.annata):'<span style="color:var(--txt4)">N.V.</span>'}</td>
       <td style="color:var(--txt3);text-align:center;white-space:nowrap">${parseFloat(r.formato)||0.75}L</td>
       <td style="color:var(--txt3)">${h(r.vitigni||'—')}</td>
@@ -6700,7 +6700,7 @@ function _ricRowHtml(r){
           oninput="_ricRefChange('${r.id}','prezzoCarta',parseFloat(this.value)||0)">
       </td>
       <td id="ric-tot-${r.id}" style="text-align:right;white-space:nowrap;background:rgba(48,209,88,.04)">${tot?fmtRound(tot):"—"}</td>
-      <td style="text-align:right;white-space:nowrap">${ex?`<button class="btn-outline btn-sm" style="padding:2px 5px;font-size:10px" onclick="_addRicezioneRow('${r.id}')" title="Modifica scheda">✏️</button> <button style="color:var(--txt4);font-size:13px;background:none;border:none;cursor:pointer" onclick="_ricRemoveRow('${r.id}')" title="Rimuovi">✕</button>`:""}</td>
+      <td style="text-align:right;white-space:nowrap">${ex?`<button class="btn-outline btn-sm" style="padding:2px 5px;font-size:12px" onclick="_addRicezioneRow('${r.id}')" title="Modifica scheda">✏️</button> <button style="color:var(--txt4);font-size:13px;background:none;border:none;cursor:pointer" onclick="_ricRemoveRow('${r.id}')" title="Rimuovi">✕</button>`:""}</td>
     </tr>`;
 }
 
@@ -6754,7 +6754,7 @@ function _addRicezioneRow(editId){
       <div class="modal-header"><h2>${r?"✏️ Modifica referenza non prevista":"➕ Referenza non prevista"}</h2>
         <button style="font-size:18px;color:var(--txt3)" onclick="_ricNewRefChiudi()">✕</button></div>
       <div class="modal-body">
-        <div style="font-size:11px;color:var(--txt3);margin-bottom:14px">Compila la scheda come in composizione ordine: questi dati creano la referenza in inventario.</div>
+        <div style="font-size:12px;color:var(--txt3);margin-bottom:14px">Compila la scheda come in composizione ordine: questi dati creano la referenza in inventario.</div>
         <datalist id="ricnr-prod-dl">${allProd.map(v=>`<option value="${h(v)}">`).join("")}</datalist>
         <datalist id="ricnr-wine-dl">${allNomi.map(v=>`<option value="${h(v)}">`).join("")}</datalist>
         <datalist id="ricnr-naz-dl">${allNaz.map(v=>`<option value="${h(v)}">`).join("")}</datalist>
@@ -6785,7 +6785,7 @@ function _addRicezioneRow(editId){
           <div><label class="form-label">IVA</label>
             <select id="ricnr-iva" class="form-input" onchange="_ricNewCartaHint()">${ivaOpts}</select></div>
           <div style="grid-column:span 2">
-            <div id="ricnr-carta-hint" style="display:none;align-items:center;gap:8px;padding:5px 8px;background:rgba(var(--amber-rgb,255,159,10),.08);border:1px solid rgba(var(--amber-rgb,255,159,10),.12);font-size:10px;color:var(--txt3)"></div>
+            <div id="ricnr-carta-hint" style="display:none;align-items:center;gap:8px;padding:5px 8px;background:rgba(var(--amber-rgb,255,159,10),.08);border:1px solid rgba(var(--amber-rgb,255,159,10),.12);font-size:12px;color:var(--txt3)"></div>
           </div>
           <div><label class="form-label">Prezzo di carta <span style="color:var(--txt4)">(opzionale)</span></label>
             <input id="ricnr-pcarta" type="number" class="form-input" step="1" min="0" value="${d.prezzoCarta||''}" placeholder="0"></div>
@@ -6980,9 +6980,9 @@ function apriModalRicezioneGlobale(){
       const ref=o.referenze||[];
       const totQty=ref.reduce((s,r)=>s+(parseInt(r.qty)||0),0);
       return `<div style="padding:8px 0;border-bottom:1px solid var(--border)">
-        <div style="font-weight:600;color:var(--txt2);margin-bottom:4px">${h(o.fornitore)} <span style="color:var(--txt4);font-weight:400;font-size:10px">(${h(o.dataOrdine)})</span></div>
-        ${ref.map(r=>`<div style="padding:2px 8px;font-size:10px;display:flex;justify-content:space-between"><span>${h(r.nomeVino)}${r.annata?` <span style="color:var(--amber)">${h(r.annata)}</span>`:''}</span><span style="color:var(--txt3)">× ${r.qty} bt.</span></div>`).join("")}
-        <div style="font-size:10px;color:var(--amber);text-align:right;margin-top:2px">${totQty} bottiglie totali</div>
+        <div style="font-weight:600;color:var(--txt2);margin-bottom:4px">${h(o.fornitore)} <span style="color:var(--txt4);font-weight:400;font-size:12px">(${h(o.dataOrdine)})</span></div>
+        ${ref.map(r=>`<div style="padding:2px 8px;font-size:12px;display:flex;justify-content:space-between"><span>${h(r.nomeVino)}${r.annata?` <span style="color:var(--amber)">${h(r.annata)}</span>`:''}</span><span style="color:var(--txt3)">× ${r.qty} bt.</span></div>`).join("")}
+        <div style="font-size:12px;color:var(--amber);text-align:right;margin-top:2px">${totQty} bottiglie totali</div>
       </div>`;}).join("");
   }
   document.getElementById("ric-glob-data").value=today();
@@ -7252,9 +7252,9 @@ function normalizzaRegioni(){
   const distr=new Set(wines.map(w=>_regKey(w.distributore)).filter(Boolean));
   const sospette=[...new Set(wines.map(w=>String(w.regione||"").trim()).filter(r=>r&&distr.has(_regKey(r))))];
   const lista=Object.values(cambi);
-  const sosp=sospette.length?`<div style="margin-top:12px;font-size:11px;color:var(--txt3)">Da verificare a mano (la regione coincide con un distributore): <strong>${sospette.map(h).join(", ")}</strong> — ${wines.filter(w=>sospette.includes(String(w.regione||"").trim())).length} referenze. Filtra l'inventario per regione per correggerle.</div>`:"";
+  const sosp=sospette.length?`<div style="margin-top:12px;font-size:12px;color:var(--txt3)">Da verificare a mano (la regione coincide con un distributore): <strong>${sospette.map(h).join(", ")}</strong> — ${wines.filter(w=>sospette.includes(String(w.regione||"").trim())).length} referenze. Filtra l'inventario per regione per correggerle.</div>`:"";
   if(!lista.length){ _confirmModal(`Nessuna variante da unificare.${sosp}`,"OK",()=>{},"warn"); return; }
-  _confirmModal(`<div style="margin-bottom:8px">Unificare queste varianti di regione?</div>${lista.map(c=>`<div style="font-size:12px">${h(c.da)} → <strong>${h(c.a)}</strong> <span style="color:var(--txt4)">(${c.n})</span></div>`).join("")}${sosp}`,
+  _confirmModal(`<div style="margin-bottom:8px">Unificare queste varianti di regione?</div>${lista.map(c=>`<div style="font-size:13px">${h(c.da)} → <strong>${h(c.a)}</strong> <span style="color:var(--txt4)">(${c.n})</span></div>`).join("")}${sosp}`,
     "Unifica", ()=>{
       wines=wines.map(w=>{ const r=String(w.regione||"").trim(); const c=r&&map[_regKey(r)]; return c&&c!==r?{...w,regione:c}:w; });
       scheduleSave(); clearTimeout(saveTimer); _flushSave();
@@ -7729,8 +7729,8 @@ function renderImpostazioni(){
   const forniTel=_getAllFornTelefoni();
   const fornitori=[...new Set([...wines.map(w=>w.distributore),...orders.map(o=>o.fornitore)].filter(Boolean))].sort();
   const fornRighe = fornitori.length===0
-    ? '<div style="text-align:center;padding:28px;color:var(--txt4);font-size:11px">Nessun fornitore trovato — aggiungilo tramite un ordine</div>'
-    : `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;font-size:9px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--txt4);padding:0 0 6px;border-bottom:1px solid var(--border);margin-bottom:8px"><span>Fornitore</span><span>Email</span><span>Telefono / WhatsApp</span></div>
+    ? '<div style="text-align:center;padding:28px;color:var(--txt4);font-size:12px">Nessun fornitore trovato — aggiungilo tramite un ordine</div>'
+    : `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--txt4);padding:0 0 6px;border-bottom:1px solid var(--border);margin-bottom:8px"><span>Fornitore</span><span>Email</span><span>Telefono / WhatsApp</span></div>
 <div style="display:flex;flex-direction:column;gap:8px">${fornitori.map(f=>{
   const fk=(f||'').toLowerCase().trim();
   const fe=h(emails[fk]||'');
@@ -7738,28 +7738,28 @@ function renderImpostazioni(){
   const fh=h(f);
   const waBtn=forniTel[fk]?`<a href="https://wa.me/${_waNum(forniTel[fk])}" target="_blank" title="Apri WhatsApp" style="flex-shrink:0;display:flex;align-items:center;justify-content:center;width:30px;height:30px;background:rgba(37,211,102,.15);border:1px solid rgba(37,211,102,.3);border-radius:6px;font-size:15px;text-decoration:none">🟢</a>`:'';
   return `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;align-items:center">
-    <span style="font-size:12px;color:var(--txt2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${fh}">${fh}</span>
-    <input class="form-input" style="font-size:11px" placeholder="email@fornitore.it" value="${fe}" onchange="_setFornEmail('${fh}',this.value);notify('✓ Email salvata')">
-    <div style="display:flex;gap:4px;align-items:center"><input class="form-input" style="font-size:11px;flex:1" placeholder="+39 333 1234567" value="${ft}" onchange="_setFornTelefono('${fh}',this.value);notify('✓ Telefono salvato')">${waBtn}</div>
+    <span style="font-size:13px;color:var(--txt2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${fh}">${fh}</span>
+    <input class="form-input" style="font-size:12px" placeholder="email@fornitore.it" value="${fe}" onchange="_setFornEmail('${fh}',this.value);notify('✓ Email salvata')">
+    <div style="display:flex;gap:4px;align-items:center"><input class="form-input" style="font-size:12px;flex:1" placeholder="+39 333 1234567" value="${ft}" onchange="_setFornTelefono('${fh}',this.value);notify('✓ Telefono salvato')">${waBtn}</div>
   </div>`;
 }).join('')}</div>`;
   return `<div class="card" style="margin-bottom:20px">
   <div class="section-label"><span>🔒 Chiusura periodo contabile</span></div>
-  <p style="font-size:11px;color:var(--txt3);margin-bottom:10px;line-height:1.5">I movimenti con data fino a questo giorno (compreso) non si possono più registrare, modificare, eliminare o stornare: sono i numeri già consegnati al commercialista. Le correzioni si registrano con una rettifica datata oggi.</p>
+  <p style="font-size:12px;color:var(--txt3);margin-bottom:10px;line-height:1.5">I movimenti con data fino a questo giorno (compreso) non si possono più registrare, modificare, eliminare o stornare: sono i numeri già consegnati al commercialista. Le correzioni si registrano con una rettifica datata oggi.</p>
   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
     <input type="date" class="form-input" style="max-width:180px" value="${h(_chiusoFino)}" onchange="_setChiusoFino(this.value)">
     ${_chiusoFino?`<button class="btn-outline btn-sm" onclick="_setChiusoFino('')">Rimuovi blocco</button>`:""}
-    <span style="font-size:11px;color:var(--txt4)">di norma l'ultimo giorno del mese inviato</span>
+    <span style="font-size:12px;color:var(--txt4)">di norma l'ultimo giorno del mese inviato</span>
   </div>
   <div class="section-label" style="margin-top:20px"><span>🌍 Regioni</span></div>
-  <p style="font-size:11px;color:var(--txt3);margin-bottom:10px">Unifica le varianti di scrittura (trattini, accenti, maiuscole) che spezzano filtri, statistiche e carta vini. Mostra l'anteprima prima di modificare.</p>
+  <p style="font-size:12px;color:var(--txt3);margin-bottom:10px">Unifica le varianti di scrittura (trattini, accenti, maiuscole) che spezzano filtri, statistiche e carta vini. Mostra l'anteprima prima di modificare.</p>
   <button class="btn-outline btn-sm" onclick="normalizzaRegioni()">Analizza e unifica regioni</button>
 </div>
 <div class="kpi-grid g2" style="gap:20px">
     <div class="card">
       <div class="section-label"><span>🏠 Dati del Locale</span></div>
       <div class="form-grid g2">
-        <div><label class="form-label">Nome Locale <span style="color:var(--txt4);font-size:9px;text-transform:none;letter-spacing:0">— insegna</span></label><input class="form-input" id="loc-nome" value="${h(d.nome)}" placeholder="Palinurobar"></div>
+        <div><label class="form-label">Nome Locale <span style="color:var(--txt4);font-size:11px;text-transform:none;letter-spacing:0">— insegna</span></label><input class="form-input" id="loc-nome" value="${h(d.nome)}" placeholder="Palinurobar"></div>
         <div><label class="form-label">Ragione Sociale</label><input class="form-input" id="loc-ragioneSociale" value="${h(d.ragioneSociale||'')}" placeholder="es. Palinuro S.r.l."></div>
         <div><label class="form-label">Email locale</label><input class="form-input" id="loc-email" value="${h(d.email)}" placeholder="info@palinurobar.it"></div>
         <div><label class="form-label">Telefono</label><input class="form-input" id="loc-telefono" value="${h(d.telefono)}" placeholder="+39 02 1234567"></div>
@@ -7776,7 +7776,7 @@ function renderImpostazioni(){
       <textarea class="form-input" id="loc-noteConsegna" rows="3" style="resize:vertical" placeholder="es. Consegnare martedì 8–12. Suonare citofono Cucina. Ingresso merci su Via Verdi.">${h(d.noteConsegna)}</textarea>
 
       <div class="section-label" style="margin-top:20px"><span>🏛️ Sede Legale</span></div>
-      <p style="font-size:10px;color:var(--txt4);margin-bottom:8px">Se lasciata vuota, per la fatturazione viene usato l'indirizzo di consegna.</p>
+      <p style="font-size:12px;color:var(--txt4);margin-bottom:8px">Se lasciata vuota, per la fatturazione viene usato l'indirizzo di consegna.</p>
       <div class="form-grid g2">
         <div class="col-span-2"><label class="form-label">Indirizzo</label><input class="form-input" id="loc-sedeIndirizzo" value="${h(d.sedeIndirizzo||'')}" placeholder="es. Via Verdi 10"></div>
         <div><label class="form-label">CAP</label><input class="form-input" id="loc-sedeCap" value="${h(d.sedeCap||'')}" placeholder="20100"></div>
@@ -7788,16 +7788,16 @@ function renderImpostazioni(){
       <div class="form-grid g2">
         <div><label class="form-label">Partita IVA</label><input class="form-input" id="loc-piva" value="${h(d.piva)}" placeholder="IT12345678901"></div>
         <div><label class="form-label">Codice Fiscale</label><input class="form-input" id="loc-cf" value="${h(d.cf)}" placeholder="Codice fiscale società"></div>
-        <div><label class="form-label">Codice SDI <span style="color:var(--txt4);font-size:9px;text-transform:none;letter-spacing:0">— per fatture elettroniche</span></label><input class="form-input" id="loc-sdi" value="${h(d.sdi||'')}" placeholder="es. ABC1234"></div>
-        <div><label class="form-label">PEC <span style="color:var(--txt4);font-size:9px;text-transform:none;letter-spacing:0">— alternativa a SDI</span></label><input class="form-input" id="loc-pec" value="${h(d.pec||'')}" placeholder="es. azienda@pec.it"></div>
+        <div><label class="form-label">Codice SDI <span style="color:var(--txt4);font-size:11px;text-transform:none;letter-spacing:0">— per fatture elettroniche</span></label><input class="form-input" id="loc-sdi" value="${h(d.sdi||'')}" placeholder="es. ABC1234"></div>
+        <div><label class="form-label">PEC <span style="color:var(--txt4);font-size:11px;text-transform:none;letter-spacing:0">— alternativa a SDI</span></label><input class="form-input" id="loc-pec" value="${h(d.pec||'')}" placeholder="es. azienda@pec.it"></div>
       </div>
       <button class="btn-primary" style="margin-top:16px;width:100%;justify-content:center" onclick="salvaImpostazioni()">💾 Salva Impostazioni</button>
     </div>
     <div class="card">
       <div class="section-label"><span>📋 Rubrica Fornitori</span></div>
-      <p style="font-size:11px;color:var(--txt4);margin-bottom:16px;line-height:1.6">Email e telefono di ogni fornitore. L'email si compila in automatico nell'ordine; il 🟢 apre WhatsApp direttamente.</p>
+      <p style="font-size:12px;color:var(--txt4);margin-bottom:16px;line-height:1.6">Email e telefono di ogni fornitore. L'email si compila in automatico nell'ordine; il 🟢 apre WhatsApp direttamente.</p>
       ${fornRighe}
-      ${fornitori.length>0?'<div style="margin-top:14px;padding:10px 12px;background:rgba(0,122,255,.08);border:1px solid rgba(0,122,255,.2);font-size:10px;color:var(--txt3);line-height:1.6">💡 Formato telefono internazionale: <strong>+39 333 1234567</strong>. Il tasto 🟢 apre WhatsApp Web o l\'app mobile.</div>':''}
+      ${fornitori.length>0?'<div style="margin-top:14px;padding:10px 12px;background:rgba(0,122,255,.08);border:1px solid rgba(0,122,255,.2);font-size:12px;color:var(--txt3);line-height:1.6">💡 Formato telefono internazionale: <strong>+39 333 1234567</strong>. Il tasto 🟢 apre WhatsApp Web o l\'app mobile.</div>':''}
     </div>
   </div>`;
 }
@@ -7839,10 +7839,10 @@ function renderExport(){
 
   let html=`<div class="card card-amber" style="margin-bottom:20px">
     <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px">
-      <div><div style="font-size:10px;letter-spacing:.25em;text-transform:uppercase;color:var(--txt2);margin-bottom:4px">💾 Bilancio di Magazzino</div><div style="font-family:'Montserrat',sans-serif;font-weight:300;font-size:1.3rem;color:var(--txt)">Situazione al ${dateStr}</div></div>
+      <div><div style="font-size:12px;letter-spacing:.25em;text-transform:uppercase;color:var(--txt2);margin-bottom:4px">💾 Bilancio di Magazzino</div><div style="font-family:'Montserrat',sans-serif;font-weight:300;font-size:1.3rem;color:var(--txt)">Situazione al ${dateStr}</div></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
         <button class="btn-outline btn-sm" onclick="exportBackupJSON()" title="Backup completo di tutti i dati">💾 Backup JSON</button>
-        <label class="btn-outline btn-sm" style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border:1px solid var(--border);font-size:11px;letter-spacing:.04em" title="Ripristina da file JSON">
+        <label class="btn-outline btn-sm" style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border:1px solid var(--border);font-size:12px;letter-spacing:.04em" title="Ripristina da file JSON">
           📥 Importa Backup
           <input type="file" accept=".json" onchange="importBackupJSON(event)" style="display:none">
         </label>
@@ -7871,10 +7871,10 @@ function renderExport(){
         return `<div style="display:flex;align-items:center;gap:12px">
           ${badge(t)}
           <div class="mini-bar" style="flex:1"><div class="mini-bar-fill" style="width:${pct}%"></div></div>
-          <span style="color:var(--txt3);font-size:10px;width:60px;text-align:right">${tw.reduce((s3,w)=>s3+w.giacenza,0)} bt</span>
-          <span style="color:var(--amber);font-size:11px;width:90px;text-align:right">${fmt(tv)}</span>
-          <span style="color:var(--txt4);font-size:10px;width:100px;text-align:right">IVA ${fmt(tvIva)}</span>
-          <span style="color:var(--txt4);font-size:10px;width:40px;text-align:right">${fmtN(pct,1)}%</span>
+          <span style="color:var(--txt3);font-size:12px;width:60px;text-align:right">${tw.reduce((s3,w)=>s3+w.giacenza,0)} bt</span>
+          <span style="color:var(--amber);font-size:12px;width:90px;text-align:right">${fmt(tv)}</span>
+          <span style="color:var(--txt4);font-size:12px;width:100px;text-align:right">IVA ${fmt(tvIva)}</span>
+          <span style="color:var(--txt4);font-size:12px;width:40px;text-align:right">${fmtN(pct,1)}%</span>
         </div>`;
       }).join("")}
     </div>
@@ -7901,11 +7901,11 @@ function openWineDetail(id){
     const esauriti = [...w.lots].reverse().filter(l=>l.qtyRimanente===0).slice(0,3);
     const all = [...attivi, ...esauriti];
     return `<div style="margin-top:20px">
-      <div class="modal-section-label">📦 Lotti FIFO${attivi.length>0?` <span style="font-size:10px;color:#30D158;font-weight:400;letter-spacing:0;text-transform:none">${attivi.length} attivi</span>`:''}</div>
-      <div style="display:grid;grid-template-columns:90px 80px 1fr 90px 70px 70px;gap:0;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--txt4);padding:6px 10px;background:rgba(41,37,36,.4)">
+      <div class="modal-section-label">📦 Lotti FIFO${attivi.length>0?` <span style="font-size:12px;color:#30D158;font-weight:400;letter-spacing:0;text-transform:none">${attivi.length} attivi</span>`:''}</div>
+      <div style="display:grid;grid-template-columns:90px 80px 1fr 90px 70px 70px;gap:0;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--txt4);padding:6px 10px;background:rgba(41,37,36,.4)">
         <span>Data</span><span>Fattura</span><span>Fornitore</span><span style="text-align:right">P.Acq</span><span style="text-align:right">Caricato</span><span style="text-align:right">Rimanente</span>
       </div>
-      ${all.map(l=>{const done=l.qtyRimanente===0;return `<div style="display:grid;grid-template-columns:90px 80px 1fr 90px 70px 70px;gap:0;padding:7px 10px;border-bottom:1px solid rgba(41,37,36,.5);font-size:11px;align-items:center;${done?'opacity:.5':''}">
+      ${all.map(l=>{const done=l.qtyRimanente===0;return `<div style="display:grid;grid-template-columns:90px 80px 1fr 90px 70px 70px;gap:0;padding:7px 10px;border-bottom:1px solid rgba(41,37,36,.5);font-size:12px;align-items:center;${done?'opacity:.5':''}">
         <span style="color:var(--txt3)">${l.data||'—'}</span>
         <span style="color:var(--txt3);overflow:hidden;text-overflow:ellipsis">${l.fattura||'—'}</span>
         <span style="color:var(--txt3);overflow:hidden;text-overflow:ellipsis">${l.fornitore||'—'}</span>
@@ -7913,7 +7913,7 @@ function openWineDetail(id){
         <span style="text-align:right;color:var(--txt3)">${l.qtyCaricata} bt</span>
         <span style="text-align:right;${done?'color:var(--txt4);text-decoration:line-through':l.qtyRimanente<=3?'color:#fb923c':'color:#30D158'}">${l.qtyRimanente} bt</span>
       </div>`}).join('')}
-      <div style="display:flex;justify-content:space-between;padding:8px 10px;border-top:1px solid var(--border);font-size:10px;color:var(--txt3)">
+      <div style="display:flex;justify-content:space-between;padding:8px 10px;border-top:1px solid var(--border);font-size:12px;color:var(--txt3)">
         <span>Prezzo medio ponderato lotti attivi</span>
         <span style="color:var(--amber)">${fmt(calcPrezzoMedioLotti(w))}/bt</span>
       </div>
@@ -7924,7 +7924,7 @@ function openWineDetail(id){
   const wMovs = [...movements].filter(m=>m.wineId===id).sort((a,b)=>b.data.localeCompare(a.data)||b.ts-a.ts).slice(0,6);
   const movsHtml = wMovs.length ? `<div style="margin-top:20px">
     <div class="modal-section-label">↕️ Movimenti Recenti</div>
-    ${wMovs.map(m=>`<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:1px solid rgba(41,37,36,.4);font-size:12px">
+    ${wMovs.map(m=>`<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:1px solid rgba(41,37,36,.4);font-size:13px">
       <span style="color:${_movVis(m).c}">${_movVis(m).i}</span>
       <span style="color:var(--txt3);width:88px;flex-shrink:0">${m.data||'—'}</span>
       <span style="flex:1;color:var(--txt3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${m.note||m.fattura||'—'}</span>
@@ -7935,9 +7935,9 @@ function openWineDetail(id){
   // Storico prezzi
   const histHtml = w.priceHistory?.length ? `<div style="margin-top:20px">
     <div class="modal-section-label">📈 Storico Prezzi (ultimi ${Math.min(w.priceHistory.length,5)})</div>
-    ${[...w.priceHistory].reverse().slice(0,5).map(e=>`<div style="display:flex;align-items:center;gap:12px;padding:6px 10px;border-bottom:1px solid rgba(41,37,36,.4);font-size:11px">
+    ${[...w.priceHistory].reverse().slice(0,5).map(e=>`<div style="display:flex;align-items:center;gap:12px;padding:6px 10px;border-bottom:1px solid rgba(41,37,36,.4);font-size:12px">
       <span style="color:var(--txt4);width:88px;flex-shrink:0">${e.data}</span>
-      <span style="color:var(--txt3);flex:1;font-size:10px;letter-spacing:.06em;text-transform:uppercase">${e.source||'manuale'}</span>
+      <span style="color:var(--txt3);flex:1;font-size:12px;letter-spacing:.06em;text-transform:uppercase">${e.source||'manuale'}</span>
       ${e.prezzoAcq!==e.prevAcq?`<span style="color:var(--amber)">Acq: ${fmt(e.prezzoAcq)}</span>`:''}
       ${e.prezzoCarta!==e.prevCarta?`<span style="color:#30D158">Carta: ${fmt(e.prezzoCarta)}</span>`:''}
     </div>`).join('')}
@@ -7971,48 +7971,48 @@ function openWineDetail(id){
     <div style="display:flex;align-items:flex-start;gap:20px;margin-bottom:24px;flex-wrap:wrap">
       <div style="flex:1;min-width:200px">
         <div style="font-family:'Montserrat',sans-serif;font-weight:600;font-size:1.3rem;color:var(--txt);margin-bottom:4px">${h(w.nome)}</div>
-        <div style="font-size:13px;color:var(--txt2);margin-bottom:8px">${h(w.produttore)}${w.distributore?` <span style="color:var(--txt4);font-size:11px">via ${h(w.distributore)}</span>`:''}</div>
+        <div style="font-size:13px;color:var(--txt2);margin-bottom:8px">${h(w.produttore)}${w.distributore?` <span style="color:var(--txt4);font-size:12px">via ${h(w.distributore)}</span>`:''}</div>
         <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
           ${badge(w.tipologia)}
-          ${w.sku?`<span style="font-family:ui-monospace,monospace;font-size:10px;letter-spacing:.05em;color:var(--txt3);background:var(--bg3);border:1px solid var(--border2);border-radius:5px;padding:2px 7px" title="Codice referenza (SKU)">${h(w.sku)}</span>`:''}
-          ${w.annata?`<span style="color:var(--amber);font-family:'Montserrat',sans-serif;font-size:1rem">${h(w.annata)}</span>`:'<span style="color:var(--txt4);font-size:10px">N.V.</span>'}
-          ${(()=>{const _fv=parseFloat(w.formato)||0.75;return _fv!==0.75?`<span style="font-size:10px;padding:2px 7px;border:1px solid ${_fv>=1.5?"rgba(0,122,255,.3)":"rgba(var(--amber-rgb,255,159,10),.35)"};color:${_fv>=1.5?"#60a5fa":"#fbbf24"};background:${_fv>=1.5?"rgba(0,122,255,.08)":"rgba(var(--amber-rgb,255,159,10),.08)"};border-radius:4px">${_fv}L</span>`:''})()}
-          ${w.vitigni?`<span style="font-size:11px;color:var(--txt3)">🍇 ${h(w.vitigni)}</span>`:''}
+          ${w.sku?`<span style="font-family:ui-monospace,monospace;font-size:12px;letter-spacing:.05em;color:var(--txt3);background:var(--bg3);border:1px solid var(--border2);border-radius:5px;padding:2px 7px" title="Codice referenza (SKU)">${h(w.sku)}</span>`:''}
+          ${w.annata?`<span style="color:var(--amber);font-family:'Montserrat',sans-serif;font-size:1rem">${h(w.annata)}</span>`:'<span style="color:var(--txt4);font-size:12px">N.V.</span>'}
+          ${(()=>{const _fv=parseFloat(w.formato)||0.75;return _fv!==0.75?`<span style="font-size:12px;padding:2px 7px;border:1px solid ${_fv>=1.5?"rgba(0,122,255,.3)":"rgba(var(--amber-rgb,255,159,10),.35)"};color:${_fv>=1.5?"#60a5fa":"#fbbf24"};background:${_fv>=1.5?"rgba(0,122,255,.08)":"rgba(var(--amber-rgb,255,159,10),.08)"};border-radius:4px">${_fv}L</span>`:''})()}
+          ${w.vitigni?`<span style="font-size:12px;color:var(--txt3)">🍇 ${h(w.vitigni)}</span>`:''}
         </div>
-        ${(w.regione||w.nazione)?`<div style="margin-top:8px;font-size:11px;color:var(--txt3)">${[w.regione,w.zona,w.nazione].filter(Boolean).map((v,i)=>i===2?`<span style="color:var(--amber3);font-weight:600">${h(v)}</span>`:h(v)).join(' · ')}</div>`:''}
+        ${(w.regione||w.nazione)?`<div style="margin-top:8px;font-size:12px;color:var(--txt3)">${[w.regione,w.zona,w.nazione].filter(Boolean).map((v,i)=>i===2?`<span style="color:var(--amber3);font-weight:600">${h(v)}</span>`:h(v)).join(' · ')}</div>`:''}
       </div>
       <!-- Giacenza big -->
       <div style="text-align:center;padding:16px 24px;background:rgba(var(--amber-rgb,255,159,10),.06);border:1px solid rgba(var(--amber-rgb,255,159,10),.2);border-radius:var(--radius);min-width:110px">
-        <div style="font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt4);margin-bottom:6px">Giacenza</div>
+        <div style="font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt4);margin-bottom:6px">Giacenza</div>
         <div style="font-family:'Montserrat',sans-serif;font-weight:300;font-size:2.4rem;color:${giacenzaColor}">${w.giacenza}</div>
-        <div style="font-size:9px;color:var(--txt4);margin-top:2px">bottiglie</div>
-        ${isEmpty?`<div style="font-size:8px;color:#dc2626;text-transform:uppercase;letter-spacing:.08em;margin-top:4px">esaurito</div>`:''}
-        ${isAlert?`<div style="font-size:8px;color:#ea580c;text-transform:uppercase;letter-spacing:.08em;margin-top:4px">scorta bassa (min ${sg.min})</div>`:''}
-        ${w.noteVeloce?`<div style="margin-top:8px;font-size:10px;color:var(--amber);font-style:italic;text-align:left;max-width:120px">"${h(w.noteVeloce)}"</div>`:''}
+        <div style="font-size:11px;color:var(--txt4);margin-top:2px">bottiglie</div>
+        ${isEmpty?`<div style="font-size:10px;color:#dc2626;text-transform:uppercase;letter-spacing:.08em;margin-top:4px">esaurito</div>`:''}
+        ${isAlert?`<div style="font-size:10px;color:#ea580c;text-transform:uppercase;letter-spacing:.08em;margin-top:4px">scorta bassa (min ${sg.min})</div>`:''}
+        ${w.noteVeloce?`<div style="margin-top:8px;font-size:12px;color:var(--amber);font-style:italic;text-align:left;max-width:120px">"${h(w.noteVeloce)}"</div>`:''}
       </div>
     </div>
 
     <!-- KPI prezzi -->
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px">
       <div style="background:var(--bg3);border:1px solid var(--border);padding:12px;border-radius:var(--radius-sm)">
-        <div style="font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:6px">P.Acquisto</div>
+        <div style="font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:6px">P.Acquisto</div>
         <div style="font-family:'Montserrat',sans-serif;font-size:1.15rem;color:var(--amber)">${w.prezzoAcq?fmt(w.prezzoAcq):'—'}</div>
-        <div style="font-size:10px;color:var(--txt4);margin-top:3px">IVA ${w.iva||22}% escl.</div>
+        <div style="font-size:12px;color:var(--txt4);margin-top:3px">IVA ${w.iva||22}% escl.</div>
       </div>
       <div style="background:var(--bg3);border:1px solid var(--border);padding:12px;border-radius:var(--radius-sm)">
-        <div style="font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:6px">Costo+IVA/bt</div>
+        <div style="font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:6px">Costo+IVA/bt</div>
         <div style="font-family:'Montserrat',sans-serif;font-size:1.15rem;color:var(--amber)">${costoIva?fmtRound(costoIva):'—'}</div>
-        <div style="font-size:10px;color:var(--txt4);margin-top:3px">IVA inclusa</div>
+        <div style="font-size:12px;color:var(--txt4);margin-top:3px">IVA inclusa</div>
       </div>
       <div style="background:var(--bg3);border:1px solid var(--border);padding:12px;border-radius:var(--radius-sm)">
-        <div style="font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:6px">P.Carta</div>
+        <div style="font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:6px">P.Carta</div>
         <div style="font-family:'Montserrat',sans-serif;font-size:1.15rem;color:${w.prezzoCarta?'#30D158':'var(--txt4)'}">${w.prezzoCarta?fmt(w.prezzoCarta):'—'}</div>
-        <div style="font-size:10px;color:var(--txt4);margin-top:3px">al cliente</div>
+        <div style="font-size:12px;color:var(--txt4);margin-top:3px">al cliente</div>
       </div>
       <div style="background:var(--bg3);border:1px solid var(--border);padding:12px;border-radius:var(--radius-sm);border-color:${mp!==null?(mp>=50?'rgba(48,209,88,.25)':mp>=30?'rgba(var(--amber-rgb,255,159,10),.25)':'rgba(255,69,58,.25)'):'var(--border)'}">
-        <div style="font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:6px">Margine %</div>
+        <div style="font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:6px">Margine %</div>
         <div style="font-family:'Montserrat',sans-serif;font-size:1.15rem;color:${mp===null?'var(--txt4)':mp>=50?'#30D158':mp>=30?'var(--amber)':'#FF453A'}">${mp===null?'—':`${fmtN(mp,1)}%`}</div>
-        <div style="font-size:10px;color:var(--txt4);margin-top:3px">${mb!==null?fmt(mb)+'/bt':'—'}</div>
+        <div style="font-size:12px;color:var(--txt4);margin-top:3px">${mb!==null?fmt(mb)+'/bt':'—'}</div>
       </div>
     </div>
 
@@ -8102,14 +8102,14 @@ function renderModalBody(wine){
   const lotsHtml=wine?.lots?.length?`
     <div style="margin-top:4px">
       <div class="modal-section-label">📦 Storico Lotti (FIFO)</div>
-      <div class="lot-grid" style="color:var(--txt4);font-size:9px"><span>Data</span><span>Fattura</span><span>Fornitore</span><span style="text-align:right">P.Acq</span><span style="text-align:right">Caricato</span><span style="text-align:right">Rimanente</span></div>
+      <div class="lot-grid" style="color:var(--txt4);font-size:11px"><span>Data</span><span>Fattura</span><span>Fornitore</span><span style="text-align:right">P.Acq</span><span style="text-align:right">Caricato</span><span style="text-align:right">Rimanente</span></div>
       ${[...wine.lots].reverse().map(l=>{const done=l.qtyRimanente===0;return `<div class="lot-row ${done?"lot-done":"lot-active"}" style="margin-bottom:2px">
         <span>${l.data}</span><span style="overflow:hidden;text-overflow:ellipsis">${l.fattura||"—"}</span><span style="overflow:hidden;text-overflow:ellipsis;color:${done?"var(--txt4)":"var(--txt3)"}">${l.fornitore||"—"}</span>
         <span style="text-align:right;${done?"color:var(--txt4)":"color:var(--amber)"}">${fmt(l.prezzoAcq)}</span>
         <span style="text-align:right;color:var(--txt3)">${l.qtyCaricata} bt</span>
         <span style="text-align:right;${done?"color:var(--txt4);text-decoration:line-through":l.qtyRimanente<=3?"color:#fb923c":"color:#30D158"}">${l.qtyRimanente} bt</span>
       </div>`}).join("")}
-      <div style="display:flex;justify-content:space-between;padding:8px 12px;border-top:1px solid var(--border);font-size:10px;color:var(--txt3)">
+      <div style="display:flex;justify-content:space-between;padding:8px 12px;border-top:1px solid var(--border);font-size:12px;color:var(--txt3)">
         <span>Prezzo medio ponderato lotti attivi</span>
         <span style="color:var(--amber)">${fmt(calcPrezzoMedioLotti(wine))}/bt</span>
       </div>
@@ -8135,7 +8135,7 @@ function renderModalBody(wine){
         <div><label class="form-label">Annata</label><input class="form-input" id="mf-annata" value="${h(f.annata)}" placeholder="es. 2019 o N.V."></div>
         <div><label class="form-label">Vitigni</label><input class="form-input" id="mf-vitigni" data-ac-src="vitigni" data-ac-multi="1" autocomplete="off" value="${h(f.vitigni)}" placeholder="es. Nebbiolo, Barbera"></div>
         <div><label class="form-label">Tipologia</label><select class="form-select" id="mf-tipologia" data-prev="${f.tipologia}" onchange="_addTipologiaInline(this);if(this.value!=='__new__'){this.dataset.prev=this.value}">${TIPOLOGIE.map(t=>`<option value="${t}" ${f.tipologia===t?"selected":""}>${t}</option>`).join("")+'<option value="__new__">+ Nuova tipologia…</option>'}</select></div>
-        <div><label class="form-label">Formato <span style="color:var(--txt4);font-size:9px;text-transform:none;letter-spacing:0">— lascia vuoto per 750ml standard</span></label><select class="form-select" id="mf-formato" onchange="updateModalCalc()">${FORMATI_OPTS}</select></div>
+        <div><label class="form-label">Formato <span style="color:var(--txt4);font-size:11px;text-transform:none;letter-spacing:0">— lascia vuoto per 750ml standard</span></label><select class="form-select" id="mf-formato" onchange="updateModalCalc()">${FORMATI_OPTS}</select></div>
       </div>
     </div>
     <div class="modal-section">
@@ -8152,15 +8152,15 @@ function renderModalBody(wine){
         <div><label class="form-label">Prezzo Acquisto (escl. IVA) €</label><input class="form-input" id="mf-prezzoAcq" type="number" inputmode="decimal" onfocus="this.select()" value="${f.prezzoAcq}" placeholder="0.00" oninput="updateModalCalc()"></div>
         <div><label class="form-label">IVA %</label><select class="form-select" id="mf-iva" onchange="updateModalCalc()">${IVA_OPTIONS.map(v=>`<option value="${v}" ${parseInt(f.iva)===v?"selected":""}>${v}%</option>`).join("")}</select></div>
         <div style="grid-column:span 2">
-          <div id="mc-carta-hint" style="display:none;align-items:center;gap:8px;padding:5px 8px;background:rgba(var(--amber-rgb,255,159,10),.08);border:1px solid rgba(var(--amber-rgb,255,159,10),.12);font-size:10px;color:var(--txt3)">
+          <div id="mc-carta-hint" style="display:none;align-items:center;gap:8px;padding:5px 8px;background:rgba(var(--amber-rgb,255,159,10),.08);border:1px solid rgba(var(--amber-rgb,255,159,10),.12);font-size:12px;color:var(--txt3)">
             <span>Suggerito (<span id="mc-carta-molt-label"></span>):</span><span class="mc-carta-val" style="color:var(--amber);font-family:'Montserrat',sans-serif"></span>
-            <button type="button" onclick="applyCartaSuggerita()" style="margin-left:auto;font-size:9px;letter-spacing:.1em;text-transform:uppercase;padding:2px 8px;border:1px solid rgba(var(--amber3-rgb,180,83,9),.5);color:var(--amber);background:rgba(var(--amber-rgb,255,159,10),.12);cursor:pointer;font-family:inherit">Usa →</button>
+            <button type="button" onclick="applyCartaSuggerita()" style="margin-left:auto;font-size:11px;letter-spacing:.1em;text-transform:uppercase;padding:2px 8px;border:1px solid rgba(var(--amber3-rgb,180,83,9),.5);color:var(--amber);background:rgba(var(--amber-rgb,255,159,10),.12);cursor:pointer;font-family:inherit">Usa →</button>
           </div>
         </div>
         <div><label class="form-label">Prezzo in Carta €</label><input class="form-input" id="mf-prezzoCarta" type="number" inputmode="decimal" onfocus="this.select()" value="${f.prezzoCarta}" placeholder="0.00" oninput="document.getElementById('mf-prezzoCarta')._userEdited=true;updateModalCalc()">
         </div>
-        <div><label class="form-label">Prezzo al Calice € <span style="color:var(--txt4);font-size:9px;text-transform:none;letter-spacing:0">— opzionale</span></label><input class="form-input" id="mf-prezzoCalice" type="number" inputmode="decimal" onfocus="this.select()" value="${f.prezzoCalice||''}" placeholder="es. 8.00"></div>
-        <div><label class="form-label">Giacenza (bottiglie)</label><input class="form-input" id="mf-giacenza" type="number" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" value="${f.giacenza||0}" placeholder="0" oninput="updateModalCalc()" ${wine&&(wine.lots||[]).some(l=>l.qtyRimanente>0)?'title="⚠️ Vino con lotti FIFO attivi: modifica tramite carico/scarico per non desincronizzare i lotti" style="border-color:rgba(var(--amber3-rgb,180,83,9),.5)"':''} ><\/div>${wine&&(wine.lots||[]).some(l=>l.qtyRimanente>0)?'<div style="font-size:9px;color:rgba(251,146,60,.8);margin-top:3px;letter-spacing:.05em">⚠️ Lotti FIFO attivi — usa carico/scarico per aggiornare la giacenza<\/div>':''}
+        <div><label class="form-label">Prezzo al Calice € <span style="color:var(--txt4);font-size:11px;text-transform:none;letter-spacing:0">— opzionale</span></label><input class="form-input" id="mf-prezzoCalice" type="number" inputmode="decimal" onfocus="this.select()" value="${f.prezzoCalice||''}" placeholder="es. 8.00"></div>
+        <div><label class="form-label">Giacenza (bottiglie)</label><input class="form-input" id="mf-giacenza" type="number" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" value="${f.giacenza||0}" placeholder="0" oninput="updateModalCalc()" ${wine&&(wine.lots||[]).some(l=>l.qtyRimanente>0)?'title="⚠️ Vino con lotti FIFO attivi: modifica tramite carico/scarico per non desincronizzare i lotti" style="border-color:rgba(var(--amber3-rgb,180,83,9),.5)"':''} ><\/div>${wine&&(wine.lots||[]).some(l=>l.qtyRimanente>0)?'<div style="font-size:11px;color:rgba(251,146,60,.8);margin-top:3px;letter-spacing:.05em">⚠️ Lotti FIFO attivi — usa carico/scarico per aggiornare la giacenza<\/div>':''}
       </div>
       ${(()=>{const on=!!f.inFresco;return `<div style="margin-top:12px">
         <label class="form-label">Servizio in carta</label>
@@ -8189,19 +8189,19 @@ function renderModalBody(wine){
       const SOURCE_LABEL={'carico':'Carico','modifica_scheda':'Modifica scheda','carta_rapida':'P.Carta rapida','ricezione_ordine':'Ricezione ordine','ricezione_globale':'Ricezione globale','manuale':'Manuale'};
       return `<div style="margin-top:4px">
         <div class="modal-section-label">📈 Storico Prezzi</div>
-        <div style="display:grid;grid-template-columns:90px 1fr 110px 110px 110px 110px;gap:0;font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt4);padding:6px 12px;background:rgba(41,37,36,.4)">
+        <div style="display:grid;grid-template-columns:90px 1fr 110px 110px 110px 110px;gap:0;font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt4);padding:6px 12px;background:rgba(41,37,36,.4)">
           <span>Data</span><span>Evento</span><span style="text-align:right">P.Acq nuovo</span><span style="text-align:right">P.Acq prec.</span><span style="text-align:right">P.Carta nuovo</span><span style="text-align:right">P.Carta prec.</span>
         </div>
         ${hist.map(e=>{
           const acqChanged=e.prezzoAcq!==e.prevAcq;
           const cartaChanged=e.prezzoCarta!==e.prevCarta;
-          return `<div style="display:grid;grid-template-columns:90px 1fr 110px 110px 110px 110px;gap:0;padding:7px 12px;border-bottom:1px solid rgba(41,37,36,.5);font-size:11px;align-items:center">
+          return `<div style="display:grid;grid-template-columns:90px 1fr 110px 110px 110px 110px;gap:0;padding:7px 12px;border-bottom:1px solid rgba(41,37,36,.5);font-size:12px;align-items:center">
             <span style="color:var(--txt3)">${e.data}</span>
-            <span style="color:var(--txt2);font-size:10px;letter-spacing:.08em;text-transform:uppercase">${SOURCE_LABEL[e.source]||e.source}</span>
+            <span style="color:var(--txt2);font-size:12px;letter-spacing:.08em;text-transform:uppercase">${SOURCE_LABEL[e.source]||e.source}</span>
             <span style="text-align:right;${acqChanged?'color:var(--amber)':'color:var(--txt4)'}">${e.prezzoAcq?fmt(e.prezzoAcq):'—'}</span>
-            <span style="text-align:right;color:var(--txt4);font-size:10px">${e.prevAcq?fmt(e.prevAcq):'—'}</span>
+            <span style="text-align:right;color:var(--txt4);font-size:12px">${e.prevAcq?fmt(e.prevAcq):'—'}</span>
             <span style="text-align:right;${cartaChanged?'color:#30D158':'color:var(--txt4)'}">${e.prezzoCarta?fmt(e.prezzoCarta):'—'}</span>
-            <span style="text-align:right;color:var(--txt4);font-size:10px">${e.prevCarta?fmt(e.prevCarta):'—'}</span>
+            <span style="text-align:right;color:var(--txt4);font-size:12px">${e.prevCarta?fmt(e.prevCarta):'—'}</span>
           </div>`;
         }).join('')}
       </div>`;
@@ -8352,7 +8352,7 @@ function bulkDeleteWines(){
   const n = selIds.size;
   const snap = new Set(selIds); // snapshot — selIds può cambiare durante callback
   _confirmModal(
-    `Eliminare <strong>${n} vin${n===1?'o':'i'}</strong>?<br><span style="font-size:11px;color:var(--txt4)">Verranno rimossi anche movimenti e fallate collegati.</span>`,
+    `Eliminare <strong>${n} vin${n===1?'o':'i'}</strong>?<br><span style="font-size:12px;color:var(--txt4)">Verranno rimossi anche movimenti e fallate collegati.</span>`,
     `🗑️ Elimina ${n} ${n===1?'vino':'vini'}`,
     () => {
       _tombstonaVini([...snap].map(_id=>{
@@ -8379,7 +8379,7 @@ function bulkDeleteMovimenti(){
   const _inChiuso=movements.find(m=>snap.has(m.id)&&_periodoChiuso(m.data));
   if(_inChiuso && _bloccaChiuso(_inChiuso.data,"Eliminazione")) return;
   _confirmModal(
-    `Eliminare <strong>${n} moviment${n===1?'o':'i'}</strong>?<br><span style="font-size:11px;color:var(--txt4)">La giacenza dei soli vini coinvolti verrà corretta invertendo l'effetto dei movimenti eliminati.</span>`,
+    `Eliminare <strong>${n} moviment${n===1?'o':'i'}</strong>?<br><span style="font-size:12px;color:var(--txt4)">La giacenza dei soli vini coinvolti verrà corretta invertendo l'effetto dei movimenti eliminati.</span>`,
     `🗑️ Elimina`,
     () => {
       // FIX DATA-LOSS: NIENTE rebuild globale (azzerava i vini con giacenza non
@@ -8480,7 +8480,7 @@ function openBulkEditModal(mode){
   document.getElementById("bulk-modal-title").textContent=`✏️ Modifica in blocco — ${n} element${n===1?"o":"i"}`;
   const body=document.getElementById("bulk-modal-body");
   body.innerHTML=`
-    <p style="font-size:11px;color:var(--txt3);margin-bottom:16px">Attiva i campi che vuoi modificare. I campi non attivati resteranno invariati.</p>
+    <p style="font-size:12px;color:var(--txt3);margin-bottom:16px">Attiva i campi che vuoi modificare. I campi non attivati resteranno invariati.</p>
     ${fields.map(f=>`
     <div class="bulk-field-row" id="bfr-${f.key}">
       <label class="bulk-field-toggle">
@@ -8612,8 +8612,8 @@ function _confirmModal(message, okLabel, onOk, dangerLevel='warn'){
     <div style="background:var(--bg2);border:1px solid ${colors.border};border-radius:12px;max-width:400px;width:100%;padding:24px;font-family:'Montserrat',system-ui,sans-serif;box-shadow:0 16px 48px rgba(0,0,0,.5)">
       <div style="font-size:13px;color:var(--txt);line-height:1.6;margin-bottom:20px">${message}</div>
       <div style="display:flex;justify-content:flex-end;gap:10px">
-        <button id="cm-conf-cancel" style="padding:8px 18px;border:1px solid var(--border2);background:none;color:var(--txt2);cursor:pointer;font-family:inherit;font-size:12px;border-radius:8px">Annulla</button>
-        <button id="cm-conf-ok" style="padding:8px 18px;background:${colors.btnBg};color:${colors.btnColor};border:none;cursor:pointer;font-family:inherit;font-size:12px;font-weight:700;border-radius:8px">${okLabel}</button>
+        <button id="cm-conf-cancel" style="padding:8px 18px;border:1px solid var(--border2);background:none;color:var(--txt2);cursor:pointer;font-family:inherit;font-size:13px;border-radius:8px">Annulla</button>
+        <button id="cm-conf-ok" style="padding:8px 18px;background:${colors.btnBg};color:${colors.btnColor};border:none;cursor:pointer;font-family:inherit;font-size:13px;font-weight:700;border-radius:8px">${okLabel}</button>
       </div>
     </div>`;
 
@@ -8641,9 +8641,9 @@ function _confirmModal2(message, actionA, actionB){
     <div style="background:var(--bg2);border:1px solid rgba(var(--amber-rgb,255,159,10),.3);border-radius:12px;max-width:420px;width:100%;padding:24px;font-family:'Montserrat',system-ui,sans-serif;box-shadow:0 16px 48px rgba(0,0,0,.5)">
       <div style="font-size:13px;color:var(--txt);line-height:1.6;margin-bottom:20px">${message}</div>
       <div style="display:flex;flex-direction:column;gap:8px">
-        <button id="cm2-a" style="width:100%;padding:10px 16px;background:rgba(255,69,58,.12);border:1px solid rgba(255,69,58,.35);color:#FF6B6B;cursor:pointer;font-family:inherit;font-size:12px;font-weight:600;border-radius:8px;text-align:left">${actionA.label}</button>
-        <button id="cm2-b" style="width:100%;padding:10px 16px;background:rgba(var(--amber-rgb,255,159,10),.1);border:1px solid rgba(var(--amber-rgb,255,159,10),.3);color:var(--amber);cursor:pointer;font-family:inherit;font-size:12px;font-weight:600;border-radius:8px;text-align:left">${actionB.label}</button>
-        <button id="cm2-cancel" style="width:100%;padding:8px 16px;border:1px solid var(--border2);background:none;color:var(--txt3);cursor:pointer;font-family:inherit;font-size:12px;border-radius:8px">Annulla</button>
+        <button id="cm2-a" style="width:100%;padding:10px 16px;background:rgba(255,69,58,.12);border:1px solid rgba(255,69,58,.35);color:#FF6B6B;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;border-radius:8px;text-align:left">${actionA.label}</button>
+        <button id="cm2-b" style="width:100%;padding:10px 16px;background:rgba(var(--amber-rgb,255,159,10),.1);border:1px solid rgba(var(--amber-rgb,255,159,10),.3);color:var(--amber);cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;border-radius:8px;text-align:left">${actionB.label}</button>
+        <button id="cm2-cancel" style="width:100%;padding:8px 16px;border:1px solid var(--border2);background:none;color:var(--txt3);cursor:pointer;font-family:inherit;font-size:13px;border-radius:8px">Annulla</button>
       </div>
     </div>`;
   const close = () => el.remove();
@@ -8673,7 +8673,7 @@ function deleteWine(id){
   const w = wines.find(x=>x.id===id);
   if(!w) return;
   _confirmModal(
-    `Eliminare <strong>${w.nome}</strong>${w.produttore?' ('+w.produttore+')':''}?<br><span style="font-size:11px;color:var(--txt4)">Verranno rimossi anche movimenti e fallate collegati.</span>`,
+    `Eliminare <strong>${w.nome}</strong>${w.produttore?' ('+w.produttore+')':''}?<br><span style="font-size:12px;color:var(--txt4)">Verranno rimossi anche movimenti e fallate collegati.</span>`,
     "🗑️ Elimina",
     () => {
       _tombstonaVini([{id:id, nome:w.nome||""}]);
@@ -9000,21 +9000,21 @@ function drillFornitore(encForn){
 
   const groupsHtml=groupArr.map(g=>{
     const ord=(ordByFatt[String(g.fattura).trim()]||[]);
-    const ordBadge=ord.length?`<span style="font-size:9px;padding:1px 7px;border-radius:4px;background:rgba(0,122,255,.14);border:1px solid rgba(0,122,255,.4);color:#7cc0ff;white-space:nowrap">🔗 ${ord.length} ordine${ord.length>1?"i":""} · ${h(_statoLabel[ord[0].stato]||ord[0].stato||"—")}</span>`
-      : (g.fattura?`<span style="font-size:9px;padding:1px 7px;border-radius:4px;background:rgba(var(--amber-rgb,255,159,10),.1);border:1px solid rgba(var(--amber3-rgb,180,83,9),.4);color:var(--amber);white-space:nowrap">nessun ordine collegato</span>`:"");
-    const righeHtml=g.righe.map(r=>`<div style="display:flex;gap:10px;align-items:baseline;padding:4px 0;font-size:12px;border-top:1px dashed var(--border)">
-        <span style="flex:1;min-width:0;color:var(--txt2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${h(r.vino)}${r.annata?` <span style="color:var(--txt4)">${h(r.annata)}</span>`:""}${r.manca?` <span title="costo lotto mancante: stima su costo scheda" style="color:var(--amber);font-size:9px">⚠</span>`:""}</span>
+    const ordBadge=ord.length?`<span style="font-size:11px;padding:1px 7px;border-radius:4px;background:rgba(0,122,255,.14);border:1px solid rgba(0,122,255,.4);color:#7cc0ff;white-space:nowrap">🔗 ${ord.length} ordine${ord.length>1?"i":""} · ${h(_statoLabel[ord[0].stato]||ord[0].stato||"—")}</span>`
+      : (g.fattura?`<span style="font-size:11px;padding:1px 7px;border-radius:4px;background:rgba(var(--amber-rgb,255,159,10),.1);border:1px solid rgba(var(--amber3-rgb,180,83,9),.4);color:var(--amber);white-space:nowrap">nessun ordine collegato</span>`:"");
+    const righeHtml=g.righe.map(r=>`<div style="display:flex;gap:10px;align-items:baseline;padding:4px 0;font-size:13px;border-top:1px dashed var(--border)">
+        <span style="flex:1;min-width:0;color:var(--txt2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${h(r.vino)}${r.annata?` <span style="color:var(--txt4)">${h(r.annata)}</span>`:""}${r.manca?` <span title="costo lotto mancante: stima su costo scheda" style="color:var(--amber);font-size:11px">⚠</span>`:""}</span>
         <span style="font-family:'Montserrat',sans-serif;color:var(--txt3);white-space:nowrap">${fmtN(r.qty,0)}bt × ${fmt(r.pAcq)}</span>
         <span style="font-family:'Montserrat',sans-serif;color:var(--amber);white-space:nowrap;min-width:70px;text-align:right">${fmt(r.imp)}</span>
       </div>`).join("");
     return `<div style="padding:10px 14px;border:1px solid var(--border);border-radius:8px;margin-bottom:10px;background:var(--bg2)">
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
-        <span style="font-size:12px;color:var(--txt1);font-weight:600">${g.fattura?("🧾 "+h(g.fattura)):"🧾 (senza fattura)"}</span>
-        <span style="font-size:10px;color:var(--txt4)">${h(g.data||"—")}</span>
+        <span style="font-size:13px;color:var(--txt1);font-weight:600">${g.fattura?("🧾 "+h(g.fattura)):"🧾 (senza fattura)"}</span>
+        <span style="font-size:12px;color:var(--txt4)">${h(g.data||"—")}</span>
         ${ordBadge}
         <span style="margin-left:auto;font-family:'Montserrat',sans-serif;color:var(--amber);font-size:.95rem">${fmt(g.tot)}</span>
       </div>
-      <div style="font-size:10px;color:var(--txt4);margin-bottom:2px">${fmtN(g.bt,0)} bottiglie</div>
+      <div style="font-size:12px;color:var(--txt4);margin-bottom:2px">${fmtN(g.bt,0)} bottiglie</div>
       ${righeHtml}
     </div>`;
   }).join("");
@@ -9027,13 +9027,13 @@ function drillFornitore(encForn){
   bd.innerHTML=`<div style="background:var(--bg1,#14110d);border:1px solid var(--border);border-radius:14px;max-width:640px;width:100%;padding:20px 22px;box-shadow:0 20px 60px rgba(0,0,0,.5)">
     <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px">
       <div style="flex:1;min-width:0">
-        <div style="font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt4);margin-bottom:4px">Dettaglio fornitore · da ${EPOCH.slice(0,4)}</div>
+        <div style="font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt4);margin-bottom:4px">Dettaglio fornitore · da ${EPOCH.slice(0,4)}</div>
         <div style="font-size:1.2rem;color:var(--txt1);font-family:'Montserrat',sans-serif;font-weight:300">${h(forn)}</div>
-        <div style="font-size:11px;color:var(--txt3);margin-top:4px">${fmt(tot)} · ${fmtN(bt,0)} bottiglie · ${groupArr.length} boll${groupArr.length===1?"a":"e"}/date</div>
+        <div style="font-size:12px;color:var(--txt3);margin-top:4px">${fmt(tot)} · ${fmtN(bt,0)} bottiglie · ${groupArr.length} boll${groupArr.length===1?"a":"e"}/date</div>
       </div>
       <button onclick="document.getElementById('forn-drill-backdrop').remove()" style="background:none;border:1px solid var(--border2);color:var(--txt3);font-size:16px;line-height:1;padding:4px 10px;cursor:pointer;border-radius:8px">✕</button>
     </div>
-    <div style="max-height:60vh;overflow:auto">${groupsHtml||'<div style="padding:24px;text-align:center;color:var(--txt4);font-size:12px">Nessun carico trovato.</div>'}</div>
+    <div style="max-height:60vh;overflow:auto">${groupsHtml||'<div style="padding:24px;text-align:center;color:var(--txt4);font-size:13px">Nessun carico trovato.</div>'}</div>
   </div>`;
   document.body.appendChild(bd);
 }
@@ -9108,16 +9108,16 @@ function exportMovimentiCSV(){
 }
 .mob-acc-header:active { background: rgba(255,255,255,.06); }
 .mob-acc-title {
-  font-size: 10px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase;
+  font-size:12px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase;
   color: var(--amber); flex: 1; text-align: left;
 }
-.mob-acc-meta { font-size: 10px; color: var(--txt4); flex-shrink: 0; }
-.mob-acc-arrow { font-size: 10px; color: var(--txt4); flex-shrink: 0; }
+.mob-acc-meta { font-size:12px; color: var(--txt4); flex-shrink: 0; }
+.mob-acc-arrow { font-size:12px; color: var(--txt4); flex-shrink: 0; }
 .mob-acc-body { background: var(--bg); }
 
 /* ── Riga vino ── */
 .mob-wine-sub {
-  font-size: 10px; color: var(--txt4); margin-top: 2px;
+  font-size:12px; color: var(--txt4); margin-top: 2px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
@@ -9143,7 +9143,7 @@ function exportMovimentiCSV(){
 
 /* ── Bottone Scarica ── */
 .mob-confirm-btn {
-  min-height: 44px; padding: 0 16px; font-size: 12px; font-weight: 700;
+  min-height: 44px; padding: 0 16px; font-size:13px; font-weight: 700;
   letter-spacing: .04em; text-transform: uppercase; font-family: inherit;
   background: rgba(255,69,58,.15); border: 1px solid rgba(255,69,58,.35);
   color: #FF6B6B; cursor: pointer; border-radius: 8px;
@@ -9169,7 +9169,7 @@ function exportMovimentiCSV(){
   background: var(--bg2); flex-shrink: 0;
 }
 .mob-tab-btn {
-  flex: 1; padding: 12px 0; font-size: 12px; font-weight: 600;
+  flex: 1; padding: 12px 0; font-size:13px; font-weight: 600;
   letter-spacing: .06em; text-transform: uppercase; border: none;
   background: none; color: var(--txt3); cursor: pointer;
   font-family: 'Montserrat', system-ui, sans-serif;
@@ -9194,7 +9194,7 @@ function exportMovimentiCSV(){
   font-size: 13px; font-weight: 600; color: var(--txt);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.mob-stor-meta { font-size: 10px; color: var(--txt4); margin-top: 2px; }
+.mob-stor-meta { font-size:12px; color: var(--txt4); margin-top: 2px; }
 .mob-stor-qty {
   font-size: 18px; font-weight: 700; font-family: 'Montserrat', sans-serif;
   color: var(--txt2); min-width: 28px; text-align: center; flex-shrink: 0;
@@ -9202,7 +9202,7 @@ function exportMovimentiCSV(){
 .mob-stor-actions { display: flex; gap: 6px; flex-shrink: 0; }
 .mob-stor-btn {
   min-height: 36px; min-width: 36px; padding: 0 10px;
-  font-size: 11px; font-weight: 700; letter-spacing: .04em;
+  font-size:12px; font-weight: 700; letter-spacing: .04em;
   text-transform: uppercase; font-family: inherit; border-radius: 8px;
   border: 1px solid; cursor: pointer; background: none;
   -webkit-tap-highlight-color: transparent; transition: background .1s, opacity .1s;
@@ -9220,12 +9220,12 @@ function exportMovimentiCSV(){
 .mob-stor-btn-del:active { background: rgba(255,69,58,.28); }
 .mob-stor-btn:disabled { opacity: .3; cursor: not-allowed; }
 .mob-stor-annullato-badge {
-  font-size: 9px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+  font-size:11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
   color: var(--txt4); border: 1px solid var(--border2); border-radius: 4px; padding: 2px 6px;
 }
 .mob-stor-empty {
   padding: 48px 24px; text-align: center; color: var(--txt4);
-  font-size: 12px; line-height: 2;
+  font-size:13px; line-height: 2;
 }
 
 /* ── Bottom sheet modifica qty ── */
@@ -9243,7 +9243,7 @@ function exportMovimentiCSV(){
   margin: 10px auto 0;
 }
 .mob-sheet-title {
-  font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+  font-size:12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
   color: var(--txt3); text-align: center; padding: 14px 20px 0;
 }
 .mob-sheet-wine {
@@ -9294,7 +9294,7 @@ function exportMovimentiCSV(){
   padding: 10px 14px; background: var(--bg2); border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
-.mob-stor-header-label { font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--txt4); }
+.mob-stor-header-label { font-size:12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--txt4); }
 .mob-stor-header-val { font-size: 13px; font-weight: 700; color: var(--txt); font-family: 'Montserrat', sans-serif; }
 
 /* ── FIX troncamento nome: fino a 2 righe invece di ellissi su 1 ── */
@@ -9325,11 +9325,11 @@ function exportMovimentiCSV(){
   line-height: 1.25; word-break: break-word;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
-.mob-fresco-sub { font-size: 10px; color: var(--txt4); margin-top: 2px; }
+.mob-fresco-sub { font-size:12px; color: var(--txt4); margin-top: 2px; }
 .mob-fresco-toggle {
   flex-shrink: 0; min-width: 92px; min-height: 44px; border-radius: 10px;
   display: flex; align-items: center; justify-content: center; gap: 7px;
-  font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  font-size:13px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
   font-family: inherit; cursor: pointer; border: 1px solid; transition: all .12s;
   -webkit-tap-highlight-color: transparent;
 }
@@ -9377,7 +9377,7 @@ function enterMobileMode(){
   } else {
     // Nessun dato locale: mostra messaggio di attesa esplicito
     const list = document.getElementById("mob-list");
-    if(list) list.innerHTML = `<div style="text-align:center;padding:48px 24px;color:var(--txt4);font-size:12px;line-height:2">⏳ Connessione a Supabase…<br><span style="font-size:10px;color:var(--txt4);opacity:.6">Attendere qualche secondo</span></div>`;
+    if(list) list.innerHTML = `<div style="text-align:center;padding:48px 24px;color:var(--txt4);font-size:13px;line-height:2">⏳ Connessione a Supabase…<br><span style="font-size:12px;color:var(--txt4);opacity:.6">Attendere qualche secondo</span></div>`;
   }
 }
 
@@ -9871,7 +9871,7 @@ function _renderMobFrescoList(){
     const on = !!w.inFresco;
     return `<div class="mob-fresco-row">
       <div class="mob-fresco-info">
-        <div class="mob-fresco-name">${h(w.nome)}${w.annata ? ` <span style="color:var(--txt4);font-weight:400;font-size:11px">${h(w.annata)}</span>` : ""}</div>
+        <div class="mob-fresco-name">${h(w.nome)}${w.annata ? ` <span style="color:var(--txt4);font-weight:400;font-size:12px">${h(w.annata)}</span>` : ""}</div>
         ${w.produttore ? `<div class="mob-fresco-sub">${h(w.produttore)}</div>` : ""}
       </div>
       <button class="mob-fresco-toggle ${on?"on":"off"}" onclick="mobToggleFresco('${w.id}')" aria-pressed="${on}" aria-label="${on?"Servito in fresco":"Non in fresco"}">
@@ -10155,7 +10155,7 @@ function openMovModal(id){
       <label class="form-label">Note</label>
       <input class="form-input" id="me-note" value="${h(m.note||'')}" placeholder="Note aggiuntive…">
     </div>
-    <div style="padding:10px;background:rgba(28,28,30,.6);border:1px solid var(--border);font-size:10px;color:var(--txt4)">
+    <div style="padding:10px;background:rgba(28,28,30,.6);border:1px solid var(--border);font-size:12px;color:var(--txt4)">
       <span style="color:var(--txt3)">Vino collegato:</span> ${h(wObj?.nome||m.wineName||"—")} · ${h(wObj?.produttore||"—")} · ${wObj?.annata||"N.V."}
       <span style="margin-left:12px;color:var(--txt4)">ID: ${m.id.slice(0,8)}…</span>
     </div>`;
@@ -10405,7 +10405,7 @@ function importBackupJSON(event){
       if(mov && !mov.every(m=>m && typeof m==="object")) throw new Error("Struttura movimenti non valida");
       // _confirmModal è non-blocking: la catch gestisce solo il parse JSON
       _confirmModal(
-        `Importare <strong>${data.wines.length} vini</strong>${mov?` e <strong>${mov.length} movimenti</strong>`:""}?<br><span style="font-size:11px;color:var(--txt4)">I dati esistenti verranno sostituiti.</span>`,
+        `Importare <strong>${data.wines.length} vini</strong>${mov?` e <strong>${mov.length} movimenti</strong>`:""}?<br><span style="font-size:12px;color:var(--txt4)">I dati esistenti verranno sostituiti.</span>`,
         "📥 Importa",
         () => {
           wines = data.wines;
@@ -10639,8 +10639,8 @@ function _renderDupModal(){
   document.getElementById("dup-next-btn").disabled = _dupGroupIdx === total-1;
 
   const badgeHtml = matchType === "exact"
-    ? `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;background:rgba(48,209,88,.15);color:#30D158;letter-spacing:.06em">✓ ESATTO</span>`
-    : `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;background:rgba(var(--amber-rgb,255,159,10),.15);color:var(--amber);letter-spacing:.06em">~ FUZZY ${Math.round(score*100)}%</span>`;
+    ? `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600;background:rgba(48,209,88,.15);color:#30D158;letter-spacing:.06em">✓ ESATTO</span>`
+    : `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600;background:rgba(var(--amber-rgb,255,159,10),.15);color:var(--amber);letter-spacing:.06em">~ FUZZY ${Math.round(score*100)}%</span>`;
 
   // Corpo: tabella dei vini nel gruppo con campi selezionabili
   const fields = [
@@ -10663,14 +10663,14 @@ function _renderDupModal(){
   movements.forEach(m=>{ _movCountMap[m.wineId] = (_movCountMap[m.wineId]||0) + 1; });
 
   // Header riga con nome vino+produttore per ogni duplicato
-  let headerCols = `<th style="width:120px;color:var(--txt4);font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-weight:500;padding:8px 10px;text-align:left">Campo</th>`;
+  let headerCols = `<th style="width:120px;color:var(--txt4);font-size:12px;letter-spacing:.1em;text-transform:uppercase;font-weight:500;padding:8px 10px;text-align:left">Campo</th>`;
   group.forEach((w,i) => {
     const giac = w.giacenza||0;
     const movCount = _movCountMap[w.id]||0;
     headerCols += `<th style="padding:8px 10px;text-align:left;min-width:180px">
-      <div style="font-size:12px;color:var(--txt);font-weight:600">${h(w.nome)}</div>
-      <div style="font-size:10px;color:var(--txt3);margin-top:2px">${h(w.produttore)}</div>
-      <div style="font-size:10px;color:var(--amber);margin-top:3px">⬢ ${giac} bt &nbsp;·&nbsp; ${movCount} mov.</div>
+      <div style="font-size:13px;color:var(--txt);font-weight:600">${h(w.nome)}</div>
+      <div style="font-size:12px;color:var(--txt3);margin-top:2px">${h(w.produttore)}</div>
+      <div style="font-size:12px;color:var(--amber);margin-top:3px">⬢ ${giac} bt &nbsp;·&nbsp; ${movCount} mov.</div>
     </th>`;
   });
 
@@ -10680,14 +10680,14 @@ function _renderDupModal(){
     const vals = group.map(w => String(w[f.key]||""));
     const allSame = vals.every(v => v === vals[0]);
     rows += `<tr style="border-bottom:1px solid var(--border)">
-      <td style="padding:7px 10px;font-size:10px;color:var(--txt4);letter-spacing:.08em;text-transform:uppercase;white-space:nowrap">${f.label}</td>`;
+      <td style="padding:7px 10px;font-size:12px;color:var(--txt4);letter-spacing:.08em;text-transform:uppercase;white-space:nowrap">${f.label}</td>`;
     group.forEach((w,i) => {
       const val = String(w[f.key]||"—");
       const isDiff = !allSame;
       rows += `<td style="padding:7px 10px">
         <label style="display:flex;align-items:center;gap:7px;cursor:pointer">
           <input type="radio" name="dup-field-${f.key}" value="${i}" style="accent-color:#bf5fff;cursor:pointer" ${i===0?"checked":""}>
-          <span style="font-size:12px;${isDiff?"color:var(--txt)":"color:var(--txt3)"}">${h(val)}</span>
+          <span style="font-size:13px;${isDiff?"color:var(--txt)":"color:var(--txt3)"}">${h(val)}</span>
         </label>
       </td>`;
     });
@@ -10696,23 +10696,23 @@ function _renderDupModal(){
 
   // Riga giacenza (solo info, non selezionabile — viene sommata)
   rows += `<tr style="border-bottom:1px solid var(--border);background:rgba(var(--amber-rgb,255,159,10),.05)">
-    <td style="padding:7px 10px;font-size:10px;color:var(--amber);letter-spacing:.08em;text-transform:uppercase">Giacenza</td>`;
+    <td style="padding:7px 10px;font-size:12px;color:var(--amber);letter-spacing:.08em;text-transform:uppercase">Giacenza</td>`;
   group.forEach(w => {
-    rows += `<td style="padding:7px 10px;font-size:12px;color:var(--amber);font-weight:600">${w.giacenza||0} bt <span style="font-size:9px;color:var(--txt4)">(verrà sommata)</span></td>`;
+    rows += `<td style="padding:7px 10px;font-size:13px;color:var(--amber);font-weight:600">${w.giacenza||0} bt <span style="font-size:11px;color:var(--txt4)">(verrà sommata)</span></td>`;
   });
   rows += `</tr>`;
 
   // Riga lotti
   rows += `<tr style="background:rgba(48,209,88,.04)">
-    <td style="padding:7px 10px;font-size:10px;color:#30D158;letter-spacing:.08em;text-transform:uppercase">Lotti FIFO</td>`;
+    <td style="padding:7px 10px;font-size:12px;color:#30D158;letter-spacing:.08em;text-transform:uppercase">Lotti FIFO</td>`;
   group.forEach(w => {
     const lots = (w.lots||[]).filter(l=>l.qtyRimanente>0);
-    rows += `<td style="padding:7px 10px;font-size:11px;color:#30D158">${lots.length > 0 ? lots.length+" lott"+(lots.length===1?"o":"i")+" attivi" : "nessuno"} <span style="font-size:9px;color:var(--txt4)">(verranno uniti)</span></td>`;
+    rows += `<td style="padding:7px 10px;font-size:12px;color:#30D158">${lots.length > 0 ? lots.length+" lott"+(lots.length===1?"o":"i")+" attivi" : "nessuno"} <span style="font-size:11px;color:var(--txt4)">(verranno uniti)</span></td>`;
   });
   rows += `</tr>`;
 
   document.getElementById("dup-modal-body").innerHTML = `
-    <div style="margin-bottom:12px;padding:10px 14px;background:rgba(191,95,255,.08);border:1px solid rgba(191,95,255,.2);border-radius:8px;font-size:11px;color:var(--txt3);line-height:1.7;display:flex;align-items:flex-start;gap:10px">
+    <div style="margin-bottom:12px;padding:10px 14px;background:rgba(191,95,255,.08);border:1px solid rgba(191,95,255,.2);border-radius:8px;font-size:12px;color:var(--txt3);line-height:1.7;display:flex;align-items:flex-start;gap:10px">
       <div style="flex:1">Seleziona per ogni campo il valore da tenere nel vino risultante.<br>
       <span style="color:var(--amber)">Giacenze e lotti FIFO</span> vengono sempre <strong style="color:var(--txt)">sommati automaticamente</strong>. Movimenti e fallate vengono riepilogati sul vino tenuto.</div>
       <div style="flex-shrink:0;padding-top:2px">${badgeHtml}</div>
@@ -11050,15 +11050,15 @@ function openShortcutsModal(){
     <div style="margin-bottom:20px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
         <span style="font-size:13px">${s.icon}</span>
-        <span style="font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--txt3)">${s.label}</span>
-        ${s.note ? `<span style="font-size:10px;color:var(--txt4);font-style:italic">— ${s.note}</span>` : ''}
+        <span style="font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--txt3)">${s.label}</span>
+        ${s.note ? `<span style="font-size:12px;color:var(--txt4);font-style:italic">— ${s.note}</span>` : ''}
         <div style="flex:1;height:1px;background:var(--border)"></div>
       </div>
       <div style="display:flex;flex-direction:column;gap:4px">
         ${s.rows.map(([k,d]) => `
         <div style="display:flex;align-items:center;gap:12px;padding:6px 10px;border-radius:var(--radius-sm);background:rgba(58,58,60,.3)">
-          <kbd style="display:inline-flex;align-items:center;justify-content:center;min-width:80px;padding:3px 10px;background:var(--bg3);border:1px solid var(--border2);border-bottom:2px solid var(--border2);border-radius:6px;font-family:'Montserrat',monospace;font-size:11px;font-weight:600;color:var(--txt2);white-space:nowrap;flex-shrink:0">${k}</kbd>
-          <span style="font-size:12px;color:var(--txt2)">${d}</span>
+          <kbd style="display:inline-flex;align-items:center;justify-content:center;min-width:80px;padding:3px 10px;background:var(--bg3);border:1px solid var(--border2);border-bottom:2px solid var(--border2);border-radius:6px;font-family:'Montserrat',monospace;font-size:12px;font-weight:600;color:var(--txt2);white-space:nowrap;flex-shrink:0">${k}</kbd>
+          <span style="font-size:13px;color:var(--txt2)">${d}</span>
         </div>`).join('')}
       </div>
     </div>
@@ -11470,12 +11470,12 @@ function renderTrasferimenti(){
   if(!_tfMeta.data) _tfMeta.data=today();
   return `
   <div class="card" style="margin-bottom:20px;border-color:rgba(90,200,250,.35)">
-    <div style="font-size:10px;letter-spacing:.25em;text-transform:uppercase;color:#5AC8FA;margin-bottom:4px">🔄 Trasferimenti tra locali</div>
-    <div style="font-size:12px;color:var(--txt3)">Costo-neutro · isolamento totale · nessun impatto su acquisti, ricavi e P&amp;L. Cerca le referenze, componi l'invio, genera il manifesto e passalo al locale ricevente.</div>
+    <div style="font-size:12px;letter-spacing:.25em;text-transform:uppercase;color:#5AC8FA;margin-bottom:4px">🔄 Trasferimenti tra locali</div>
+    <div style="font-size:13px;color:var(--txt3)">Costo-neutro · isolamento totale · nessun impatto su acquisti, ricavi e P&amp;L. Cerca le referenze, componi l'invio, genera il manifesto e passalo al locale ricevente.</div>
   </div>
 
   <div class="card" style="margin-bottom:20px">
-    <div style="font-size:10px;letter-spacing:.25em;text-transform:uppercase;color:var(--txt2);margin-bottom:12px">📤 Nuovo invio</div>
+    <div style="font-size:12px;letter-spacing:.25em;text-transform:uppercase;color:var(--txt2);margin-bottom:12px">📤 Nuovo invio</div>
     <input id="tf-q" class="form-input" style="width:100%" placeholder="🔍 Cerca referenza: nome, produttore, annata, vitigno, regione, SKU…"
       value="${h(_tfQ)}" oninput="_tfSetQ(this.value)" autocomplete="off">
     <div id="tf-results" style="margin-top:10px">${_tfResultsHtml()}</div>
@@ -11483,20 +11483,20 @@ function renderTrasferimenti(){
   </div>
 
   <div class="card" style="margin-bottom:20px">
-    <div style="font-size:10px;letter-spacing:.25em;text-transform:uppercase;color:var(--txt2);margin-bottom:10px">📥 Ricevi un manifesto</div>
-    <textarea id="tf-ricev" class="form-input" style="width:100%;height:90px;font-family:monospace;font-size:10px;resize:vertical"
+    <div style="font-size:12px;letter-spacing:.25em;text-transform:uppercase;color:var(--txt2);margin-bottom:10px">📥 Ricevi un manifesto</div>
+    <textarea id="tf-ricev" class="form-input" style="width:100%;height:90px;font-family:monospace;font-size:12px;resize:vertical"
       placeholder="Incolla qui il codice manifesto (base64 o JSON)…" oninput="_tfRicevPreview()"></textarea>
     <div style="display:flex;align-items:center;gap:10px;margin-top:8px;flex-wrap:wrap">
       <label class="btn-outline btn-sm" style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;padding:6px 12px">
         📁 Carica file .json <input type="file" accept=".json,.txt" onchange="_tfRicevFile(event)" style="display:none"></label>
       <button class="btn-primary btn-sm" id="tf-ricev-btn" onclick="_tfConfermaRicevi()" disabled style="opacity:.4;pointer-events:none">📥 Importa</button>
     </div>
-    <div id="tf-ricev-preview" style="margin-top:12px;font-size:12px;color:var(--txt2)"></div>
+    <div id="tf-ricev-preview" style="margin-top:12px;font-size:13px;color:var(--txt2)"></div>
   </div>
 
   <div class="card">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px">
-      <div style="font-size:10px;letter-spacing:.25em;text-transform:uppercase;color:var(--txt2)">🗂️ Storico trasferimenti</div>
+      <div style="font-size:12px;letter-spacing:.25em;text-transform:uppercase;color:var(--txt2)">🗂️ Storico trasferimenti</div>
       <button class="btn-outline btn-sm" onclick="_tfExportStoricoCSV()">↓ Esporta CSV</button>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
@@ -11509,9 +11509,9 @@ function renderTrasferimenti(){
 
 function _tfResultsHtml(){
   const schedaMode=_tfMeta.mode==="scheda";
-  if(!_tfQ.trim()) return `<div style="font-size:11px;color:var(--txt4);padding:6px 0">Scrivi almeno una parola per cercare ${schedaMode?"tra tutte le referenze in anagrafica (anche esaurite)":"tra le referenze con giacenza disponibile"}.</div>`;
+  if(!_tfQ.trim()) return `<div style="font-size:12px;color:var(--txt4);padding:6px 0">Scrivi almeno una parola per cercare ${schedaMode?"tra tutte le referenze in anagrafica (anche esaurite)":"tra le referenze con giacenza disponibile"}.</div>`;
   const res=_tfResults();
-  if(!res.length) return `<div style="font-size:11px;color:#fb923c;padding:6px 0">Nessuna referenza ${schedaMode?"in anagrafica":"disponibile"} per «${h(_tfQ)}».</div>`;
+  if(!res.length) return `<div style="font-size:12px;color:#fb923c;padding:6px 0">Nessuna referenza ${schedaMode?"in anagrafica":"disponibile"} per «${h(_tfQ)}».</div>`;
   const nSel=res.filter(w=>_tfSel.has(w.id)).length;
   const rows=res.map(w=>{
     const g=parseInt(w.giacenza)||0;
@@ -11520,18 +11520,18 @@ function _tfResultsHtml(){
     return `<div style="display:flex;align-items:center;gap:10px;padding:7px 8px;border-bottom:1px solid var(--border);${on?"background:rgba(90,200,250,.07)":""}">
       <input type="checkbox" ${on?"checked":""} onchange="_tfToggleSel('${w.id}')" style="cursor:pointer">
       <div style="flex:1;min-width:0;cursor:pointer" onclick="_tfToggleSel('${w.id}')">
-        <div style="font-size:12px;color:var(--txt);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(w.nome)}${w.annata?` <span style="color:var(--amber)">${h(w.annata)}</span>`:""}</div>
-        <div style="font-size:10px;color:var(--txt3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(w.produttore||"—")}${w.regione?" · "+h(w.regione):""}${w.sku?" · "+h(w.sku):""}</div>
+        <div style="font-size:13px;color:var(--txt);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(w.nome)}${w.annata?` <span style="color:var(--amber)">${h(w.annata)}</span>`:""}</div>
+        <div style="font-size:12px;color:var(--txt3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(w.produttore||"—")}${w.regione?" · "+h(w.regione):""}${w.sku?" · "+h(w.sku):""}</div>
       </div>
-      <div style="font-size:11px;color:var(--txt2);white-space:nowrap">${g}bt${inCart?` <span style="color:#5AC8FA">· ${inCart.qty} in invio</span>`:""}</div>
+      <div style="font-size:12px;color:var(--txt2);white-space:nowrap">${g}bt${inCart?` <span style="color:#5AC8FA">· ${inCart.qty} in invio</span>`:""}</div>
       <button class="btn-outline btn-sm" style="padding:3px 9px" onclick="_tfAddOne('${w.id}')">＋</button>
     </div>`;
   }).join("");
   return `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
-      <span style="font-size:10px;color:var(--txt4)">${res.length} risultat${res.length===1?"o":"i"}${res.length===80?" (primi 80)":""}</span>
-      <button class="btn-outline btn-sm" style="padding:2px 8px;font-size:10px" onclick="_tfSelAll(true)">Seleziona tutti</button>
-      <button class="btn-outline btn-sm" style="padding:2px 8px;font-size:10px" onclick="_tfSelAll(false)">Deseleziona</button>
-      <button class="btn-primary btn-sm" style="padding:2px 10px;font-size:10px;${nSel?"":"opacity:.4;pointer-events:none"}" onclick="_tfAddSelected()">➕ Aggiungi selezionati (${nSel})</button>
+      <span style="font-size:12px;color:var(--txt4)">${res.length} risultat${res.length===1?"o":"i"}${res.length===80?" (primi 80)":""}</span>
+      <button class="btn-outline btn-sm" style="padding:2px 8px;font-size:12px" onclick="_tfSelAll(true)">Seleziona tutti</button>
+      <button class="btn-outline btn-sm" style="padding:2px 8px;font-size:12px" onclick="_tfSelAll(false)">Deseleziona</button>
+      <button class="btn-primary btn-sm" style="padding:2px 10px;font-size:12px;${nSel?"":"opacity:.4;pointer-events:none"}" onclick="_tfAddSelected()">➕ Aggiungi selezionati (${nSel})</button>
     </div>
     <div style="max-height:340px;overflow:auto;border:1px solid var(--border)">${rows}</div>`;
 }
@@ -11564,16 +11564,16 @@ function _tfCartHtml(){
   const dl=_tfDestKnown();
   const scheda=_tfMeta.mode==="scheda";
   const modeSw=`<div style="display:flex;gap:6px;margin-bottom:12px"><button class="btn-outline btn-sm" style="${!scheda?"border-color:#5AC8FA;color:#5AC8FA":""}" onclick="_tfSetMode('bottiglie')">📦 Bottiglie</button><button class="btn-outline btn-sm" style="${scheda?"border-color:#5AC8FA;color:#5AC8FA":""}" onclick="_tfSetMode('scheda')">📄 Solo scheda</button></div>`;
-  const head=`<div style="font-size:10px;letter-spacing:.25em;text-transform:uppercase;color:var(--txt2);margin-bottom:8px">📦 Invio in preparazione</div>`+modeSw;
-  if(!_tfCart.length) return head+`<div style="font-size:11px;color:var(--txt4)">Nessuna referenza nell'invio. Cerca qui sopra e aggiungi con ＋ o in blocco.</div>`;
+  const head=`<div style="font-size:12px;letter-spacing:.25em;text-transform:uppercase;color:var(--txt2);margin-bottom:8px">📦 Invio in preparazione</div>`+modeSw;
+  if(!_tfCart.length) return head+`<div style="font-size:12px;color:var(--txt4)">Nessuna referenza nell'invio. Cerca qui sopra e aggiungi con ＋ o in blocco.</div>`;
   let tot=0, err=false;
   const rows=_tfCart.map(l=>{
     const w=wines.find(x=>x.id===l.wineId);
     const g=parseInt(w?.giacenza)||0, q=parseInt(l.qty)||0;
     if(!scheda){ tot+=q; if(q<=0||q>g) err=true; }
-    const qtyCell=scheda?`<span style="font-size:10px;padding:2px 8px;border:1px solid #3a86a8;color:#5AC8FA;white-space:nowrap">📄 scheda</span>`:`<button class="btn-outline btn-sm" style="padding:2px 7px" onclick="_tfStepQty('${l.wineId}',-1)">−</button><input class="form-input" type="number" min="1" max="${g}" step="1" value="${q}" onfocus="this.select()" oninput="_tfSetQtySoft('${l.wineId}',this.value)" onchange="_tfSetQty('${l.wineId}',this.value)" style="width:64px;display:inline-block;text-align:center;margin:0 4px"><button class="btn-outline btn-sm" style="padding:2px 7px" onclick="_tfStepQty('${l.wineId}',1)">＋</button>`;
+    const qtyCell=scheda?`<span style="font-size:12px;padding:2px 8px;border:1px solid #3a86a8;color:#5AC8FA;white-space:nowrap">📄 scheda</span>`:`<button class="btn-outline btn-sm" style="padding:2px 7px" onclick="_tfStepQty('${l.wineId}',-1)">−</button><input class="form-input" type="number" min="1" max="${g}" step="1" value="${q}" onfocus="this.select()" oninput="_tfSetQtySoft('${l.wineId}',this.value)" onchange="_tfSetQty('${l.wineId}',this.value)" style="width:64px;display:inline-block;text-align:center;margin:0 4px"><button class="btn-outline btn-sm" style="padding:2px 7px" onclick="_tfStepQty('${l.wineId}',1)">＋</button>`;
     return `<tr>
-      <td style="padding:6px 8px">${h(w?.nome||"?")}${w?.annata?` <span style="color:var(--amber)">${h(w.annata)}</span>`:""}<div style="font-size:10px;color:var(--txt3)">${h(w?.produttore||"")}</div></td>
+      <td style="padding:6px 8px">${h(w?.nome||"?")}${w?.annata?` <span style="color:var(--amber)">${h(w.annata)}</span>`:""}<div style="font-size:12px;color:var(--txt3)">${h(w?.produttore||"")}</div></td>
       <td class="r" style="padding:6px 8px;color:var(--txt3);white-space:nowrap">${g}bt</td>
       <td class="r" style="padding:6px 8px;white-space:nowrap">${qtyCell}</td>
       <td class="c" style="padding:6px 8px"><button class="btn-outline btn-sm" style="padding:2px 8px;border-color:rgba(255,69,58,.4);color:#FF6B6B" onclick="_tfRemove('${l.wineId}')">✕</button></td>
@@ -11582,8 +11582,8 @@ function _tfCartHtml(){
   const ready=_tfReady();
   const footer=scheda?`${_tfCart.length} schede · <b style="color:#5AC8FA">nessuno spostamento di giacenza</b> · clona la referenza completa`:(err?"Quantità non valida su una o più righe (max = giacenza).":`${_tfCart.length} referenze · <b style="color:#5AC8FA">${tot}bt</b> · costo lotti trasferito invariato (costo-neutro)`);
   return head+`
-    <table style="width:100%;border-collapse:collapse;font-size:12px">
-      <thead><tr style="font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt4);border-bottom:1px solid var(--border)">
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt4);border-bottom:1px solid var(--border)">
         <th style="text-align:left;padding:4px 8px">Referenza</th><th class="r" style="padding:4px 8px">Disp.</th><th class="r" style="padding:4px 8px">${scheda?"Tipo":"Qtà invio"}</th><th style="width:40px"></th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
@@ -11597,7 +11597,7 @@ function _tfCartHtml(){
     <div class="form-row" style="margin-top:10px"><label class="form-label">Nota (opzionale)</label>
       <input class="form-input" placeholder="es. rifornimento sala" value="${h(_tfMeta.note)}" oninput="_tfMetaSet('note',this.value)"></div>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:14px">
-      <div style="font-size:11px;color:${err?"#FF453A":"var(--txt3)"}">${footer}</div>
+      <div style="font-size:12px;color:${err?"#FF453A":"var(--txt3)"}">${footer}</div>
       <div style="display:flex;gap:8px">
         <button class="btn-outline btn-sm" onclick="_tfClearCart()">Svuota</button>
         <button class="btn-primary" id="tf-genera" style="${ready?"":"opacity:.4;pointer-events:none"}" onclick="_tfGenera()">${scheda?"📄 Genera manifesto schede":"📦 Genera manifesto"}</button>
@@ -11716,10 +11716,10 @@ function _tfShowManifesto(manifest){
       <div class="modal-header"><h2>✅ Manifesto pronto</h2>
         <button style="font-size:18px;color:var(--txt3)" onclick="document.getElementById('man-backdrop').remove()">✕</button></div>
       <div class="modal-body">
-        <div style="font-size:12px;color:var(--txt2);margin-bottom:10px">${isOrdine?`🛒 Ordine <b>${h(manifest.ordine?.fornitore||"")}</b> · `:""}${manifest.lines.length} referenze · ${isScheda?"solo schede · nessuna bottiglia":tot+"bt"}${isOrdine?" da ordinare":""} → <b>${h(manifest.dest||"destinazione")}</b>. Consegna questo codice al locale ricevente (incolla in <b>Ricevi</b>) oppure scarica il file.</div>
-        <div style="max-height:130px;overflow:auto;border:1px solid var(--border);margin-bottom:10px">${manifest.lines.map(l=>`<div style="padding:4px 8px;border-bottom:1px solid var(--border);font-size:11px">${isScheda?"📄":`${parseInt(l.qty)||0}bt`} · <b>${h(l.nome)}</b>${l.annata?" "+h(l.annata):""} — ${h(l.produttore||"")}</div>`).join("")}</div>
-        <textarea id="man-b64" readonly class="form-input" style="width:100%;height:110px;font-family:monospace;font-size:10px;resize:vertical" onclick="this.select()">${b64}</textarea>
-        <div style="font-size:10px;color:var(--txt4);margin-top:6px">transferId: ${h(manifest.transferId)}</div>
+        <div style="font-size:13px;color:var(--txt2);margin-bottom:10px">${isOrdine?`🛒 Ordine <b>${h(manifest.ordine?.fornitore||"")}</b> · `:""}${manifest.lines.length} referenze · ${isScheda?"solo schede · nessuna bottiglia":tot+"bt"}${isOrdine?" da ordinare":""} → <b>${h(manifest.dest||"destinazione")}</b>. Consegna questo codice al locale ricevente (incolla in <b>Ricevi</b>) oppure scarica il file.</div>
+        <div style="max-height:130px;overflow:auto;border:1px solid var(--border);margin-bottom:10px">${manifest.lines.map(l=>`<div style="padding:4px 8px;border-bottom:1px solid var(--border);font-size:12px">${isScheda?"📄":`${parseInt(l.qty)||0}bt`} · <b>${h(l.nome)}</b>${l.annata?" "+h(l.annata):""} — ${h(l.produttore||"")}</div>`).join("")}</div>
+        <textarea id="man-b64" readonly class="form-input" style="width:100%;height:110px;font-family:monospace;font-size:12px;resize:vertical" onclick="this.select()">${b64}</textarea>
+        <div style="font-size:12px;color:var(--txt4);margin-top:6px">transferId: ${h(manifest.transferId)}</div>
       </div>
       <div class="modal-footer">
         <button class="btn-outline" onclick="navigator.clipboard.writeText(document.getElementById('man-b64').value).then(()=>notify('📋 Codice copiato'))">📋 Copia codice</button>
@@ -11837,7 +11837,7 @@ function _tfRicevPreview(){
     if(el) el.innerHTML=`
       <div style="margin-bottom:8px">🛒 <b>Ordine</b> da <b>${h(man.from||"?")}</b> · fornitore <b>${h(o.fornitore||"—")}</b> · ${h(_fmtDataIT(o.dataOrdine||man.data||""))} · ${(o.referenze||[]).length} referenze · ${tot}bt${o.sconto?` · sconto ${o.sconto}%`:""}</div>
       ${rows}
-      <div style="margin-top:8px;font-size:11px;color:var(--txt4)">Verrà creato un ordine <b>in attesa</b>. Nessuna giacenza e nessun costo finché non confermi l'arrivo.</div>
+      <div style="margin-top:8px;font-size:12px;color:var(--txt4)">Verrà creato un ordine <b>in attesa</b>. Nessuna giacenza e nessun costo finché non confermi l'arrivo.</div>
       ${dup?`<div style="margin-top:10px;color:#fb923c">⚠️ Ordine già importato (transferId ${h(String(man.transferId).slice(0,8))})</div>`:""}
       ${self?`<div style="margin-top:10px;color:#FF453A">⚠️ Manifesto generato da questa stessa cantina</div>`:""}`;
     enable(!dup && !self); return;
@@ -11846,7 +11846,7 @@ function _tfRicevPreview(){
     const self=man.fromDbUser && man.fromDbUser===_effectiveDbUser();
     const rows=man.lines.map(l=>{
       const known=wines.some(w=>_transferMatchKey(w)===_transferMatchKey(l));
-      return `<div style="padding:4px 0;border-bottom:1px solid var(--border)"><b>${h(l.nome)}</b>${l.annata?" "+h(l.annata):""} — ${h(l.produttore||"")} <span style="color:${known?"var(--txt4)":"#30D158"};font-size:10px">${known?"· già presente":"· clona scheda"}</span></div>`;
+      return `<div style="padding:4px 0;border-bottom:1px solid var(--border)"><b>${h(l.nome)}</b>${l.annata?" "+h(l.annata):""} — ${h(l.produttore||"")} <span style="color:${known?"var(--txt4)":"#30D158"};font-size:12px">${known?"· già presente":"· clona scheda"}</span></div>`;
     }).join("");
     if(el) el.innerHTML=`
       <div style="margin-bottom:8px">📄 Solo schede · da <b>${h(man.from||"?")}</b> · ${h(_fmtDataIT(man.data||""))} · ${man.lines.length} referenze · nessuna bottiglia${man.note?" · "+h(man.note):""}</div>
@@ -11860,7 +11860,7 @@ function _tfRicevPreview(){
   const rows=man.lines.map(l=>{
     const key=_transferMatchKey(l);
     const known=wines.some(w=>_transferMatchKey(w)===key);
-    return `<div style="padding:4px 0;border-bottom:1px solid var(--border)">${parseInt(l.qty)||0}bt · <b>${h(l.nome)}</b>${l.annata?" "+h(l.annata):""} — ${h(l.produttore||"")} <span style="color:${known?"var(--txt4)":"#30D158"};font-size:10px">${known?"· aggiorna esistente":"· nuova referenza"}</span></div>`;
+    return `<div style="padding:4px 0;border-bottom:1px solid var(--border)">${parseInt(l.qty)||0}bt · <b>${h(l.nome)}</b>${l.annata?" "+h(l.annata):""} — ${h(l.produttore||"")} <span style="color:${known?"var(--txt4)":"#30D158"};font-size:12px">${known?"· aggiorna esistente":"· nuova referenza"}</span></div>`;
   }).join("");
   if(el) el.innerHTML=`
     <div style="margin-bottom:8px">Da <b>${h(man.from||"?")}</b> · ${h(_fmtDataIT(man.data||""))} · ${man.lines.length} referenze · ${tot}bt${man.note?" · "+h(man.note):""}</div>
@@ -11944,26 +11944,26 @@ function _tfConfermaRicevi(){
 // ── STORICO: HTML ────────────────────────────────────────────────────────────
 function _tfHistHtml(){
   const gs=_tfHistFiltered();
-  if(!gs.length) return `<div style="font-size:11px;color:var(--txt4);padding:6px 0">Nessun trasferimento${_tfHistQ?" per «"+h(_tfHistQ)+"»":""}.</div>`;
+  if(!gs.length) return `<div style="font-size:12px;color:var(--txt4);padding:6px 0">Nessun trasferimento${_tfHistQ?" per «"+h(_tfHistQ)+"»":""}.</div>`;
   return gs.map(g=>{
     const out=g.dir==="out";
     const col=out?"#5AC8FA":"#30D158";
     const open=_tfOpen.has(g.key);
     const det=open?`<div style="margin-top:8px;border-top:1px solid var(--border)">
-        ${g.lines.map(l=>`<div style="display:flex;justify-content:space-between;gap:10px;padding:4px 0;border-bottom:1px solid var(--border);font-size:11px">
+        ${g.lines.map(l=>`<div style="display:flex;justify-content:space-between;gap:10px;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px">
           <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(l.nome)}${l.annata?` <span style="color:var(--amber)">${h(l.annata)}</span>`:""} <span style="color:var(--txt3)">${h(l.produttore||"")}</span></span>
           <span style="color:${col};white-space:nowrap">${out?"−":"+"}${l.qty}bt</span></div>`).join("")}
         <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-          <span style="font-size:10px;color:var(--txt4)">ID ${h(String(g.transferId).slice(0,8))}</span>
-          ${out?`<button class="btn-outline btn-sm" style="padding:2px 8px;font-size:10px" onclick="_tfShowManifestoGroup('${g.key}')">📋 Rivedi manifesto</button>`:""}
+          <span style="font-size:12px;color:var(--txt4)">ID ${h(String(g.transferId).slice(0,8))}</span>
+          ${out?`<button class="btn-outline btn-sm" style="padding:2px 8px;font-size:12px" onclick="_tfShowManifestoGroup('${g.key}')">📋 Rivedi manifesto</button>`:""}
         </div></div>`:"";
     return `<div style="border:1px solid var(--border);border-left:2px solid ${col};padding:10px 12px;margin-bottom:8px">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;cursor:pointer" onclick="_tfToggleOpen('${g.key}')">
         <div style="min-width:0">
-          <div style="font-size:12px;color:var(--txt)"><span style="color:${col}">${out?"📤 Inviato a":"📥 Ricevuto da"}</span> <b>${h(g.controparte||"—")}</b></div>
-          <div style="font-size:10px;color:var(--txt3)">${h(_fmtDataIT(g.data))} · ${g.lines.length} referenze${g.note?" · "+h(g.note):""}</div>
+          <div style="font-size:13px;color:var(--txt)"><span style="color:${col}">${out?"📤 Inviato a":"📥 Ricevuto da"}</span> <b>${h(g.controparte||"—")}</b></div>
+          <div style="font-size:12px;color:var(--txt3)">${h(_fmtDataIT(g.data))} · ${g.lines.length} referenze${g.note?" · "+h(g.note):""}</div>
         </div>
-        <div style="font-family:'Montserrat',sans-serif;font-size:1.05rem;color:${col};white-space:nowrap">${out?"−":"+"}${g.tot}bt <span style="font-size:11px;color:var(--txt4)">${open?"▲":"▼"}</span></div>
+        <div style="font-family:'Montserrat',sans-serif;font-size:1.05rem;color:${col};white-space:nowrap">${out?"−":"+"}${g.tot}bt <span style="font-size:12px;color:var(--txt4)">${open?"▲":"▼"}</span></div>
       </div>${det}</div>`;
   }).join("");
 }
@@ -12183,9 +12183,9 @@ function renderAmministrazione(){
                           .reduce((s,f)=>s+_fattPagato(f),0);
 
   const kpi = (lbl,val,col,sub)=>`<div class="card" style="padding:14px">
-    <div style="font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--txt3);margin-bottom:6px">${lbl}</div>
+    <div style="font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--txt3);margin-bottom:6px">${lbl}</div>
     <div style="font-family:'Montserrat',sans-serif;font-size:1.4rem;color:${col}">${fmt(val)}</div>
-    <div style="font-size:10px;color:var(--txt4);margin-top:4px">${sub}</div></div>`;
+    <div style="font-size:12px;color:var(--txt4);margin-top:4px">${sub}</div></div>`;
 
   let html = `<div class="kpi-grid g4" style="margin-bottom:20px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">
     ${kpi("Esposizione totale", esposizione, "var(--txt)", aperte.length+" fatture aperte")}
@@ -12196,7 +12196,7 @@ function renderAmministrazione(){
 
   if(!_fattTableOk){
     html += `<div class="card" style="margin-bottom:16px;border-left:3px solid var(--orange)">
-      <div style="font-size:12px;color:var(--txt2)">⚠️ Tabella <code>cm_fatture</code> non raggiungibile su questo progetto Supabase.
+      <div style="font-size:13px;color:var(--txt2)">⚠️ Tabella <code>cm_fatture</code> non raggiungibile su questo progetto Supabase.
       Le fatture sono salvate <strong>solo su questo computer</strong> finché non viene creata.
       Va creata con lo stesso SQL delle altre tabelle blob.</div></div>`;
   }
@@ -12236,7 +12236,7 @@ function renderAmministrazione(){
   const righe = _amFiltrate();
   const totRes = righe.reduce((s,f)=>s+_fattResiduo(f),0);
   html += `<div class="card" style="padding:0;margin-bottom:20px">
-    <div class="tbl-header"><span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt3)">Scadenzario — ${righe.length} fatture · residuo ${fmt(totRes)}</span></div>
+    <div class="tbl-header"><span style="font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt3)">Scadenzario — ${righe.length} fatture · residuo ${fmt(totRes)}</span></div>
     <div class="tbl-wrap"><table>
       <thead><tr><th>Scadenza</th><th>Fornitore</th><th>Numero</th><th>Data fatt.</th>
         <th class="r">Totale</th><th class="r">Pagato</th><th class="r">Residuo</th><th>Stato</th><th></th></tr></thead>
@@ -12245,17 +12245,17 @@ function renderAmministrazione(){
         : righe.map(f=>{
             const st=_fattStato(f), m=_STATO_META[st], g=_fattGiorniAScadenza(f), res=_fattResiduo(f);
             const gLbl = (st==="soluto"||g===null) ? "" :
-              g<0 ? `<div style="font-size:10px;color:var(--red)">${-g} gg fa</div>`
-                  : `<div style="font-size:10px;color:var(--txt4)">fra ${g} gg</div>`;
+              g<0 ? `<div style="font-size:12px;color:var(--red)">${-g} gg fa</div>`
+                  : `<div style="font-size:12px;color:var(--txt4)">fra ${g} gg</div>`;
             return `<tr>
               <td style="color:var(--txt2)">${h(_fmtDataIT(_fattScadenza(f)))}${gLbl}</td>
-              <td>${h(f.fornitore||"—")}${f.orderId?`<div style="font-size:10px;color:var(--txt4)">da ordine CM</div>`:""}</td>
+              <td>${h(f.fornitore||"—")}${f.orderId?`<div style="font-size:12px;color:var(--txt4)">da ordine CM</div>`:""}</td>
               <td style="color:var(--txt3)">${h(f.numero||"—")}</td>
               <td style="color:var(--txt3);font-size:.8rem">${h(_fmtDataIT(f.dataFattura))}</td>
               <td class="r" style="font-family:'Montserrat',sans-serif">${fmt(_fattTotale(f))}</td>
               <td class="r" style="color:var(--green)">${_fattPagato(f)?fmt(_fattPagato(f)):"—"}</td>
               <td class="r" style="font-family:'Montserrat',sans-serif;color:${res>0?m.col:"var(--txt4)"}">${res>0?fmt(res):"—"}</td>
-              <td><span style="color:${m.col};font-size:10px;letter-spacing:.08em;text-transform:uppercase">${m.lbl}</span></td>
+              <td><span style="color:${m.col};font-size:12px;letter-spacing:.08em;text-transform:uppercase">${m.lbl}</span></td>
               <td style="white-space:nowrap">
                 ${st!=="soluto"?`<button class="btn-outline btn-sm" onclick="amSaldaFattura('${f.id}')" title="Segna saldata">✓</button>`:""}
                 <button class="btn-outline btn-sm" onclick="amModificaFattura('${f.id}')" title="Modifica">✎</button>
@@ -12276,7 +12276,7 @@ function renderAmministrazione(){
   });
   const rows = Object.entries(perForn).sort((a,b)=>b[1].res-a[1].res);
   html += `<div class="card" style="padding:0">
-    <div class="tbl-header"><span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt3)">Posizione per fornitore</span></div>
+    <div class="tbl-header"><span style="font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt3)">Posizione per fornitore</span></div>
     <div class="tbl-wrap"><table>
       <thead><tr><th>Fornitore</th><th class="r">Fatture</th><th class="r">Fatturato</th><th class="r">Pagato</th><th class="r">Da pagare</th><th class="r">di cui scaduto</th></tr></thead>
       <tbody>${rows.length===0
@@ -12399,7 +12399,7 @@ function amSaldaFattura(id){
   const f = (fatture||[]).find(x=>x.id===id); if(!f) return;
   _confirmModal(
     `Segnare come <strong>saldata</strong> la fattura ${h(f.numero||"—")} di ${h(f.fornitore||"—")} da ${fmt(_fattTotale(f))}?<br>
-     <span style="color:var(--txt3);font-size:12px">Residuo attuale ${fmt(_fattResiduo(f))}. La data di pagamento sarà oggi.</span>`,
+     <span style="color:var(--txt3);font-size:13px">Residuo attuale ${fmt(_fattResiduo(f))}. La data di pagamento sarà oggi.</span>`,
     "✓ Segna saldata",
     ()=>{
       f.importoPagato = _fattTotale(f);
@@ -12563,7 +12563,7 @@ function amExportCSV(){
     const box=document.createElement("div");
     box.className="t9-box";
     box.style.cssText="position:fixed;z-index:9999;background:var(--bg2,#1c1c1e);border:1px solid var(--border2,#3a3a3c);"
-      +"box-shadow:0 8px 24px rgba(0,0,0,.5);border-radius:8px;overflow:hidden;font-size:12px;"
+      +"box-shadow:0 8px 24px rgba(0,0,0,.5);border-radius:8px;overflow:hidden;font-size:13px;"
       +"max-height:260px;overflow-y:auto;left:"+r.left+"px;top:"+(r.bottom+4)+"px;width:"+Math.max(r.width,180)+"px";
     _t9Items.forEach((v,i)=>{
       const row=document.createElement("div");
@@ -12786,7 +12786,7 @@ function _acEnsurePanel(){
   if(_acPanel && _acPanel.isConnected) return _acPanel;
   const p=document.createElement("div");
   p.id="ac-panel";
-  p.style.cssText="position:fixed;z-index:9999;display:none;max-height:240px;overflow-y:auto;background:var(--bg2,#1c1c1e);border:1px solid var(--border2,#3a3a3c);box-shadow:0 8px 28px rgba(0,0,0,.55);font-family:inherit;font-size:12px;border-radius:6px";
+  p.style.cssText="position:fixed;z-index:9999;display:none;max-height:240px;overflow-y:auto;background:var(--bg2,#1c1c1e);border:1px solid var(--border2,#3a3a3c);box-shadow:0 8px 28px rgba(0,0,0,.55);font-family:inherit;font-size:13px;border-radius:6px";
   p.addEventListener("mousedown",e=>{
     const it=e.target.closest?e.target.closest("[data-ac-val]"):null;
     if(!it) return;
@@ -12828,7 +12828,7 @@ function _acOpen(inp){
   const p=_acEnsurePanel();
   _acInput=inp; _acIdx=-1;
   p.innerHTML=list.map((o,i)=>`<div data-ac-val="${h(o)}" data-ac-i="${i}" style="padding:7px 10px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--txt2,#d1d1d6);border-bottom:1px solid var(--border,#2c2c2e)">${h(o)}</div>`).join("")
-    +`<div style="padding:5px 10px;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--txt4,#6b6b70)">↑↓ scegli · Invio conferma${multi?" · virgola = vitigno successivo":" · testo libero ammesso"}</div>`;
+    +`<div style="padding:5px 10px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--txt4,#6b6b70)">↑↓ scegli · Invio conferma${multi?" · virgola = vitigno successivo":" · testo libero ammesso"}</div>`;
   p.style.display="block";
   _acPos();
 }
@@ -12933,15 +12933,15 @@ function _acInit(root){
 .cm-modal-xl>.modal-body{flex:1 1 auto;overflow-y:auto;overflow-x:hidden;max-height:none}
 .cm-grid-wrap{overflow-x:auto;overflow-y:visible}
 .cm-grid-tbl{width:100%;border-collapse:collapse;table-layout:fixed;min-width:1080px}
-.cm-grid-tbl td{padding:4px 4px!important;vertical-align:middle;font-size:11px;
+.cm-grid-tbl td{padding:4px 4px!important;vertical-align:middle;font-size:12px;
   overflow-wrap:anywhere;word-break:break-word}
 .cm-grid-tbl .cm-col-hidden{width:0;padding:0!important;overflow:hidden;max-width:0}
 .cm-grid-tbl tr.cm-grid-head td{position:sticky;top:0;z-index:3;background:var(--bg2,#1c1917);
-  font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--txt4);
+  font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--txt4);
   padding:7px 4px!important;border-bottom:1px solid var(--border);white-space:nowrap;
   overflow:hidden;text-overflow:ellipsis}
 .cm-grid-tbl .form-input{width:100%!important;min-width:0!important;max-width:100%!important;
-  box-sizing:border-box;font-size:11px;padding-left:5px;padding-right:5px}
+  box-sizing:border-box;font-size:12px;padding-left:5px;padding-right:5px}
 .cm-grid-tbl select.form-input{padding-right:2px;text-overflow:ellipsis}
 .cm-grid-tbl input.cm-ric-short{border-color:rgba(var(--amber-rgb,255,159,10),.55)!important;color:var(--amber)!important}
 @media(max-width:1024px){
@@ -13324,7 +13324,7 @@ function renderGruppo(){
     ${[["oggi","Oggi"],["7g","7 giorni"],["mese","Mese"],["meseScorso","Mese scorso"],["anno","Anno"]]
       .map(([v,l])=>`<button class="${_grp.per===v?"btn-primary":"btn-outline"} btn-sm" onclick="_grpSetPer('${v}')">${l}</button>`).join("")}
     <span style="flex:1"></span>
-    <span style="font-size:11px;color:var(--txt4)">${_grp.loading?"Caricamento…":""}</span>
+    <span style="font-size:12px;color:var(--txt4)">${_grp.loading?"Caricamento…":""}</span>
     <button class="btn-outline btn-sm" onclick="grpRefresh()">${ic("refresh")} Aggiorna</button>
   </div>`;
 
@@ -13345,7 +13345,7 @@ function renderGruppo(){
   const row=(lbl,k,f,col)=>`<tr><td>${lbl}</td>${ok.map(l=>cell(f(l.st[k]),col)).join("")}${ok.length>1?cell(f(sum(k)),col):""}</tr>`;
   const rowC=(lbl,fn)=>`<tr><td>${lbl}</td>${ok.map(l=>cell(fn(l.st))).join("")}${ok.length>1?cell(fn(ok.reduce((a,l)=>{Object.keys(l.st).forEach(k=>{if(typeof l.st[k]==="number")a[k]=(a[k]||0)+l.st[k];});return a;},{}))):""}</tr>`;
   const card=(title,body)=>`<div class="card" style="padding:0;margin-bottom:20px">
-    <div class="tbl-header"><span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt3)">${title}</span></div>
+    <div class="tbl-header"><span style="font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt3)">${title}</span></div>
     <div class="tbl-wrap"><table>${head}<tbody>${body}</tbody></table></div></div>`;
 
   html+=card("Fatture fornitori — da pagare",
@@ -13368,7 +13368,7 @@ function renderGruppo(){
   const oggi=new Date(), mesi=[];
   for(let i=5;i>=0;i--){ const d=new Date(oggi.getFullYear(),oggi.getMonth()-i,1); mesi.push(_isoDate(d).slice(0,7)); }
   html+=`<div class="card" style="padding:0;margin-bottom:20px">
-    <div class="tbl-header"><span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt3)">Bottiglie vendute per mese</span></div>
+    <div class="tbl-header"><span style="font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt3)">Bottiglie vendute per mese</span></div>
     <div class="tbl-wrap"><table><thead><tr><th>Mese</th>${ok.map(l=>`<th class="r">${h(l.nome)}</th>`).join("")}${ok.length>1?`<th class="r">Totale</th>`:""}</tr></thead><tbody>
     ${mesi.map(mk=>`<tr><td>${h(_meseLabelIT(mk))}</td>${ok.map(l=>cell(fmtN(l.st.mesi[mk]||0,0))).join("")}${ok.length>1?cell(fmtN(ok.reduce((s,l)=>s+(l.st.mesi[mk]||0),0),0)):""}</tr>`).join("")}
     </tbody></table></div></div>`;
@@ -13378,28 +13378,28 @@ function renderGruppo(){
   ok.forEach(l=>(l.data.fatture||[]).forEach(f=>{ if(_fattStato(f)!=="soluto") righe.push({l,f}); }));
   righe.sort((a,b)=>(_fattScadenza(a.f)||"9999").localeCompare(_fattScadenza(b.f)||"9999"));
   html+=`<div class="card" style="padding:0;margin-bottom:20px">
-    <div class="tbl-header"><span style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt3)">Scadenzario consolidato — ${righe.length} fatture aperte</span></div>
+    <div class="tbl-header"><span style="font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt3)">Scadenzario consolidato — ${righe.length} fatture aperte</span></div>
     <div class="tbl-wrap"><table><thead><tr><th>Scadenza</th><th>Locale</th><th>Fornitore</th><th>Numero</th><th class="r">Residuo</th><th>Stato</th></tr></thead><tbody>
     ${righe.length===0?`<tr><td colspan="6" style="text-align:center;padding:28px;color:var(--txt4)">Nessuna fattura aperta</td></tr>`
       : righe.map(({l,f})=>{ const s=_fattStato(f), m=_STATO_META[s], g=_fattGiorniAScadenza(f);
-        return `<tr><td style="color:var(--txt2)">${h(_fmtDataIT(_fattScadenza(f)))}${g===null?"":`<div style="font-size:10px;color:${g<0?"var(--red)":"var(--txt4)"}">${g<0?(-g)+" gg fa":"fra "+g+" gg"}</div>`}</td>
+        return `<tr><td style="color:var(--txt2)">${h(_fmtDataIT(_fattScadenza(f)))}${g===null?"":`<div style="font-size:12px;color:${g<0?"var(--red)":"var(--txt4)"}">${g<0?(-g)+" gg fa":"fra "+g+" gg"}</div>`}</td>
           <td>${h(l.nome)}</td><td>${h(f.fornitore||"—")}</td><td style="color:var(--txt3)">${h(f.numero||"—")}</td>
           <td class="r" style="font-family:'Montserrat',sans-serif;color:${m.col}">${fmt(_fattResiduo(f))}</td>
-          <td><span style="color:${m.col};font-size:10px;letter-spacing:.08em;text-transform:uppercase">${m.lbl}</span></td></tr>`; }).join("")}
+          <td><span style="color:${m.col};font-size:12px;letter-spacing:.08em;text-transform:uppercase">${m.lbl}</span></td></tr>`; }).join("")}
     </tbody></table></div></div>`;
 
   // Top 5 vini venduti nel periodo per locale
   html+=`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-bottom:20px">
     ${ok.map(l=>{ const top=Object.entries(l.st.top).sort((a,b)=>b[1]-a[1]).slice(0,5);
-      return `<div class="card"><div style="font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--txt3);margin-bottom:8px">Più venduti · ${h(l.nome)}</div>
-        ${top.length?top.map(([k,q])=>`<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:3px 0"><span>${h(k)}</span><span style="color:var(--txt2)">${q} bt</span></div>`).join("")
-          :`<div style="font-size:12px;color:var(--txt4)">Nessuna vendita nel periodo</div>`}</div>`; }).join("")}
+      return `<div class="card"><div style="font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--txt3);margin-bottom:8px">Più venduti · ${h(l.nome)}</div>
+        ${top.length?top.map(([k,q])=>`<div style="display:flex;justify-content:space-between;gap:8px;font-size:13px;padding:3px 0"><span>${h(k)}</span><span style="color:var(--txt2)">${q} bt</span></div>`).join("")
+          :`<div style="font-size:13px;color:var(--txt4)">Nessuna vendita nel periodo</div>`}</div>`; }).join("")}
   </div>`;
 
   // Account remoti collegati
   const conn=locali.filter(l=>!l.local && l.r.email);
-  if(conn.length) html+=`<div style="font-size:11px;color:var(--txt4)">${conn.map(l=>`${h(l.nome)}: ${h(l.r.email)} · <a href="#" onclick="grpLogout('${l.id}');return false">esci</a>`).join(" — ")}</div>`;
-  html+=`<div style="font-size:11px;color:var(--txt4);margin-top:6px">Sola lettura: i dati degli altri locali non si modificano da qui. Aggiornamento automatico ogni minuto all'apertura della sezione.</div>`;
+  if(conn.length) html+=`<div style="font-size:12px;color:var(--txt4)">${conn.map(l=>`${h(l.nome)}: ${h(l.r.email)} · <a href="#" onclick="grpLogout('${l.id}');return false">esci</a>`).join(" — ")}</div>`;
+  html+=`<div style="font-size:12px;color:var(--txt4);margin-top:6px">Sola lettura: i dati degli altri locali non si modificano da qui. Aggiornamento automatico ogni minuto all'apertura della sezione.</div>`;
   return html;
 }
 
@@ -13427,4 +13427,72 @@ function _grpInstallNav(){
   if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",run,{once:true});
   else run();
   window.addEventListener("load",()=>_grpInstallNav(),{once:true});
+})();
+
+// ─── UI REFRESH (solo estetica) ───────────────────────────────────────────────
+// Leggibilità, cifre tabulari, rosso riservato agli allarmi, focus da tastiera,
+// gerarchia Plancia, tabella Inventario compatta, ottimizzazione iPad/touch.
+// Iniettato per ultimo: vale per tutti i locali senza toccare gli HTML host.
+(function _uiRefresh(){
+  const vp=document.querySelector('meta[name="viewport"]');
+  if(vp) vp.setAttribute("content","width=device-width, initial-scale=1");
+  if(document.getElementById("cm-ui-refresh")) return;
+  const s=document.createElement("style"); s.id="cm-ui-refresh";
+  s.textContent=`
+:root{--fs-2xs:11px;--fs-xs:12px;--fs-sm:12px;--fs-base:13px;--fs-md:14px;--fs-lg:15px;--bordeaux:#B4505F}
+body{font-variant-numeric:lining-nums tabular-nums;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+td.r,th.r,.kpi-val,.ss-val,.giacenza-big,.mob-giacenza,.calc-val,.meta-val{font-variant-numeric:lining-nums tabular-nums}
+.kpi-val{font-family:var(--font-sans)!important;font-weight:400;font-size:1.65rem;letter-spacing:-.02em;line-height:1.05}
+.inv-table .giacenza-big{font-family:var(--font-sans);font-weight:500;font-size:1.15rem;letter-spacing:-.01em}
+.mob-giacenza{font-family:var(--font-sans);font-weight:500;font-size:1.35rem}
+.kpi-label,.section-label,.form-label,.modal-section-label,.meta-label,.calc-label{letter-spacing:.06em}
+.kpi-sub{line-height:1.45}
+/* Plancia: gerarchia */
+.kpi-hero .kpi-card{padding:20px 22px;border-color:var(--border2)}
+.kpi-hero .kpi-val{font-size:2.15rem}
+.kpi-hero .kpi-label{color:var(--txt2)}
+.kpi-compact .kpi-card,.kpi-compact>div{padding:12px 16px!important}
+.kpi-compact .kpi-val{font-size:1.3rem!important}
+.kpi-compact .kpi-label,.kpi-compact>div>div:first-child{margin-bottom:6px!important}
+.pl-big4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+@media(max-width:1100px){.pl-big4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.kpi-meter{position:relative;height:4px;border-radius:2px;background:var(--bg3);margin:8px 0 6px;overflow:visible}
+.kpi-meter i{position:absolute;left:0;top:0;bottom:0;border-radius:2px;background:#30D158}
+.kpi-meter i.ko{background:#FF453A}
+.kpi-meter b{position:absolute;top:-3px;width:1px;height:10px;background:var(--txt3)}
+/* Rosso solo per ciò che richiede un'azione */
+.badge-Rosso{background:rgba(180,80,95,.14);color:#D98B97;border:1px solid rgba(180,80,95,.32)}
+tr.alert-empty,tr.alert-empty td{background:none!important;border-color:var(--border)}
+tr.alert-empty{color:inherit}
+tr.alert-empty td{opacity:.5;transition:opacity .15s}
+tr.alert-empty td:last-child,tr.alert-empty:hover td{opacity:1}
+/* Inventario: righe ad altezza costante */
+.inv-table td{vertical-align:middle}
+.inv-table td.col-prod{max-width:170px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.inv-table .col-nome{min-width:170px;max-width:300px;line-height:1.3;font-size:13px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.inv-table td.col-vitigni{max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media(max-width:1279px){.col-vitigni,#sidebar.collapsed ~ #main .col-vitigni{display:none}}
+@media(max-width:1366px){.col-fornitore,#sidebar.collapsed ~ #main .col-fornitore{display:none}.inv-table .col-nome{max-width:230px}.inv-table td.col-prod{max-width:150px}}
+/* Indicatore connessione: discreto quando tutto va bene */
+#topbar-sync:has(.db-dot.ok){border-color:transparent;background:none;padding:5px}
+#topbar-sync:has(.db-dot.ok) #topbar-sync-label{display:none}
+/* Focus da tastiera */
+:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none;border-color:var(--amber)!important;box-shadow:var(--amber-glow)}
+.nav-btn:focus-visible{outline-offset:-2px}
+/* iPad / touch: target ≥ 36px, niente zoom automatico sugli input */
+@media (pointer:coarse){
+  input:not([type=checkbox]):not([type=radio]),select,textarea{font-size:16px!important}
+  .nav-btn{padding-top:12px;padding-bottom:12px}
+  .btn-sm,.cm-chip{min-height:36px}
+  .cm-ico-btn{width:36px;height:36px}
+  .inv-table td{padding-top:9px;padding-bottom:9px}
+  .cb-sel{width:20px;height:20px}
+}
+@media (min-width:1024px) and (max-width:1366px){
+  #topbar{padding:0 18px}
+  #content{padding-left:18px!important;padding-right:18px!important}
+}
+`;
+  (document.head||document.documentElement).appendChild(s);
 })();
