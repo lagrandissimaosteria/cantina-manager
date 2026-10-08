@@ -625,7 +625,7 @@ function _servizioSnap(data){
 function _fifoShort(wineId, wineName, rem){
   if(rem>0){
     console.warn(`[FIFO] Copertura lotti insufficiente: wineId=${wineId} qtyMancante=${rem}`);
-    notify(`⚠️ Lotti FIFO incompleti per ${wineName||wineId}: ${rem} bt non tracciate`,"err");
+    notify(`Lotti FIFO incompleti per ${wineName||wineId}: ${rem} bt non tracciate`,"err");
   }
 }
 // Ricavo complessivo incassato dal cliente = vino a prezzo carta + servizio.
@@ -727,12 +727,12 @@ function _isCaricoIniziale(m){
 }
 function _isAcquisto(m){ return !!m && !m.deleted && m.tipo==="carico" && !_isCaricoIniziale(m); }
 function _movVis(m){ const t=m&&m.tipo;
-  if(t==="scarico-stornato") return {s:"",i:"\u21ba",c:"var(--txt4)"};
-  if(t==="scarico") return {s:"-",i:"\u2b07",c:"var(--txt2)"};
-  if(t==="trasferimento-uscita") return {s:"-",i:"\u2b07",c:"#5AC8FA"};
-  if(t==="trasferimento-entrata") return {s:"+",i:"\u2b06",c:"#5AC8FA"};
+  if(t==="scarico-stornato") return {s:"",i:ic("undo"),c:"var(--txt4)"};
+  if(t==="scarico") return {s:"-",i:ic("arrowDown"),c:"var(--txt2)"};
+  if(t==="trasferimento-uscita") return {s:"-",i:ic("arrowDown"),c:"#5AC8FA"};
+  if(t==="trasferimento-entrata") return {s:"+",i:ic("arrowUp"),c:"#5AC8FA"};
   if(_isRettifica(t)) return {s:(m.segno==="-"?"-":"+"),i:"\u00b1",c:"#5AC8FA"};
-  return {s:"+",i:"\u2b06",c:"#30D158"}; }
+  return {s:"+",i:ic("arrowUp"),c:"#30D158"}; }
 function margColor(mp){return mp===null?"var(--txt4)":mp>=50?"#30D158":mp>=30?"var(--amber)":"#FF453A"}
 
 // ─── PRICE HISTORY ────────────────────────────────────────────────────────────
@@ -801,7 +801,7 @@ function saveTipologie(){
   TIPOLOGIE.length = 0;
   arr.forEach(t=>TIPOLOGIE.push(t));
   _saveTipologie();
-  notify("✓ Tipologie aggiornate");
+  notify("Tipologie aggiornate");
   render();
 }
 function resetTipologie(){
@@ -809,7 +809,7 @@ function resetTipologie(){
   TIPOLOGIE_DEFAULT.forEach(t=>TIPOLOGIE.push(t));
   _saveTipologie();
   document.getElementById("cfg-tipologie").value = TIPOLOGIE.join("\n");
-  notify("✓ Tipologie ripristinate");
+  notify("Tipologie ripristinate");
   render();
 }
 function openDbConfig(){
@@ -829,14 +829,14 @@ async function testDbConnection(){
   document.getElementById("cfg-url").value = url;
   const el = document.getElementById("cfg-test-result");
   if(!url||!key){ el.innerHTML='<span style="color:#FF453A">Inserisci URL e Anon Key</span>'; return; }
-  el.innerHTML='<span style="color:var(--amber)">⏳ Test in corso…</span>';
+  el.innerHTML='<span style="color:var(--amber)">'+ic("clock")+' Test in corso…</span>';
   try{
     const client = supabase.createClient(url, key);
     const { error } = await client.from("cm_wines").select("user_id").limit(1);
     if(error) throw error;
-    el.innerHTML='<span style="color:#30D158">✅ Connessione OK — tabella cm_wines trovata</span>';
+    el.innerHTML='<span style="color:#30D158">'+ic("checkCircle")+' Connessione OK — tabella cm_wines trovata</span>';
   }catch(e){
-    el.innerHTML=`<span style="color:#FF453A">❌ ${h(e.message||"Connessione fallita")}</span>`;
+    el.innerHTML=`<span style="color:#FF453A">${ic("x")} ${h(e.message||"Connessione fallita")}</span>`;
   }
 }
 function _sanitizeSupabaseUrl(url){
@@ -851,8 +851,8 @@ function saveDbConfig(){
   localStorage.setItem(_lsKey("sb_key"), key);
   document.getElementById("db-config-backdrop").classList.add("hidden");
   _initSupabase();
-  if(_sb){ notify("✅ Supabase configurato — ricarico dati…"); loadData(); }
-  else notify("⚠️ Config rimossa — modalità locale","err");
+  if(_sb){ notify("Supabase configurato — ricarico dati…"); loadData(); }
+  else notify("Config rimossa — modalità locale","err");
 }
 
 // ── FASE 2b: SUPABASE AUTH-READY (scaffolding) ───────────────────────────────
@@ -903,9 +903,9 @@ async function authSignIn(email, password){
     if(error) throw error;
     _authState.session = data.session; _authState.user = data.user;
     _authRenderStatus();
-    notify("✅ Login effettuato — "+h(email));
+    notify("Login effettuato — "+h(email));
     _closeAuthModal();
-  }catch(e){ notify("❌ "+h(e.message||"Login fallito"),"err"); }
+  }catch(e){ notify(""+h(e.message||"Login fallito"),"err"); }
 }
 
 async function authSignOut(){
@@ -913,7 +913,7 @@ async function authSignOut(){
   const _pend = _obCount();
   if(_pend){
     await _obPushLedger();
-    if(_obCount()){ notify("🛑 "+_obCount()+" movimenti non ancora sul database: esci solo quando torna la rete","err"); return; }
+    if(_obCount()){ notify(""+_obCount()+" movimenti non ancora sul database: esci solo quando torna la rete","err"); return; }
   }
   try{ await _sb.auth.signOut(); }catch(_){}
   _authState.session=null; _authState.user=null;
@@ -955,7 +955,7 @@ function _ensureAuthModal(){
   bd.className = "modal-backdrop hidden";
   bd.innerHTML =
     '<div class="modal" style="max-width:360px">'
-    + '<h3 style="margin:0 0 12px">🔐 Account</h3>'
+    + '<h3 style="margin:0 0 12px">'+ic("lock")+' Account</h3>'
     + '<div id="auth-who" style="font-size:13px;opacity:.8;margin-bottom:10px"></div>'
     + '<input id="auth-email" type="email" placeholder="email" autocomplete="username" '
     +   'style="width:100%;box-sizing:border-box;margin-bottom:8px;padding:8px">'
@@ -999,7 +999,7 @@ function _authRenderStatus(){
   if(so) so.style.display = who ? "" : "none";
   const btn = document.getElementById("auth-btn");
   if(btn){
-    btn.textContent = who ? ("🔐 "+String(who).split("@")[0]) : "🔓";
+    btn.innerHTML = who ? ic("lock")+" "+h(String(who).split("@")[0]) : ic("unlock");
     btn.title = who ? ("Account: "+who) : (_authRequired()?"Login richiesto":"Accesso anonimo");
   }
 }
@@ -1013,7 +1013,7 @@ function _ensureAuthButton(){
   const btn = document.createElement("button");
   btn.id = "auth-btn";
   btn.type = "button";
-  btn.textContent = "🔓";
+  btn.innerHTML = ic("unlock");
   btn.title = "Account";
   btn.setAttribute("aria-label","Account");
   btn.style.cssText =
@@ -1533,7 +1533,7 @@ async function _flushMovementsV2(){
   const troppi = deletes.length >= MOV_DELETE_ABS && baseN > 0 && (deletes.length / baseN) >= MOV_DELETE_PCT;
   if(troppi){
     console.error("[ledger] cancellazione di massa BLOCCATA:", deletes.length, "su", baseN);
-    notify(`🛑 Bloccata cancellazione di ${deletes.length} movimenti su ${baseN}: sembra un azzeramento accidentale, non una tua cancellazione. Storico intatto.`,"err");
+    notify(`Bloccata cancellazione di ${deletes.length} movimenti su ${baseN}: sembra un azzeramento accidentale, non una tua cancellazione. Storico intatto.`,"err");
   }
   for(const c of _chunk(upserts, 500)){
     const rows = c.map(m => ({ id:m.id, user_id:_effectiveDbUser(), payload:m, deleted:false }));
@@ -1725,7 +1725,7 @@ function _syncRenderBanner(){
   }
   if(_dbNonConfigurato()){
     el.className="bypass";
-    el.innerHTML='<div class="cm-sb-txt">\u2699\ufe0f DATABASE NON CONFIGURATO'
+    el.innerHTML='<div class="cm-sb-txt">'+ic("gear")+' DATABASE NON CONFIGURATO'
       +'<span class="cm-sb-sub">Stai lavorando solo su questo dispositivo. Inserisci URL e chiave Supabase per collegare il gestionale.</span></div>'
       +'<button class="pri" onclick="openDbConfig()">Configura database</button>'
       +'<button class="gh" onclick="_syncDownloadBackup()">Scarica backup</button>';
@@ -1734,7 +1734,7 @@ function _syncRenderBanner(){
   }
   el.className = byp ? "bypass" : "";
   el.innerHTML =
-    '<div class="cm-sb-txt">'+(byp?"\u26a0\ufe0f SBLOCCO TEMPORANEO ATTIVO ("+bypLeft+"s)":"\u26d4 DATI NON SALVATI SUL CLOUD")+
+    '<div class="cm-sb-txt">'+(byp?ic("alert")+" SBLOCCO TEMPORANEO ATTIVO ("+bypLeft+"s)":ic("stop")+" DATI NON SALVATI SUL CLOUD")+
     '<span class="cm-sb-sub">'+(_syncLastLabel||"Sincronizzazione fallita")+
       " \u2014 da "+dur+" \u00b7 "+_pendingOps+" modifiche in attesa \u00b7 "+movN+" movimenti non sul ledger"+
       (byp?" \u00b7 stai lavorando SOLO in locale":" \u00b7 registrazione movimenti BLOCCATA")+'</span></div>'+
@@ -1744,7 +1744,7 @@ function _syncRenderBanner(){
   try{ document.body.style.paddingTop = el.offsetHeight+"px"; }catch(e){}
 }
 
-function _syncRetry(){ try{ forceSave(); }catch(e){ notify("\u26a0\ufe0f Retry fallito: "+e.message,"err"); } }
+function _syncRetry(){ try{ forceSave(); }catch(e){ notify("Retry fallito: "+e.message,"err"); } }
 
 function _syncBypass(){
   if(!confirm("Sbloccare la registrazione dei movimenti per 5 minuti?\n\nI dati NON sono sul cloud: tutto quello che registri resta solo su questo dispositivo finche la sincronizzazione non riprende.\nNON ricaricare la pagina e NON chiudere il browser prima di aver risincronizzato.")) return;
@@ -1763,7 +1763,7 @@ function _syncDownloadBackup(){
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(()=>URL.revokeObjectURL(url),4000);
     notify("\ud83d\udcbe Backup locale scaricato");
-  }catch(e){ notify("\u26a0\ufe0f Export fallito: "+e.message,"err"); }
+  }catch(e){ notify("Export fallito: "+e.message,"err"); }
 }
 
 // Gate: chiamato dai punti di ingresso dei movimenti.
@@ -1988,7 +1988,7 @@ async function _flushSave(){
     _obPushLedger(); // i movimenti sono append-only: partono anche in sola lettura
     if(!_degradedWarned){
       _degradedWarned = true;
-      notify("🔒 Sola lettura: questa sessione non è allineata al database ("+_degradedMode+"). Modifiche salvate solo qui. Ricarica la pagina per riallinearti.","err");
+      notify("Sola lettura: questa sessione non è allineata al database ("+_degradedMode+"). Modifiche salvate solo qui. Ricarica la pagina per riallinearti.","err");
     }
     return;
   }
@@ -2025,7 +2025,7 @@ async function _flushSave(){
       if(_rebaseTries >= _REBASE_MAX){
         _rebaseTries = 0;
         _setDbStatus("err","Conflitto persistente");
-        notify("⚠️ Conflitto ripetuto con un'altra postazione: modifica NON salvata. Usa \"Sync forzato\".","err");
+        notify("Conflitto ripetuto con un'altra postazione: modifica NON salvata. Usa \"Sync forzato\".","err");
         _obPushLedger();
         _saveInFlight = false; _savePending = false;
         return;
@@ -2035,7 +2035,7 @@ async function _flushSave(){
       catch(e){
         _rebaseTries = 0;
         _setDbStatus("err","Errore sync");
-        notify("⚠️ Impossibile leggere lo stato remoto — modifica tenuta in locale","err");
+        notify("Impossibile leggere lo stato remoto — modifica tenuta in locale","err");
         _saveInFlight = false; _savePending = false;
         return;
       }
@@ -2052,7 +2052,7 @@ async function _flushSave(){
     const _guard = _integrityCheck(_lastAttemptWines || _lastGoodWines, snapshot.wines, _wineIdsSpiegatiDaMovimenti());
     if(_guard.block){
       _setDbStatus("err","Salvataggio bloccato");
-      notify(`🛑 Modifica sospetta bloccata: ${_guard.reason}. Nulla è stato scritto sul cloud. Se è VOLUTA, premi \"Sync forzato\"; altrimenti ricarica la pagina per recuperare i dati remoti.`,"err");
+      notify(`Modifica sospetta bloccata: ${_guard.reason}. Nulla è stato scritto sul cloud. Se è VOLUTA, premi \"Sync forzato\"; altrimenti ricarica la pagina per recuperare i dati remoti.`,"err");
       console.warn("[INTEGRITY GUARD] blocked auto-save:", _guard.reason);
       _saveInFlight = false;
       _savePending  = false; // scarta la coda: non ri-tentare in automatico
@@ -2089,7 +2089,7 @@ async function _flushSave(){
     _setDbStatus("ok","Sincronizzato");
   }catch(e){
     _setDbStatus("err","Errore sync");
-    notify("⚠️ Salvataggio remoto fallito — dati locali ok","err");
+    notify("Salvataggio remoto fallito — dati locali ok","err");
     _obPushLedger();
   }finally{
     _saveInFlight = false;
@@ -2107,11 +2107,11 @@ function scheduleSave(){
 
 async function forceSave(){
   clearTimeout(saveTimer);
-  if(!_sb){ notify("⚠️ Nessuna connessione Supabase","err"); return; }
+  if(!_sb){ notify("Nessuna connessione Supabase","err"); return; }
   if(_degradedMode){
     // Override umano ammesso, ma mai silenzioso: qui si sovrascrive il remoto
     // con dati potenzialmente più vecchi.
-    notify("🔒 Sessione non allineata ("+_degradedMode+"): ricarica la pagina prima di sincronizzare, oppure usa Sync forzato dopo un caricamento riuscito.","err");
+    notify("Sessione non allineata ("+_degradedMode+"): ricarica la pagina prima di sincronizzare, oppure usa Sync forzato dopo un caricamento riuscito.","err");
     return;
   }
   _setDbStatus("sync","Sincronizzazione…");
@@ -2136,10 +2136,10 @@ async function forceSave(){
     _lastGoodWines = _lastAttemptWines = _snapWines(snapshot.wines); // override umano → nuova baseline buona
     _setMergeBase(snapshot.wines, snapshot.orders, snapshot.fallate, snapshot.soglie);
     _setDbStatus("ok","Sincronizzato");
-    notify("✅ Sync forzato — dati inviati a Supabase");
+    notify("Sync forzato — dati inviati a Supabase");
   }catch(e){
     _setDbStatus("err","Errore sync");
-    notify("⚠️ Sync fallito: "+e.message,"err");
+    notify("Sync fallito: "+e.message,"err");
   }
 }
 
@@ -2189,7 +2189,7 @@ async function loadData(){
       _movV2Available = false;
       try{ movements = JSON.parse(localStorage.getItem(_lsKey("movements"))||"[]"); }catch{ movements = []; }
       _movSyncBaseline = new Map(); // baseline vuota → nessun delta scrivibile
-      notify("⚠️ Ledger movimenti non disponibile — movimenti in sola lettura (cache locale)","err");
+      notify("Ledger movimenti non disponibile — movimenti in sola lettura (cache locale)","err");
     } else {
       const live = movRows.filter(r => !r.deleted);
       let cacheLoc = [];
@@ -2232,12 +2232,12 @@ async function loadData(){
     // fissare la baseline, altrimenti si consoliderebbe uno stato gia' sbagliato.
     const _rec=_reconcileGiacenze();
     if(_rec.cambiate){
-      notify(`🔧 ${_rec.cambiate} giacenz${_rec.cambiate===1?"a riallineata":"e riallineate"} ai movimenti registrati`);
+      notify(`${_rec.cambiate} giacenz${_rec.cambiate===1?"a riallineata":"e riallineate"} ai movimenti registrati`);
       scheduleSave();
     }
     if(_obRecuperati){
       _obPushLedger().then(n=>{ if(n) scheduleSave(); });
-      setTimeout(()=>notify(`♻️ Recuperati ${_obRecuperati} moviment${_obRecuperati===1?"o":"i"} rimast${_obRecuperati===1?"o":"i"} su questo dispositivo — inviati al database`), 3200);
+      setTimeout(()=>notify(`Recuperati ${_obRecuperati} moviment${_obRecuperati===1?"o":"i"} rimast${_obRecuperati===1?"o":"i"} su questo dispositivo — inviati al database`), 3200);
     }
     _lastGoodWines = _lastAttemptWines = _snapWines(wines); // baseline integrità = stato remoto appena caricato
     _setMergeBase(wines, orders, fallate, alertSoglie); // baseline per il merge 3-vie
@@ -2246,11 +2246,11 @@ async function loadData(){
     _saveLocalBackup(); // update local cache with remote data
     if(_movLedgerVuoto){
       _setDbStatus("err","Ledger vuoto — movimenti in sola lettura");
-      notify("⚠️ Ledger remoto VUOTO ma "+_movLedgerVuoto+" movimenti in cache locale: verifica user_id/migrazione. Scritture movimenti bloccate.","err");
+      notify("Ledger remoto VUOTO ma "+_movLedgerVuoto+" movimenti in cache locale: verifica user_id/migrazione. Scritture movimenti bloccate.","err");
     } else if(degradate.length){
       _degradedMode = "tabelle non lette: "+degradate.join(", ");
       _setDbStatus("err","Parziale: "+degradate.join(", "));
-      notify("⚠️ Caricamento parziale — non leggibili: "+degradate.join(", "),"err");
+      notify("Caricamento parziale — non leggibili: "+degradate.join(", "),"err");
     } else {
       _setDbStatus("ok","Connesso");
     }
@@ -2258,7 +2258,7 @@ async function loadData(){
       _renderMobList();
       if(wines.length === 0){
         const list = document.getElementById("mob-list");
-        if(list && list.innerHTML === "") list.innerHTML = `<div style="text-align:center;padding:32px 24px;color:var(--txt4);font-size:12px;line-height:1.8">⚠️ Supabase connesso ma nessun dato trovato.<br><span style="font-size:12px;opacity:.7">Verifica l'USER_ID nella config e le policy RLS.<br>Apri la console (F12) per i dettagli.</span></div>`;
+        if(list && list.innerHTML === "") list.innerHTML = `<div style="text-align:center;padding:32px 24px;color:var(--txt4);font-size:12px;line-height:1.8">${ic("alert")} Supabase connesso ma nessun dato trovato.<br><span style="font-size:12px;opacity:.7">Verifica l'USER_ID nella config e le policy RLS.<br>Apri la console (F12) per i dettagli.</span></div>`;
       }
       _renderMobLog(); updateSidebar();
     } else render(); // re-render after async load
@@ -2267,7 +2267,7 @@ async function loadData(){
     _degradedMode = "caricamento remoto fallito";
     console.error("[loadData] fallito:", msg, e?.code||"", e?.details||"", "| user_id:", _effectiveDbUser());
     _setDbStatus("err","Errore lettura: "+msg.slice(0,60));
-    notify("⚠️ DB non raggiungibile ("+msg.slice(0,80)+") — carico backup locale","err");
+    notify("DB non raggiungibile ("+msg.slice(0,80)+") — carico backup locale","err");
     _loadLocalBackup();
     if(_mobActive){ _renderMobList(); _renderMobLog(); updateSidebar(); } else render();
   }
@@ -2288,11 +2288,11 @@ function renderBulkBar(mode, allIds){
   return `<div class="bulk-bar" id="bulk-bar">
     <span class="bulk-bar-count" id="bulk-count">${n} selezionat${n===1?"o":"i"}</span>
     <div class="bulk-bar-actions" id="bulk-bar-actions">
-      <button class="btn-danger${n===0?' bulk-btn-disabled':''}" id="bulk-btn-delete" onclick="${deleteFn}" ${n===0?'disabled':''}>🗑️ ${deleteLabel}</button>
-      <button class="btn-bulk-edit${n===0?' bulk-btn-disabled':''}" id="bulk-btn-edit" onclick="${editFn}" ${n===0?'disabled':''}>✏️ Modifica campi</button>
-      ${mode==='wines'?`<button class="btn-bulk-edit${n===0?' bulk-btn-disabled':''}" id="bulk-btn-ordine" onclick="creaBasiOrdineDatiSelezionati()" ${n===0?'disabled':''} style="background:rgba(48,209,88,.12);border-color:rgba(48,209,88,.3);color:#30D158">🛒 Crea Basi Ordine</button>`:''}
+      <button class="btn-danger${n===0?' bulk-btn-disabled':''}" id="bulk-btn-delete" onclick="${deleteFn}" ${n===0?'disabled':''}>${ic("trash")} ${deleteLabel}</button>
+      <button class="btn-bulk-edit${n===0?' bulk-btn-disabled':''}" id="bulk-btn-edit" onclick="${editFn}" ${n===0?'disabled':''}>${ic("edit")} Modifica campi</button>
+      ${mode==='wines'?`<button class="btn-bulk-edit${n===0?' bulk-btn-disabled':''}" id="bulk-btn-ordine" onclick="creaBasiOrdineDatiSelezionati()" ${n===0?'disabled':''} style="background:rgba(48,209,88,.12);border-color:rgba(48,209,88,.3);color:#30D158">${ic("cart")} Crea Basi Ordine</button>`:''}
     </div>
-    <button class="btn-cancel-sel" onclick="exitSel()">✕ Annulla selezione</button>
+    <button class="btn-cancel-sel" onclick="exitSel()">${ic("x")} Annulla selezione</button>
   </div>`;
 }
 
@@ -2458,11 +2458,11 @@ function _applySidebarState(){
   if(_sidebarCollapsed){
     sb.classList.add("collapsed");
     main.classList.add("sidebar-collapsed");
-    if(icon) icon.textContent = "▶";
+    if(icon) icon.innerHTML = ic("chevronRight");
   } else {
     sb.classList.remove("collapsed");
     main.classList.remove("sidebar-collapsed");
-    if(icon) icon.textContent = "◀";
+    if(icon) icon.innerHTML = ic("chevronLeft");
   }
 }
 
@@ -2490,7 +2490,7 @@ const _IC={
  plus:'<path d="M12 5v14M5 12h14"/>',
  minus:'<path d="M5 12h14"/>'
 };
-function ic(n,cls){ return `<svg class="ic${cls?" "+cls:""}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${_IC[n]||""}</svg>`; }
+function ic(n,cls){ return `<svg class="ic${cls?" "+cls:""}" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${_IC[n]||""}</svg>`; }
 const _NAV_IC={gruppo:"layers",dashboard:"chart",inventario:"bottle",movimenti:"swap",fallate:"alert",ordini:"cart",trasferimenti:"truck",export:"download",amministrazione:"euro",impostazioni:"gear"};
 Object.assign(_IC,{
  checkCircle:'<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>',
@@ -2531,13 +2531,29 @@ Object.assign(_IC,{
  globe:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
  link:'<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
  plug:'<path d="M9 2v5M15 2v5M6 7h12v4a6 6 0 0 1-12 0zM12 17v5"/>',
- tag:'<path d="M3 12V3h9l9 9-9 9z"/><circle cx="7.5" cy="7.5" r="1.5"/>'
+ tag:'<path d="M3 12V3h9l9 9-9 9z"/><circle cx="7.5" cy="7.5" r="1.5"/>',
+ dotGreen:'<circle cx="12" cy="12" r="5" fill="#30D158" stroke="none"/>',
+ dotRed:'<circle cx="12" cy="12" r="5" fill="#FF453A" stroke="none"/>',
+ dotYellow:'<circle cx="12" cy="12" r="5" fill="#FFD60A" stroke="none"/>',
+ chevronLeft:'<path d="m15 6-6 6 6 6"/>',
+ chevronRight:'<path d="m9 6 6 6-6 6"/>',
+ undo:'<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>',
+ external:'<path d="M14 4h6v6M20 4l-9 9M18 14v6H4V6h6"/>',
+ bell:'<path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 21h4"/>',
+ ruler:'<path d="M3 17 17 3l4 4L7 21z"/><path d="m7 13 2 2M10 10l2 2M13 7l2 2"/>',
+ zap:'<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
+ keyboard:'<rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/>',
+ backspace:'<path d="M21 5H9l-6 7 6 7h12z"/><path d="m12 9 6 6M18 9l-6 6"/>',
+ hex:'<path d="M12 2.5 20.5 7.3v9.4L12 21.5l-8.5-4.8V7.3z"/>',
+ arrowDown:'<path d="M12 4v15M6 13l6 6 6-6"/>',
+ arrowUp:'<path d="M12 20V5M6 11l6-6 6 6"/>',
+ layers:'<path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/>'
 });
 // Emoji → icona. Conversione a runtime sul DOM (MutationObserver): copre ogni
 // sezione, modale, notifica e il mobile senza riscrivere i template uno per
-// uno. Frecce e ✓/✕ tipografici restano testo. Negli <option> (che non possono
+// uno. Frecce e /tipografici restano testo. Negli <option> (che non possono
 // contenere SVG) l'emoji viene solo rimossa.
-const _EMO_IC={"⚠":"alert","✅":"checkCircle","🗑":"trash","✏":"edit","✎":"edit","📦":"box","📋":"clipboard","📥":"inbox","📤":"upload","💾":"save","➕":"plus","🔄":"refresh","♻":"refresh","📄":"file","📑":"file","❌":"x","⛔":"stop","🛑":"stop","🛒":"cart","🟢":["dot","#30D158"],"🔴":["dot","#FF453A"],"🟡":["dot","#FFD60A"],"🎁":"gift","❄":"snow","🧊":"pause","🔍":"search","🍾":"bottle","🍷":"glass","🍇":"grape","⏳":"clock","🐌":"clock","📝":"note","⚖":"scale","📈":"trend","📊":"chart","💰":"euro","💶":"euro","🏭":"factory","✉":"mail","📨":"mail","🧾":"receipt","🔐":"lock","🔒":"lock","🔓":"unlock","☑":"checkCircle","✔":"check","🩹":"adjust","🖨":"print","📁":"folder","🗂":"folder","🌡":"thermo","🔧":"tool","🧹":"sparkle","🆕":"sparkle","🏆":"trophy","🏷":"tag","🎯":"target","🗓":"calendar","📅":"calendar","🏠":"home","🚚":"truck","🏛":"building","💡":"bulb","👁":"eye","🌍":"globe","🌐":"globe","🔗":"link","🔌":"plug","⚙":"gear"};
+const _EMO_IC={"\u{26A0}":"alert","\u{2705}":"checkCircle","\u{1F5D1}":"trash","\u{270F}":"edit","\u{270E}":"edit","\u{1F4E6}":"box","\u{1F4CB}":"clipboard","\u{1F4E5}":"inbox","\u{1F4E4}":"upload","\u{1F4BE}":"save","\u{2795}":"plus","\u{1F504}":"refresh","\u{267B}":"refresh","\u{1F4C4}":"file","\u{1F4D1}":"file","\u{274C}":"x","\u{26D4}":"stop","\u{1F6D1}":"stop","\u{1F6D2}":"cart","\u{1F7E2}":["dot","#30D158"],"\u{1F534}":["dot","#FF453A"],"\u{1F7E1}":["dot","#FFD60A"],"\u{1F381}":"gift","\u{2744}":"snow","\u{1F9CA}":"pause","\u{1F50D}":"search","\u{1F37E}":"bottle","\u{1F377}":"glass","\u{1F347}":"grape","\u{23F3}":"clock","\u{1F40C}":"clock","\u{1F4DD}":"note","\u{2696}":"scale","\u{1F4C8}":"trend","\u{1F4CA}":"chart","\u{1F4B0}":"euro","\u{1F4B6}":"euro","\u{1F3ED}":"factory","\u{2709}":"mail","\u{1F4E8}":"mail","\u{1F9FE}":"receipt","\u{1F510}":"lock","\u{1F512}":"lock","\u{1F513}":"unlock","\u{2611}":"checkCircle","\u{2714}":"check","\u{1FA79}":"adjust","\u{1F5A8}":"print","\u{1F4C1}":"folder","\u{1F5C2}":"folder","\u{1F321}":"thermo","\u{1F527}":"tool","\u{1F9F9}":"sparkle","\u{1F195}":"sparkle","\u{1F3C6}":"trophy","\u{1F3F7}":"tag","\u{1F3AF}":"target","\u{1F5D3}":"calendar","\u{1F4C5}":"calendar","\u{1F3E0}":"home","\u{1F69A}":"truck","\u{1F3DB}":"building","\u{1F4A1}":"bulb","\u{1F441}":"eye","\u{1F30D}":"globe","\u{1F310}":"globe","\u{1F517}":"link","\u{1F50C}":"plug","\u{2699}":"gear","\u{1F942}":"glass","\u{1F379}":"glass","\u{23F1}":"clock","\u{1F514}":"bell","\u{1F4D0}":"ruler","\u{26A1}":"zap","\u{1F500}":"swap","\u{2197}":"external","\u{21BA}":"refresh","\u{2B22}":"hex"};
 const _EMO_RE=new RegExp("("+Object.keys(_EMO_IC).join("|")+")\\uFE0F?\\uFE0E?","gu");
 function _emoIcon(e){ const v=_EMO_IC[e]; const [n,c]=Array.isArray(v)?v:[v]; return c?`<span style="color:${c};display:inline-flex">${ic(n)}</span>`:ic(n); }
 function _iconize(root){
@@ -2690,12 +2706,12 @@ function _updateTopbarActions(id){ /* tba buttons removed — noop */ }
   menu.id = 'inv-row-menu';
   menu.style.cssText = 'position:fixed;z-index:9999;min-width:172px;background:var(--bg2,#1c1917);border:1px solid var(--border2,rgba(68,64,60,.6));border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.04);padding:4px 0;display:none;user-select:none';
   menu.innerHTML = `
-    <div data-action="edit"  style="padding:9px 14px;cursor:pointer;font-size:13px;color:var(--txt2,#e7e5e4);display:flex;align-items:center;gap:9px;transition:background .1s">✏️ <span>Modifica scheda</span></div>
+    <div data-action="edit"  style="padding:9px 14px;cursor:pointer;font-size:13px;color:var(--txt2,#e7e5e4);display:flex;align-items:center;gap:9px;transition:background .1s">${ic("edit")} <span>Modifica scheda</span></div>
     <div data-action="dup"   style="padding:9px 14px;cursor:pointer;font-size:13px;color:var(--txt2,#e7e5e4);display:flex;align-items:center;gap:9px;transition:background .1s">⧉ <span>Duplica scheda</span></div>
-    <div data-action="note"  style="padding:9px 14px;cursor:pointer;font-size:13px;color:var(--txt2,#e7e5e4);display:flex;align-items:center;gap:9px;transition:background .1s">📝 <span>Nota veloce</span></div>
-    <div data-action="rett"  style="padding:9px 14px;cursor:pointer;font-size:13px;color:#30D158;display:flex;align-items:center;gap:9px;transition:background .1s">⚖️ <span>Rettifica giacenza</span></div>
+    <div data-action="note"  style="padding:9px 14px;cursor:pointer;font-size:13px;color:var(--txt2,#e7e5e4);display:flex;align-items:center;gap:9px;transition:background .1s">${ic("note")} <span>Nota veloce</span></div>
+    <div data-action="rett"  style="padding:9px 14px;cursor:pointer;font-size:13px;color:#30D158;display:flex;align-items:center;gap:9px;transition:background .1s">${ic("scale")} <span>Rettifica giacenza</span></div>
     <div style="height:1px;background:var(--border,rgba(68,64,60,.4));margin:3px 8px"></div>
-    <div data-action="delete" style="padding:9px 14px;cursor:pointer;font-size:13px;color:#FF453A;display:flex;align-items:center;gap:9px;transition:background .1s">🗑️ <span>Elimina voce</span></div>
+    <div data-action="delete" style="padding:9px 14px;cursor:pointer;font-size:13px;color:#FF453A;display:flex;align-items:center;gap:9px;transition:background .1s">${ic("trash")} <span>Elimina voce</span></div>
   `;
   document.body.appendChild(menu);
 
@@ -2710,12 +2726,12 @@ function _updateTopbarActions(id){ /* tba buttons removed — noop */ }
     bulkMenu.innerHTML = `
       <div style="padding:6px 14px 4px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--txt4,#a8a29e);font-weight:700">${n} vino${n===1?'':'i'} selezionat${n===1?'o':'i'}</div>
       <div style="height:1px;background:var(--border,rgba(68,64,60,.4));margin:3px 8px 5px"></div>
-      <div data-bulk="edit"    style="padding:9px 14px;cursor:pointer;font-size:13px;color:var(--txt2,#e7e5e4);display:flex;align-items:center;gap:9px;transition:background .1s">✏️ <span>Modifica campi</span></div>
-      <div data-bulk="ordine"  style="padding:9px 14px;cursor:pointer;font-size:13px;color:#30D158;display:flex;align-items:center;gap:9px;transition:background .1s">🛒 <span>Crea basi ordine</span></div>
+      <div data-bulk="edit"    style="padding:9px 14px;cursor:pointer;font-size:13px;color:var(--txt2,#e7e5e4);display:flex;align-items:center;gap:9px;transition:background .1s">${ic("edit")} <span>Modifica campi</span></div>
+      <div data-bulk="ordine"  style="padding:9px 14px;cursor:pointer;font-size:13px;color:#30D158;display:flex;align-items:center;gap:9px;transition:background .1s">${ic("cart")} <span>Crea basi ordine</span></div>
       <div style="height:1px;background:var(--border,rgba(68,64,60,.4));margin:3px 8px"></div>
-      <div data-bulk="delete"  style="padding:9px 14px;cursor:pointer;font-size:13px;color:#FF453A;display:flex;align-items:center;gap:9px;transition:background .1s">🗑️ <span>Elimina selezionati</span></div>
+      <div data-bulk="delete"  style="padding:9px 14px;cursor:pointer;font-size:13px;color:#FF453A;display:flex;align-items:center;gap:9px;transition:background .1s">${ic("trash")} <span>Elimina selezionati</span></div>
       <div style="height:1px;background:var(--border,rgba(68,64,60,.4));margin:3px 8px"></div>
-      <div data-bulk="cancel"  style="padding:8px 14px;cursor:pointer;font-size:13px;color:var(--txt4,#a8a29e);display:flex;align-items:center;gap:9px;transition:background .1s">✕ <span>Annulla selezione</span></div>
+      <div data-bulk="cancel"  style="padding:8px 14px;cursor:pointer;font-size:13px;color:var(--txt4,#a8a29e);display:flex;align-items:center;gap:9px;transition:background .1s">${ic("x")} <span>Annulla selezione</span></div>
     `;
     // hover via delegation — no listener accumulation (click handler is on bulkMenu, set once below)
     bulkMenu.querySelectorAll('[data-bulk]').forEach(item=>{
@@ -2838,8 +2854,8 @@ function openRettificaGiacenza(id){
   bd.innerHTML=`
     <div class="modal" style="max-width:380px" onclick="event.stopPropagation()">
       <div class="modal-header">
-        <h2>⚖️ Rettifica Giacenza</h2>
-        <button style="font-size:18px;color:var(--txt3)" onclick="document.getElementById('rett-backdrop').remove()">✕</button>
+        <h2>${ic("scale")} Rettifica Giacenza</h2>
+        <button style="font-size:18px;color:var(--txt3)" onclick="document.getElementById('rett-backdrop').remove()">${ic("x")}</button>
       </div>
       <div class="modal-body">
         <div style="font-size:13px;font-weight:500;color:var(--txt);margin-bottom:4px">${h(w.nome)}</div>
@@ -2865,7 +2881,7 @@ function openRettificaGiacenza(id){
       </div>
       <div class="modal-footer">
         <button class="btn-outline" onclick="document.getElementById('rett-backdrop').remove()">Annulla</button>
-        <button class="btn-primary" onclick="_confirmRettifica('${id}',${giacAttuale})">✓ Conferma rettifica</button>
+        <button class="btn-primary" onclick="_confirmRettifica('${id}',${giacAttuale})">${ic("check")} Conferma rettifica</button>
       </div>
     </div>`;
   bd.addEventListener("click", function(e){ if(e.target===bd) bd.remove(); });
@@ -2923,7 +2939,7 @@ function _confirmRettifica(id, giacAttuale){
   // PATCH: flush immediato — rettifica giacenza è irreversibile
   clearTimeout(saveTimer); _flushSave();
   document.getElementById("rett-backdrop")?.remove();
-  notify(`⚖️ Rettifica registrata: ${w.nome} → ${newQty} bt (${diff>0?"+":""}${diff})`);
+  notify(`Rettifica registrata: ${w.nome} → ${newQty} bt (${diff>0?"+":""}${diff})`);
   render();
 }
 
@@ -3007,7 +3023,7 @@ function inlineEdit(evt, field, wineId, currentVal){
     }
     scheduleSave();
     renderInventarioOnly();
-    notify(`✏️ ${field} aggiornato`);
+    notify(`${field} aggiornato`);
   };
   inp.addEventListener("blur", commit);
   inp.addEventListener("keydown", e=>{
@@ -3309,7 +3325,7 @@ function _syncInvFilterBar(){
   if(clearWrap){
     const hasAny = _hasActiveFilters();
     if(hasAny && !clearWrap.querySelector('[data-clear-btn]')){
-      clearWrap.innerHTML = `<button data-clear-btn="1" onclick="_resetInvFilters()" title="Cancella tutti i filtri" style="display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:8px;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.07);color:#FF453A;font-size:12px;font-weight:600;cursor:pointer;flex-shrink:0;white-space:nowrap;transition:all .15s ease">✕</button>`;
+      clearWrap.innerHTML = `<button data-clear-btn="1" onclick="_resetInvFilters()" title="Cancella tutti i filtri" style="display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:8px;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.07);color:#FF453A;font-size:12px;font-weight:600;cursor:pointer;flex-shrink:0;white-space:nowrap;transition:all .15s ease">${ic("x")}</button>`;
     } else if(!hasAny){
       clearWrap.innerHTML = '';
     }
@@ -3846,7 +3862,7 @@ function _plSec2Vendite(D){
       <option value="">Tutte le tipologie</option>
       ${D.tipoList.map(t=>`<option value="${t}" ${analyticsTipo===t?"selected":""}>${h(t)}</option>`).join("")}
     </select>
-    ${(analyticsNazione||analyticsRegione||analyticsTipo)?`<button class="btn-outline btn-sm" onclick="analyticsNazione='';analyticsRegione='';analyticsTipo='';render()">✕ Reset</button>`:""}
+    ${(analyticsNazione||analyticsRegione||analyticsTipo)?`<button class="btn-outline btn-sm" onclick="analyticsNazione='';analyticsRegione='';analyticsTipo='';render()">${ic("x")} Reset</button>`:""}
     <span style="margin-left:auto;font-size:12px;color:var(--txt4)">${D.totQty} bottiglie vendute</span>
   </div>`;
   // ── SELETTORE PERIODO + GRANULARITÀ (pilota tutta la pagina) ──
@@ -3889,18 +3905,18 @@ function _plSec2Vendite(D){
   // Trend | Top 10 margine
   html+=`<div class="kpi-grid g2" style="margin-bottom:20px">
     <div class="card">
-      <div class="section-label"><span>📈 Andamento per ${_plGran==="giorno"?"Giorno":_plGran==="settimana"?"Settimana":"Mese"}</span></div>
+      <div class="section-label"><span>${ic("trend")} Andamento per ${_plGran==="giorno"?"Giorno":_plGran==="settimana"?"Settimana":"Mese"}</span></div>
       <div style="font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt3);margin:4px 0 4px"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#30D158;margin-right:6px;vertical-align:middle"></span>Ricavo</div><div class="chart-container" style="height:130px"><canvas id="ch-trend"></canvas></div>
       <div style="font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt3);margin:10px 0 4px"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#3b82f6;margin-right:6px;vertical-align:middle"></span>Margine</div><div class="chart-container" style="height:130px"><canvas id="ch-trend-margine"></canvas></div>
     </div>
     <div class="card">
-      <div class="section-label"><span>💰 Top 10 per Margine Realizzato</span></div>
+      <div class="section-label"><span>${ic("euro")} Top 10 per Margine Realizzato</span></div>
       ${D.topMargin.length===0?`<div style="text-align:center;padding:24px;color:var(--txt4);font-size:12px">Nessuna vendita registrata</div>`:`<div class="chart-container" style="height:300px"><canvas id="ch-topmargin"></canvas></div>`}
     </div>
   </div>`;
   // Best Sellers Top 5
   html+=`<div class="card" style="padding:0;margin-bottom:12px">
-    <div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px"><span style="color:var(--amber3)">🏆</span><span style="font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Best Sellers — Top 5 per Bottiglie</span></div>
+    <div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px"><span style="color:var(--amber3)">${ic("trophy")}</span><span style="font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Best Sellers — Top 5 per Bottiglie</span></div>
     <div style="padding:16px;display:flex;flex-direction:column;gap:12px">
       ${D.bestSellers.length===0?`<div style="text-align:center;padding:24px;color:var(--txt4);font-size:12px">Nessuna vendita registrata</div>`:
       D.bestSellers.map((b,i)=>{const marg=b.ricavo-b.costo;const mp=b.ricavo?(marg/b.ricavo*100):0;return `<div>
@@ -3917,7 +3933,7 @@ function _plSec2Vendite(D){
     </div>
   </div>`;
   // Rotazione Lenta (subito dopo Best Sellers)
-  const rotCard=_plTbl("Rotazione Lenta · giorni di giacenza (DIO, base 90 gg)","🐌",D.rotazione,[
+  const rotCard=_plTbl("Rotazione Lenta · giorni di giacenza (DIO, base 90 gg)",ic("clock"),D.rotazione,[
     {h:"Vino",render:r=>`<div style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(r.nome)}${r.annata?` <span style="color:var(--txt4);font-size:12px">${h(r.annata)}</span>`:""}</div><div style="color:var(--txt4);font-size:12px">${h(r.produttore||'—')}</div>`},
     {h:"Giac.",r:true,style:"color:var(--txt3)",render:r=>r.g},
     {h:"Venduti 90gg",r:true,style:"color:var(--txt3)",render:r=>r.venduti90},
@@ -3940,9 +3956,9 @@ function _plSec3Fornitori(D){
   </div>
   <div class="pl-forn-grid" style="display:grid;grid-template-columns:3fr 2fr;gap:14px;margin-bottom:24px">
     <div class="card" style="padding:0">
-      <div style="padding:12px 18px;border-bottom:1px solid var(--border);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--txt2)">🏭 Classifica Fornitori · spesa</div>
+      <div style="padding:12px 18px;border-bottom:1px solid var(--border);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--txt2)">${ic("factory")} Classifica Fornitori · spesa</div>
       ${D.fManqRighe>0?`<div style="margin:8px 12px;padding:9px 12px;background:rgba(var(--amber-rgb,255,159,10),.12);border:1px solid rgba(var(--amber3-rgb,180,83,9),.5);border-radius:8px;font-size:12px;color:var(--amber);line-height:1.45">
-        ⚠️ <b>${fmtN(D.fManqRighe,0)}</b> carich${D.fManqRighe===1?'i':'i'} su <b>${fmtN(D.fCarichiLen,0)}</b> (<b>${fmtN(D.fManqBt,0)}</b> bt) senza <code>prezzoAcqLotto</code> → stimati sul costo corrente della scheda, potenzialmente svalutato.
+        ${ic("alert")} <b>${fmtN(D.fManqRighe,0)}</b> carich${D.fManqRighe===1?'i':'i'} su <b>${fmtN(D.fCarichiLen,0)}</b> (<b>${fmtN(D.fManqBt,0)}</b> bt) senza <code>prezzoAcqLotto</code> → stimati sul costo corrente della scheda, potenzialmente svalutato.
         <span style="color:var(--txt3)">Valore su fallback: <b style="color:var(--amber)">${fmt(D.fManqImp)}</b> · ${D.fTot>0?fmtN(D.fManqImp/D.fTot*100,0):0}% del totale poggia su costi non affidabili.</span>
       </div>`:""}
       <div style="padding:4px 0">
@@ -3950,7 +3966,7 @@ function _plSec3Fornitori(D){
         D.fRank.slice(0,12).map((r,i)=>`<div onclick="drillFornitore('${encodeURIComponent(r.forn)}')" title="Vedi i carichi e gli ordini di ${h(r.forn)}" style="display:flex;align-items:center;gap:12px;padding:9px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(var(--amber-rgb,255,159,10),.06)'" onmouseout="this.style.background='none'">
           <span style="font-size:12px;color:var(--txt4);width:18px;font-family:'Montserrat',sans-serif">${i+1}</span>
           <div style="flex:1;min-width:0">
-            <div style="font-size:13px;color:var(--txt1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${h(r.forn)}${r.manqBt>0?` <span title="${fmtN(r.manqRighe,0)} carichi senza costo lotto · ${fmt(r.manqImp)} su fallback" style="display:inline-block;font-size:11px;color:var(--amber);border:1px solid rgba(var(--amber3-rgb,180,83,9),.5);background:rgba(var(--amber-rgb,255,159,10),.12);border-radius:4px;padding:0 5px;vertical-align:middle;font-family:'Montserrat',sans-serif">⚠ ${fmtN(r.manqBt,0)}</span>`:""}</div>
+            <div style="font-size:13px;color:var(--txt1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${h(r.forn)}${r.manqBt>0?` <span title="${fmtN(r.manqRighe,0)} carichi senza costo lotto · ${fmt(r.manqImp)} su fallback" style="display:inline-block;font-size:11px;color:var(--amber);border:1px solid rgba(var(--amber3-rgb,180,83,9),.5);background:rgba(var(--amber-rgb,255,159,10),.12);border-radius:4px;padding:0 5px;vertical-align:middle;font-family:'Montserrat',sans-serif">${ic("alert")} ${fmtN(r.manqBt,0)}</span>`:""}</div>
             <div style="font-size:12px;color:var(--txt4)">${fmtN(r.bt,0)} bt · ${r.nOrdini} ordin${r.nOrdini===1?'e':'i'} · <span style="color:var(--amber3)">dettaglio ›</span></div>
           </div>
           <div style="font-family:'Montserrat',sans-serif;color:var(--amber);font-size:.95rem;white-space:nowrap">${fmt(r.spesa)}</div>
@@ -3958,7 +3974,7 @@ function _plSec3Fornitori(D){
       </div>
     </div>
     <div class="card" style="padding:0">
-      <div style="padding:12px 18px;border-bottom:1px solid var(--border);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--txt2)">🗓 Ultimi Carichi</div>
+      <div style="padding:12px 18px;border-bottom:1px solid var(--border);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--txt2)">${ic("calendar")} Ultimi Carichi</div>
       <div style="padding:4px 0">
         ${D.fDiary.length===0?`<div style="padding:24px;text-align:center;color:var(--txt4);font-size:12px">—</div>`:
         D.fDiary.map(m=>{const w=wineMap[m.wineId];const key=((m.fornitore||w?.distributore||"").trim())||"Fornitore Sconosciuto";const p=costoCarico(m,w);const iva=(parseInt(w?.iva)||22)/100;const q=parseInt(m.qty)||0;const imp=p*(1+iva)*q;return `<div style="display:flex;align-items:center;gap:10px;padding:9px 18px;border-bottom:1px solid var(--border)">
@@ -3975,7 +3991,7 @@ function _plSec3Fornitori(D){
   const owColor=D.ordiniOpen.length>0?"rgba(var(--amber-rgb,255,159,10),.15)":"rgba(20,83,45,.2)";
   const owBorder=D.ordiniOpen.length>0?"rgba(var(--amber3-rgb,180,83,9),.5)":"rgba(21,128,61,.4)";
   html+=`<div style="background:${owColor};border:1px solid ${owBorder};padding:14px 20px;margin-bottom:24px;display:flex;align-items:center;gap:20px;flex-wrap:wrap">
-    <div style="font-size:1.6rem">${D.ordiniOpen.length>0?"📦":"✅"}</div>
+    <div style="font-size:1.6rem">${D.ordiniOpen.length>0?ic("box"):ic("checkCircle")}</div>
     <div style="flex:1;min-width:0">
       <div style="font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt3);margin-bottom:4px">Ordini Fornitore Aperti</div>
       ${D.ordiniOpen.length===0
@@ -3991,7 +4007,7 @@ function _plSec3Fornitori(D){
   // Acquisti per periodo (chart, splittato)
   html+=`<div class="card" style="padding:0;margin-bottom:20px">
     <div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
-      <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--amber3)">📦</span><span style="font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Acquisti per ${periodoLabels[analyticsAcquistiPeriodo]}</span>${(CARICO_MANUALE_NON_SPESA||CARICO_INIT_FINO)?`<span style="font-size:11px;color:var(--txt4);text-transform:none;letter-spacing:0"> \u00b7 solo carichi da ordine ricevuto</span>`:''}</div>
+      <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--amber3)">${ic("box")}</span><span style="font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Acquisti per ${periodoLabels[analyticsAcquistiPeriodo]}</span>${(CARICO_MANUALE_NON_SPESA||CARICO_INIT_FINO)?`<span style="font-size:11px;color:var(--txt4);text-transform:none;letter-spacing:0"> \u00b7 solo carichi da ordine ricevuto</span>`:''}</div>
       <div style="display:flex;gap:4px">${["giorno","settimana","mese"].map(p=>`<button class="${analyticsAcquistiPeriodo===p?"btn-primary btn-sm":"btn-outline btn-sm"}" onclick="analyticsAcquistiPeriodo='${p}';render()">${periodoLabels[p]}</button>`).join("")}</div>
     </div>
     ${acquistiData.length===0?`<div style="padding:32px;text-align:center;color:var(--txt4);font-size:12px">Nessun carico registrato</div>`:`<div style="padding:16px 20px;display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px">
@@ -4010,7 +4026,7 @@ function _plSec3Fornitori(D){
   </div>`;
   html+=`<div class="card" style="padding:0;margin-bottom:20px">
     <div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
-      <div style="display:flex;align-items:center;gap:6px"><span style="color:#c084fc">📋</span><span style="font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Dettaglio Acquisti per ${periodoLabels[analyticsAcquistiPeriodo]}</span></div>
+      <div style="display:flex;align-items:center;gap:6px"><span style="color:#c084fc">${ic("clipboard")}</span><span style="font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Dettaglio Acquisti per ${periodoLabels[analyticsAcquistiPeriodo]}</span></div>
       <div style="display:flex;gap:4px">${["giorno","settimana","mese"].map(p=>`<button class="${analyticsAcquistiPeriodo===p?"btn-primary btn-sm":"btn-outline btn-sm"}" onclick="analyticsAcquistiPeriodo='${p}';render()">${periodoLabels[p]}</button>`).join("")}</div>
     </div>
     ${acquistiData.length===0?`<div style="padding:32px;text-align:center;color:var(--txt4);font-size:12px">Nessun carico registrato</div>`:`
@@ -4037,7 +4053,7 @@ function _plSec3Fornitori(D){
   // Breakdown Ordini per Fornitore (paginato)
   html+=`<div class="card" style="padding:0;margin-bottom:20px">
     <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-      <span style="color:#007AFF">🏭</span>
+      <span style="color:#007AFF">${ic("factory")}</span>
       <span style="font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Ordini per Fornitore · gen→oggi</span><span style="font-size:11px;color:var(--txt4)">solo fornitori con acquisti nel periodo</span>
       <span style="margin-left:auto;text-align:right"><span style="font-family:'Montserrat',sans-serif;color:#30D158;font-size:.95rem">${fmt(D.totSpesaForn)}</span><span style="color:var(--txt4);font-size:11px;letter-spacing:.1em;text-transform:uppercase;margin-left:6px">${fmtN(D.totBtForn,0)} bt · ${D.reportForn.length} fornitori</span></span>
     </div>
@@ -4073,7 +4089,7 @@ function _plSec3Fornitori(D){
   // Valore a Magazzino per Fornitore (tutti i fornitori, indipendente dal periodo)
   html+=`<div class="card" style="padding:0;margin-bottom:20px">
     <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-      <span style="color:var(--amber)">\u{1F3F7}\u{FE0F}</span>
+      <span style="color:var(--amber)">${ic("tag")}</span>
       <span style="font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt2)">Valore a Magazzino per Fornitore</span>
       <span style="font-size:11px;color:var(--txt4)">tutti i fornitori \u00b7 giacenza attuale</span>
       <span style="margin-left:auto;text-align:right"><span style="font-family:'Montserrat',sans-serif;color:var(--txt2);font-size:.95rem">${fmt(D.totMagVal)}</span><span style="color:var(--txt4);font-size:11px;letter-spacing:.1em;text-transform:uppercase;margin-left:6px">${fmtN(D.totMagBt,0)} bt \u00b7 ${D.reportMag.length} fornitori</span></span>
@@ -4111,7 +4127,7 @@ function _plSec3Fornitori(D){
   </div>`;
   // Cash Flow (uscite)
   html+=`<div class="card" style="margin-bottom:16px">
-    <div class="section-label"><span>💶 Cash Flow Mensile · da gen 2026</span></div>
+    <div class="section-label"><span>${ic("euro")} Cash Flow Mensile · da gen 2026</span></div>
     <div style="font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt3);margin:4px 0 4px"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#30D158;margin-right:6px;vertical-align:middle"></span>Incassi stimati <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#FF453A;margin:0 6px 0 10px;vertical-align:middle"></span>Uscite (IVA incl.)</div>
     <div class="chart-container" style="height:220px"><canvas id="ch-cashflow"></canvas></div>
   </div>`;
@@ -4129,7 +4145,7 @@ function _plSec4Cantina(D){
   </div>`;
   // Giacenza per Tipologia (pie)
   html+=`<div class="card" style="margin-bottom:16px">
-    <div class="section-label"><span>🎯 Giacenza per Tipologia</span></div>
+    <div class="section-label"><span>${ic("target")} Giacenza per Tipologia</span></div>
     ${D.tipoPie.length===0?`<div style="text-align:center;padding:24px;color:var(--txt4);font-size:12px">Nessun dato</div>`:`
     <div style="display:flex;align-items:center;gap:16px">
       <div style="width:52%;min-width:130px;height:220px;position:relative"><canvas id="ch-pie"></canvas></div>
@@ -4137,7 +4153,7 @@ function _plSec4Cantina(D){
     </div>`}
   </div>`;
   // Dead stock (+ footer capitale fermo)
-  const dsCard=_plTbl("Capitale Fermo · nessuna vendita da 180+ gg","🧊",D.deadStock,[
+  const dsCard=_plTbl("Capitale Fermo · nessuna vendita da 180+ gg",ic("pause"),D.deadStock,[
       {h:"Vino",render:r=>`<div style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(r.nome)}</div><div style="color:var(--txt4);font-size:12px">${h(r.produttore||'—')}</div>`},
       {h:"Giac.",r:true,style:"color:var(--txt3)",render:r=>r.g},
       {h:"Valore",r:true,style:"font-family:'Montserrat',sans-serif;color:#FF6B6B",render:r=>fmt(r.valore)},
@@ -4154,7 +4170,7 @@ function _plSec5Carta(D){
   return `<div style="font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4);margin:28px 0 10px">Carta & Copertura</div><div class="kpi-grid g4" style="margin-bottom:8px">
     ${[
       {label:"Copertura Carta",value:`${fmtN(D.coperturaPct,0)}%`,sub:`${D.inCartaCount} in carta su ${D.s.refAttive} attive`,cls:"c-amber"},
-      {label:"In Fresco ❄",value:D.frescoCount,sub:D.cartaSenzaPrezzo?`${D.cartaSenzaPrezzo} attive senza prezzo carta`:"referenze refrigerate",cls:"c-blue"},
+      {label:"In Fresco "+ic("snow"),value:D.frescoCount,sub:D.cartaSenzaPrezzo?`${D.cartaSenzaPrezzo} attive senza prezzo carta`:"referenze refrigerate",cls:"c-blue"},
       {label:"Ricarico Medio",value:`${fmtN(D.markupMed,1)}×`,sub:"prezzo carta / costo+IVA",cls:"c-green"},
       {label:"Pareto Margine",value:`${fmtN(D.paretoPct,0)}%`,sub:`generato dal top ${D.top20n} (20%)`,cls:"c-orange"},
     ].map(_plKpiCard).join("")}
@@ -4350,7 +4366,7 @@ function renderInventario(){
       <div style="display:flex;align-items:center;gap:6px;padding:7px 12px;min-height:44px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch">
 
         <!-- Search -->
-        <div class="search-wrap" style="flex-shrink:0;width:200px"><span class="search-icon">🔍</span><input id="inv-search" class="form-input" style="width:100%;padding-left:28px" placeholder="Cerca vino…  [/]" value="${h(search)}" oninput="search=this.value;renderInventarioOnly()"></div>
+        <div class="search-wrap" style="flex-shrink:0;width:200px"><span class="search-icon">${ic("search")}</span><input id="inv-search" class="form-input" style="width:100%;padding-left:28px" placeholder="Cerca vino…  [/]" value="${h(search)}" oninput="search=this.value;renderInventarioOnly()"></div>
 
         <!-- Count -->
         <span id="inv-count" style="font-size:12px;color:var(--txt4);letter-spacing:.05em;white-space:nowrap;flex-shrink:0">${list.length}<span style="color:var(--txt5);font-weight:400"> / ${wines.length}</span></span>
@@ -4399,13 +4415,13 @@ function renderInventario(){
         </div>
 
         <!-- Reset filtri (solo se attivi) -->
-        <span id="inv-clear-wrap">${_hasActiveFilters()?`<button data-clear-btn="1" onclick="_resetInvFilters()" title="Cancella tutti i filtri" style="display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:8px;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.07);color:#FF453A;font-size:12px;font-weight:600;cursor:pointer;flex-shrink:0;white-space:nowrap;transition:all .15s ease">✕</button>`:""}</span>
+        <span id="inv-clear-wrap">${_hasActiveFilters()?`<button data-clear-btn="1" onclick="_resetInvFilters()" title="Cancella tutti i filtri" style="display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:8px;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.07);color:#FF453A;font-size:12px;font-weight:600;cursor:pointer;flex-shrink:0;white-space:nowrap;transition:all .15s ease">${ic("x")}</button>`:""}</span>
 
         <!-- Spazio flessibile (spinge Multipla a destra) -->
         <div style="flex:1;min-width:8px"></div>
 
         <!-- Selezione multipla -->
-        ${selMode!=='wines'?`<button onclick="enterSel('wines')" style="${ctrlBase};${ctrlOff}">☑ Multipla</button>`:''}
+        ${selMode!=='wines'?`<button onclick="enterSel('wines')" style="${ctrlBase};${ctrlOff}">${ic("checkCircle")} Multipla</button>`:''}
 
       </div>
     </div>
@@ -4416,7 +4432,7 @@ function renderInventario(){
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
         <span style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--txt3)">Filtri avanzati</span>
         <div style="display:flex;gap:6px;align-items:center">
-          ${advCount>0?`<button onclick="_resetInvFilters()" style="padding:3px 10px;border-radius:6px;border:1px solid rgba(239,68,68,.35);background:rgba(239,68,68,.07);color:#FF453A;font-size:11px;font-weight:600;cursor:pointer">✕ Reset</button>`:''}
+          ${advCount>0?`<button onclick="_resetInvFilters()" style="padding:3px 10px;border-radius:6px;border:1px solid rgba(239,68,68,.35);background:rgba(239,68,68,.07);color:#FF453A;font-size:11px;font-weight:600;cursor:pointer">${ic("x")} Reset</button>`:''}
           <button onclick="_closeInvFilterPanel()" style="width:24px;height:24px;border-radius:6px;border:1px solid var(--border2);background:var(--bg3);color:var(--txt3);font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1">×</button>
         </div>
       </div>
@@ -4512,13 +4528,13 @@ function _applyPrezzoCartaSuggerito(overwriteAll){
       return {...w, prezzoCarta: suggerito};
     });
     scheduleSave(); render();
-    notify(`✅ P.Carta aggiornato su ${count} vini`);
+    notify(`P.Carta aggiornato su ${count} vini`);
   };
   if(overwriteAll){
     const n = wines.filter(w=>w.prezzoAcq>0).length;
     _confirmModal(
       `Ricalcola P.Carta per <strong>${n} vini</strong> con le fasce standard?<br><span style="font-size:12px;color:var(--txt4)">I prezzi già impostati verranno sovrascritti.</span>`,
-      "✅ Ricalcola",
+      ic("checkCircle")+" Ricalcola",
       _doApply,
       'warn'
     );
@@ -4544,7 +4560,7 @@ function _toggleSogliaPop(wineId, btn){
     <div class="soglia-pop-title">Alert Soglie</div>
     <div style="display:flex;flex-direction:column;gap:8px">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
-        <span style="font-size:12px;color:#FF453A">🔴 Scorta min.</span>
+        <span style="font-size:12px;color:#FF453A">${ic("dotRed")} Scorta min.</span>
         <div class="soglia-ctrl">
           <button class="soglia-btn" onclick="_setSoglia('${wineId}','min',-1);_refreshPop('${wineId}',this)">−</button>
           <span class="soglia-val sp-min" style="color:#FF453A">${sg.min}</span>
@@ -4552,7 +4568,7 @@ function _toggleSogliaPop(wineId, btn){
         </div>
       </div>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
-        <span style="font-size:12px;color:#fbbf24">🟡 Riordino</span>
+        <span style="font-size:12px;color:#fbbf24">${ic("dotYellow")} Riordino</span>
         <div class="soglia-ctrl">
           <button class="soglia-btn" onclick="_setSoglia('${wineId}','riordino',-1);_refreshPop('${wineId}',this)">−</button>
           <span class="soglia-val sp-riord" style="color:#fbbf24">${sg.riordino}</span>
@@ -4742,7 +4758,7 @@ const _MOV_MODAL=`  <div class="modal-backdrop hidden" id="mov-edit-backdrop" on
     <div class="modal" style="max-width:560px" onclick="event.stopPropagation()">
       <div class="modal-header">
         <h2>Modifica movimento</h2>
-        <button style="font-size:18px;color:var(--txt3)" onclick="closeMovModal()">✕</button>
+        <button style="font-size:18px;color:var(--txt3)" onclick="closeMovModal()">${ic("x")}</button>
       </div>
       <div class="modal-body" id="mov-edit-body"></div>
       <div class="modal-footer">
@@ -4940,7 +4956,7 @@ function _renderMovCarico(){
             style="flex:1"
             oninput="_movWineMatchSilent(this.value.trim())"
             onchange="_movWineMatch(this.value.trim());_movWineUpdatePanel()">
-          ${selW?'<button onclick="movForm.wineId=\'\';movForm._wineText=\'\';movForm._newMode=false;render()" style="flex-shrink:0;padding:0 10px;border:1px solid var(--border2);color:var(--txt3);background:none;cursor:pointer;font-size:13px;border-radius:var(--radius-sm)" title="Cambia vino">\u2715</button>':''}
+          ${selW?'<button onclick="movForm.wineId=\'\';movForm._wineText=\'\';movForm._newMode=false;render()" style="flex-shrink:0;padding:0 10px;border:1px solid var(--border2);color:var(--txt3);background:none;cursor:pointer;font-size:13px;border-radius:var(--radius-sm)" title="Cambia vino">'+ic("x")+'</button>':''}
         </div>
         ${selW?`<div style="margin-top:6px;display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(var(--amber-rgb,255,159,10),.06);border:1px solid rgba(var(--amber-rgb,255,159,10),.15);border-radius:var(--radius-sm);flex-wrap:wrap">
             ${badge(selW.tipologia)}
@@ -4954,18 +4970,18 @@ function _renderMovCarico(){
             ${selW.vitigni?('<span style="color:var(--txt4);font-size:12px">\ud83c\udf47 '+h(selW.vitigni)+'</span>'):''}
             <span style="margin-left:auto;color:var(--amber);font-family:'Montserrat',sans-serif;font-size:1.1rem">${selW.giacenza} bt</span>
           </div>
-          ${movForm.tipo!=="scarico"?('<div style="margin-top:6px"><button onclick="movForm._newMode=true;movForm.wineId=\'\';movForm._newProduttore=\''+h(selW.produttore)+'\';movForm._newTipologia=\''+selW.tipologia+'\';movForm._newVitigni=\''+h(selW.vitigni||'')+'\';movForm._newRegione=\''+h(selW.regione||'')+'\';movForm._newNazione=\''+h(selW.nazione||'Italia')+'\';movForm._newZona=\''+h(selW.zona||'')+'\';movForm._newFormato=\''+(parseFloat(selW.formato)||0.75)+'\';movForm._wineText=\'\';render()" style="font-size:12px;font-weight:600;padding:4px 12px;border:1px solid rgba(var(--amber-rgb,255,159,10),.4);color:var(--amber);background:rgba(var(--amber-rgb,255,159,10),.1);cursor:pointer;font-family:inherit;border-radius:6px">\u2746 Nuova annata / variante di questo vino</button></div>'):''}`:''
+          ${movForm.tipo!=="scarico"?('<div style="margin-top:6px"><button onclick="movForm._newMode=true;movForm.wineId=\'\';movForm._newProduttore=\''+h(selW.produttore)+'\';movForm._newTipologia=\''+selW.tipologia+'\';movForm._newVitigni=\''+h(selW.vitigni||'')+'\';movForm._newRegione=\''+h(selW.regione||'')+'\';movForm._newNazione=\''+h(selW.nazione||'Italia')+'\';movForm._newZona=\''+h(selW.zona||'')+'\';movForm._newFormato=\''+(parseFloat(selW.formato)||0.75)+'\';movForm._wineText=\'\';render()" style="font-size:12px;font-weight:600;padding:4px 12px;border:1px solid rgba(var(--amber-rgb,255,159,10),.4);color:var(--amber);background:rgba(var(--amber-rgb,255,159,10),.1);cursor:pointer;font-family:inherit;border-radius:6px">Nuova annata / variante di questo vino</button></div>'):''}`:''
         }
         ${(!selW&&movForm._wineText&&!movForm.wineId&&!movForm._newMode)?
           ('<div style="margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-size:12px;color:var(--txt3)">Vino non trovato in cantina.</span>'
-          +(movForm.tipo!=="scarico"?'<button onclick="movForm._newMode=true;render()" style="font-size:12px;font-weight:600;padding:4px 12px;border:1px solid rgba(48,209,88,.35);color:#30D158;background:rgba(48,209,88,.08);cursor:pointer;font-family:inherit;border-radius:6px">\u2746 Crea nuova referenza</button>':'<span style="color:#FF453A;font-size:12px">Impossibile scaricare \u2014 vino non in cantina</span>')
+          +(movForm.tipo!=="scarico"?'<button onclick="movForm._newMode=true;render()" style="font-size:12px;font-weight:600;padding:4px 12px;border:1px solid rgba(48,209,88,.35);color:#30D158;background:rgba(48,209,88,.08);cursor:pointer;font-family:inherit;border-radius:6px">'+ic("plus")+' Crea nuova referenza</button>':'<span style="color:#FF453A;font-size:12px">Impossibile scaricare \u2014 vino non in cantina</span>')
           +'</div>')
           :''}
       </div>
 
       ${(movForm.tipo!=="scarico"&&movForm._newMode&&!movForm.wineId)?`
       <div style="background:rgba(48,209,88,.04);border:1px solid rgba(48,209,88,.2);padding:14px;margin-bottom:8px;border-radius:var(--radius-sm)">
-        <div style="font-size:12px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:#30D158;margin-bottom:12px">\u2746 Nuova Referenza &mdash; dati completi per la carta vini</div>
+        <div style="font-size:12px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:#30D158;margin-bottom:12px">${ic("plus")} Nuova Referenza &mdash; dati completi per la carta vini</div>
         <div class="form-grid g2" style="margin-bottom:8px">
           <div><label class="form-label">Nome Vino *</label>
             <input class="form-input" placeholder="es. Petricore" value="${h(movForm._wineText||'')}"
@@ -5031,14 +5047,14 @@ function _renderMovCarico(){
           </div>
           <div style="grid-column:span 2">
             <div id="mov-new-preview" style="display:none;padding:10px 14px;background:rgba(0,122,255,.06);border:1px solid rgba(0,122,255,.2);border-radius:var(--radius-sm);font-size:12px">
-              <span style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#007AFF">📋 Anteprima carta vini</span>
+              <span style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#007AFF">${ic("clipboard")} Anteprima carta vini</span>
               <div id="mov-new-preview-body" style="margin-top:6px;color:var(--txt2)"></div>
             </div>
           </div>
         </div>
         <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
           <button onclick="movForm._newMode=false;movForm.wineId='';movForm._wineText='';render()"
-            style="font-size:12px;padding:4px 10px;border:1px solid var(--border2);color:var(--txt3);background:none;cursor:pointer;font-family:inherit;border-radius:6px">\u2715 Annulla</button>
+            style="font-size:12px;padding:4px 10px;border:1px solid var(--border2);color:var(--txt3);background:none;cursor:pointer;font-family:inherit;border-radius:6px">${ic("x")} Annulla</button>
           <span style="font-size:12px;color:var(--txt4)">La referenza verrà creata al momento del Registra Carico</span>
         </div>
       </div>`:''}
@@ -5081,13 +5097,13 @@ function _renderMovCarico(){
       ${movForm.tipo==="scarico"?``:''}
       <div class="form-row" style="margin-top:4px"><label class="form-label">Note</label><input class="form-input" value="${h(movForm.note)}" placeholder="Note aggiuntive…" oninput="movForm.note=this.value"></div>
       ${selW?`<div class="info-panel">
-        <div><div style="font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:4px">P.Carta/bt</div><div style="color:${selW.prezzoCarta?"#30D158":"#fb923c"};font-family:'Montserrat',sans-serif;font-size:13px">${selW.prezzoCarta?fmt(parseFloat(selW.prezzoCarta)):'<span style="font-size:12px;letter-spacing:.1em">⚠ NON IMP.</span>'}</div></div>
+        <div><div style="font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:4px">P.Carta/bt</div><div style="color:${selW.prezzoCarta?"#30D158":"#fb923c"};font-family:'Montserrat',sans-serif;font-size:13px">${selW.prezzoCarta?fmt(parseFloat(selW.prezzoCarta)):'<span style="font-size:12px;letter-spacing:.1em">'+ic("alert")+' NON IMP.</span>'}</div></div>
         <div><div style="font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:4px">Costo+IVA/bt</div><div style="color:var(--amber);font-family:inherit;font-size:13px">${fmtRound(calcCostoIvaBottiglia(selW))}</div></div>
         <div><div style="font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:4px">Marg. Lordo/bt</div><div style="color:${(calcMargineBottiglia(selW)||0)>=0?"#007AFF":"#FF453A"};font-size:13px">${calcMargineBottiglia(selW)===null?"—":fmt(calcMargineBottiglia(selW))}</div></div>
         <div><div style="font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:4px">Marg. %</div><div style="color:${(calcMarginePerc(selW)||0)>=0?"#30D158":"#FF453A"};font-size:13px">${calcMarginePerc(selW)===null?"—":`${fmtN(calcMarginePerc(selW),1)}%`}</div></div>
       </div>
       ${!selW.prezzoCarta?`<div style="margin-top:8px;padding:8px 10px;background:rgba(var(--amber-rgb,255,159,10),.08);border:1px solid rgba(var(--amber3-rgb,180,83,9),.3);display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        <span style="font-size:12px;color:var(--txt3);letter-spacing:.1em;text-transform:uppercase;flex-shrink:0">⚠ Imposta P.Carta ora:</span>
+        <span style="font-size:12px;color:var(--txt3);letter-spacing:.1em;text-transform:uppercase;flex-shrink:0">${ic("alert")} Imposta P.Carta ora:</span>
         <input type="number" id="mov-quick-carta" class="form-input" style="width:100px;padding:4px 8px;font-size:12px" placeholder="0.00" step="0.5" min="0">
         <button class="btn-outline btn-sm" onclick="_setQuickCarta('${selW.id}')">Salva</button>
       </div>`:""}
@@ -5133,7 +5149,7 @@ function _movTipologiaChange(val){
 // Con giacenza a magazzino si chiede conferma, perché l'effetto è retroattivo.
 function _movCambiaFormato(v){
   const w=wines.find(x=>x.id===movForm.wineId);
-  if(!w){ notify("⚠️ Nessun vino selezionato","err"); return; }
+  if(!w){ notify("Nessun vino selezionato","err"); return; }
   const nuovo=parseFloat(v)||0.75, attuale=parseFloat(w.formato)||0.75;
   if(nuovo===attuale) return;
   const g=parseInt(w.giacenza)||0;
@@ -5147,7 +5163,7 @@ function _movCambiaFormato(v){
   }
   wines=wines.map(x=>x.id===w.id?{...x,formato:nuovo}:x);
   scheduleSave();
-  notify("✅ Formato aggiornato: "+_formatoLabel(nuovo));
+  notify("Formato aggiornato: "+_formatoLabel(nuovo));
   render();
 }
 
@@ -5217,7 +5233,7 @@ function _movApplyCartaSuggerita(wineId,val){
   if(!w||!val){ return; }
   wines=wines.map(x=>x.id!==wineId?x:{..._trackPriceChange(x,null,val,'suggerimento_carico'),prezzoCarta:val});
   scheduleSave();
-  notify(`💰 ${w.nome}: prezzo in carta aggiornato a ${fmt(val)}`);
+  notify(`${w.nome}: prezzo in carta aggiornato a ${fmt(val)}`);
   render();
 }
 function _movNewCartaHint(){
@@ -5265,7 +5281,7 @@ function _movUpdateCartaPreview(){
     <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;align-items:center">
       ${badge(tipo)}
       ${formato!==0.75?`<span style="font-size:11px;font-weight:600;padding:1px 6px;border:1px solid rgba(0,122,255,.35);color:#60a5fa;background:rgba(0,122,255,.1);border-radius:3px">${h(_formatoLabel(formato))}</span>`:''}
-      ${vitigni?`<span style="font-size:12px;color:var(--txt4)">🍇 ${h(vitigni)}</span>`:''}
+      ${vitigni?`<span style="font-size:12px;color:var(--txt4)">${ic("grape")} ${h(vitigni)}</span>`:''}
       ${regione?`<span style="font-size:12px;color:var(--txt3)">${h(regione)}</span>`:''}
     </div>
     ${pAcq>0?`<div style="display:flex;gap:16px;margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.06);font-size:12px">
@@ -5297,14 +5313,14 @@ function registraMovimento(){
 
   // ── Crea nuova referenza se _newMode è attivo ────────────────────────────
   if(!wineId && movForm._newMode){
-    if(tipo==="scarico"){ notify("⚠️ Impossibile scaricare un vino non ancora in cantina","err"); return; }
+    if(tipo==="scarico"){ notify("Impossibile scaricare un vino non ancora in cantina","err"); return; }
     const nomeTrimmed=(movForm._wineText||"").trim();
     const prodTrimmed=(movForm._newProduttore||"").trim();
-    if(!nomeTrimmed){ notify("⚠️ Inserisci il nome del vino","err"); return; }
-    if(!prodTrimmed){ notify("⚠️ Inserisci il produttore","err"); return; }
+    if(!nomeTrimmed){ notify("Inserisci il nome del vino","err"); return; }
+    if(!prodTrimmed){ notify("Inserisci il produttore","err"); return; }
     // Tipologia obbligatoria: nessun default silenzioso (prima nasceva "Rosso").
     if(!(movForm._newTipologia||"").trim()){
-      notify("⚠️ Scegli la tipologia del vino","err");
+      notify("Scegli la tipologia del vino","err");
       document.getElementById("mov-new-tipologia")?.focus();
       return;
     }
@@ -5327,16 +5343,16 @@ function registraMovimento(){
     newWine.nazione = inferPaese(newWine.nazione, newWine.regione, newWine.zona) || newWine.nazione || "Italia";
     wines=[...wines, newWine];
     wineId=newWine.id;
-    notify("🆕 Nuova referenza creata: "+nomeTrimmed+(newWine.annata?" "+newWine.annata:""));
+    notify("Nuova referenza creata: "+nomeTrimmed+(newWine.annata?" "+newWine.annata:""));
   } else if(!wineId){
     const nomeTrimmed=(movForm._wineText||"").trim();
-    if(!nomeTrimmed){ notify("⚠️ Seleziona un vino dall'elenco","err"); return; }
-    notify("⚠️ Vino non trovato — clicca 'Crea nuova referenza' per aggiungerlo","err"); return;
+    if(!nomeTrimmed){ notify("Seleziona un vino dall'elenco","err"); return; }
+    notify("Vino non trovato — clicca 'Crea nuova referenza' per aggiungerlo","err"); return;
   }
 
-  if(q<=0){notify("⚠️ Inserisci una quantità valida","err");return}
+  if(q<=0){notify("Inserisci una quantità valida","err");return}
   const wine=wines.find(w=>w.id===wineId);
-  if(!wine){notify("⚠️ Vino non trovato","err");return;}
+  if(!wine){notify("Vino non trovato","err");return;}
   const _sottrae = tipo==="scarico" || (_isRettifica(tipo)&&segno==="-");
   if(_sottrae&&wine.giacenza<q){notify(`Giacenza insufficiente (${wine.giacenza} disponibili)`,"err");return}
   wines=wines.map(w=>{
@@ -5370,7 +5386,7 @@ function registraMovimento(){
   scheduleSave();
   // PATCH: flush immediato per carichi/scarichi — modificano giacenza
   clearTimeout(saveTimer); _flushSave();
-  notify(tipo==="scarico"?"🍾 Scarico registrato":_isRettifica(tipo)?`🩹 Rettifica giacenza registrata (${segno}${q})`:"📦 Carico registrato"); if(section==="inventario") renderInventarioOnly(); else render();
+  notify(tipo==="scarico"?"Scarico registrato":_isRettifica(tipo)?`Rettifica giacenza registrata (${segno}${q})`:"Carico registrato"); if(section==="inventario") renderInventarioOnly(); else render();
 }
 
 // Ordinamento alfabetico reale (accenti e maiuscole ignorati) su nome+produttore.
@@ -5393,7 +5409,7 @@ function _fallWineMatch(val, commit){
 function renderFallate(){
   let html=`<div class="kpi-grid g2" style="margin-bottom:20px">
     <div class="card">
-      <div class="section-label"><span>⚠️ Registra Bottiglia Fallata</span></div>
+      <div class="section-label"><span>${ic("alert")} Registra Bottiglia Fallata</span></div>
       <div class="form-row"><label class="form-label">Vino</label>
         ${(()=>{ const selF=wines.find(w=>w.id===fallForm.wineId); return `
         <datalist id="fall-wine-dl">
@@ -5408,7 +5424,7 @@ function renderFallate(){
             style="flex:1"
             oninput="_fallWineMatch(this.value.trim(),false)"
             onchange="_fallWineMatch(this.value.trim(),true)">
-          ${selF?`<button onclick="fallForm.wineId='';fallForm._wineText='';render()" style="flex-shrink:0;padding:0 10px;border:1px solid var(--border2);color:var(--txt3);background:none;cursor:pointer;font-size:13px;border-radius:var(--radius-sm)" title="Cambia vino">\u2715</button>`:""}
+          ${selF?`<button onclick="fallForm.wineId='';fallForm._wineText='';render()" style="flex-shrink:0;padding:0 10px;border:1px solid var(--border2);color:var(--txt3);background:none;cursor:pointer;font-size:13px;border-radius:var(--radius-sm)" title="Cambia vino">${ic("x")}</button>`:""}
         </div>
         ${selF?`<div style="margin-top:6px;display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(var(--amber-rgb,255,159,10),.06);border:1px solid rgba(var(--amber-rgb,255,159,10),.15);border-radius:var(--radius-sm);flex-wrap:wrap">
           <span style="font-size:12px;color:var(--txt2)">${h(selF.nome)}${selF.annata?` <span style="color:var(--amber)">${h(selF.annata)}</span>`:""}</span>
@@ -5427,13 +5443,13 @@ function renderFallate(){
         </select>
       </div>
       <div class="form-row" style="margin-top:10px"><label class="form-label">Note</label><input class="form-input" value="${h(fallForm.note)}" placeholder="Note aggiuntive…" oninput="fallForm.note=this.value"></div>
-      <button class="btn-primary" style="background:var(--amber3);width:100%;justify-content:center;margin-top:14px" onclick="registraFallata()">⚠️ Registra Fallata</button>
+      <button class="btn-primary" style="background:var(--amber3);width:100%;justify-content:center;margin-top:14px" onclick="registraFallata()">${ic("alert")} Registra Fallata</button>
     </div>
     <div class="card">
-      <div class="section-label"><span>📋 Log Recenti</span></div>
+      <div class="section-label"><span>${ic("clipboard")} Log Recenti</span></div>
       <div style="max-height:320px;overflow-y:auto;display:flex;flex-direction:column;gap:6px">
         ${fallate.length===0?`<div style="text-align:center;padding:28px;color:var(--txt4);font-size:12px">Nessuna fallata registrata</div>`:
-        fallate.slice(0,10).map(f=>`<div class="fallate-log"><span style="color:#fb923c">⚠</span><div style="flex:1;min-width:0"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(f.wineName)}</div><div style="color:var(--txt4);font-size:12px">${h(_fmtDataIT(f.data))} · ${h(f.motivo)}</div></div><span style="font-family:'Montserrat',sans-serif;color:#fb923c;font-size:1rem">${f.qty}bt</span></div>`).join("")}
+        fallate.slice(0,10).map(f=>`<div class="fallate-log"><span style="color:#fb923c">${ic("alert")}</span><div style="flex:1;min-width:0"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(f.wineName)}</div><div style="color:var(--txt4);font-size:12px">${h(_fmtDataIT(f.data))} · ${h(f.motivo)}</div></div><span style="font-family:'Montserrat',sans-serif;color:#fb923c;font-size:1rem">${f.qty}bt</span></div>`).join("")}
       </div>
     </div>
   </div>
@@ -5454,9 +5470,9 @@ function registraFallata(){
   const {wineId,qty,motivo,data,note}=fallForm;
   const q=parseInt(qty)||0;
   if(!wineId||q<=0){notify("Seleziona un vino e inserisci la quantità","err");return}
-  if(data > today()){notify("⚠️ La data non può essere nel futuro","err");return}
+  if(data > today()){notify("La data non può essere nel futuro","err");return}
   const wine=wines.find(w=>w.id===wineId);
-  if(!wine){notify("⚠️ Vino non trovato","err");return;}
+  if(!wine){notify("Vino non trovato","err");return;}
   if(wine.giacenza<q){notify(`Giacenza insufficiente (${wine.giacenza} disponibili)`,"err");return}
   wines=wines.map(w=>{
     if(w.id!==wineId) return w;
@@ -5470,7 +5486,7 @@ function registraFallata(){
   scheduleSave();
   // PATCH: flush immediato per fallate — modificano giacenza
   clearTimeout(saveTimer); _flushSave();
-  notify("⚠️ Fallata registrata, giacenza aggiornata"); if(section==="inventario") renderInventarioOnly(); else render();
+  notify("Fallata registrata, giacenza aggiornata"); if(section==="inventario") renderInventarioOnly(); else render();
 }
 
 // ─── ANALYTICS ───────────────────────────────────────────────────────────────
@@ -5501,13 +5517,13 @@ function renderOrdini(){
       : fmt(totLordo);
     const isPending=o.stato==="confermato_pendente";
     const statoCell=isPending
-      ? `<span style="display:inline-flex;align-items:center;gap:4px;background:#16a34a22;color:#30D158;border:1px solid #16a34a55;padding:2px 8px;font-size:.75rem;font-weight:600">✔ Ricevuto</span>`
-      : `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--amber3)22;color:var(--amber);border:1px solid var(--amber3)55;padding:2px 8px;font-size:.75rem;font-weight:600">⏳ In attesa</span>`;
+      ? `<span style="display:inline-flex;align-items:center;gap:4px;background:#16a34a22;color:#30D158;border:1px solid #16a34a55;padding:2px 8px;font-size:.75rem;font-weight:600">${ic("check")} Ricevuto</span>`
+      : `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--amber3)22;color:var(--amber);border:1px solid var(--amber3)55;padding:2px 8px;font-size:.75rem;font-weight:600">${ic("clock")} In attesa</span>`;
     const invBadge = o.inviatoVia
-      ? (o.inviatoVia==='email'     ? `<span title="Inviato via email il ${o.dataInvio||'—'}" style="display:inline-flex;align-items:center;gap:3px;background:rgba(var(--amber-rgb,255,159,10),.12);color:var(--amber);border:1px solid rgba(var(--amber-rgb,255,159,10),.3);padding:2px 7px;font-size:.7rem;font-weight:600;border-radius:5px">✉️ Inviato</span>`
-        : o.inviatoVia==='whatsapp' ? `<span title="Inviato via WhatsApp il ${o.dataInvio||'—'}" style="display:inline-flex;align-items:center;gap:3px;background:rgba(37,211,102,.1);color:#25D366;border:1px solid rgba(37,211,102,.3);padding:2px 7px;font-size:.7rem;font-weight:600;border-radius:5px">🟢 Inviato</span>`
-        : `<span title="Inviato via email e WhatsApp il ${o.dataInvio||'—'}" style="display:inline-flex;align-items:center;gap:3px;background:rgba(0,122,255,.1);color:#007AFF;border:1px solid rgba(0,122,255,.3);padding:2px 7px;font-size:.7rem;font-weight:600;border-radius:5px">📨 Inviato</span>`)
-      : `<span style="display:inline-flex;align-items:center;gap:3px;background:rgba(142,142,147,.1);color:var(--txt4);border:1px solid rgba(142,142,147,.2);padding:2px 7px;font-size:.7rem;font-weight:600;border-radius:5px">📋 Bozza</span>`;
+      ? (o.inviatoVia==='email'     ? `<span title="Inviato via email il ${o.dataInvio||'—'}" style="display:inline-flex;align-items:center;gap:3px;background:rgba(var(--amber-rgb,255,159,10),.12);color:var(--amber);border:1px solid rgba(var(--amber-rgb,255,159,10),.3);padding:2px 7px;font-size:.7rem;font-weight:600;border-radius:5px">${ic("mail")} Inviato</span>`
+        : o.inviatoVia==='whatsapp' ? `<span title="Inviato via WhatsApp il ${o.dataInvio||'—'}" style="display:inline-flex;align-items:center;gap:3px;background:rgba(37,211,102,.1);color:#25D366;border:1px solid rgba(37,211,102,.3);padding:2px 7px;font-size:.7rem;font-weight:600;border-radius:5px">${ic("dotGreen")} Inviato</span>`
+        : `<span title="Inviato via email e WhatsApp il ${o.dataInvio||'—'}" style="display:inline-flex;align-items:center;gap:3px;background:rgba(0,122,255,.1);color:#007AFF;border:1px solid rgba(0,122,255,.3);padding:2px 7px;font-size:.7rem;font-weight:600;border-radius:5px">${ic("mail")} Inviato</span>`)
+      : `<span style="display:inline-flex;align-items:center;gap:3px;background:rgba(142,142,147,.1);color:var(--txt4);border:1px solid rgba(142,142,147,.2);padding:2px 7px;font-size:.7rem;font-weight:600;border-radius:5px">${ic("clipboard")} Bozza</span>`;
     return `<tr id="ord-row-${o.id}" class="${isPending?'lot-active':''}" data-sel-id="${o.id}">
       ${selMode==='ordini'?`<td class="cb-col"><input type="checkbox" class="cb-sel" data-id="${o.id}" onchange="toggleSel('${o.id}');_updateBulkBar()"></td>`:''}
       <td><input type="checkbox" class="ord-check" data-id="${o.id}" ${isPending?'checked':''} onchange="toggleOrdineArrivato('${o.id}',this.checked)" style="width:18px;height:18px;cursor:pointer"></td>
@@ -5519,14 +5535,14 @@ function renderOrdini(){
       <td><input type="date" class="form-input" style="font-size:12px;padding:3px 6px;width:130px;background:${o.dataArrivo?'rgba(48,209,88,.06)':'rgba(var(--amber-rgb,255,159,10),.06)'};border-color:${o.dataArrivo?'rgba(48,209,88,.25)':'rgba(var(--amber-rgb,255,159,10),.2)'}" value="${o.dataArrivo||''}" placeholder="—" title="Data arrivo prevista" onchange="_setDataArrivo('${o.id}',this.value)"></td>
       <td><div style="display:flex;flex-direction:column;gap:4px">${statoCell}${invBadge}</div></td>
       <td style="display:flex;gap:6px;align-items:center;padding:6px 14px">
-        <button class="btn-outline btn-sm" onclick="apriModalRicezione('${o.id}')" title="Conferma arrivo" style="border-color:rgba(22,163,74,.4);color:#30D158">📦 Ricevi</button>
-        <button class="btn-outline btn-sm" onclick="apriOrdineModal('${o.id}')" title="Modifica ordine">✏️</button>
+        <button class="btn-outline btn-sm" onclick="apriModalRicezione('${o.id}')" title="Conferma arrivo" style="border-color:rgba(22,163,74,.4);color:#30D158">${ic("box")} Ricevi</button>
+        <button class="btn-outline btn-sm" onclick="apriOrdineModal('${o.id}')" title="Modifica ordine">${ic("edit")}</button>
         <button class="btn-outline btn-sm" onclick="duplicaOrdine('${o.id}')" title="Duplica ordine" style="border-color:rgba(191,95,255,.35);color:#bf5fff">⧉</button>
-        <button class="btn-outline btn-sm" onclick="stampaOrdine('${o.id}')" title="Stampa / Salva PDF" style="border-color:rgba(0,122,255,.3);color:#007AFF">🖨️</button>
-        <button class="btn-outline btn-sm" onclick="emailOrdine('${o.id}')" title="Invia via email" style="border-color:rgba(var(--amber-rgb,255,159,10),.3);color:var(--amber)">✉️</button>
-        <button class="btn-outline btn-sm" onclick="whatsappOrdine('${o.id}')" title="Invia su WhatsApp" style="border-color:rgba(37,211,102,.3);color:#25D366">🟢</button>
-        ${CONFIG.trasferimenti?`<button class="btn-outline btn-sm" onclick="inviaOrdineAdAltroLocale('${o.id}')" title="Passa l'ordine a un altro locale (manifesto)" style="border-color:rgba(90,200,250,.4);color:#5AC8FA">🔄</button>`:''}
-        <button class="btn-icon" onclick="deleteOrdine('${o.id}')" title="Elimina" style="color:var(--txt4);font-size:14px">🗑️</button>
+        <button class="btn-outline btn-sm" onclick="stampaOrdine('${o.id}')" title="Stampa / Salva PDF" style="border-color:rgba(0,122,255,.3);color:#007AFF">${ic("print")}</button>
+        <button class="btn-outline btn-sm" onclick="emailOrdine('${o.id}')" title="Invia via email" style="border-color:rgba(var(--amber-rgb,255,159,10),.3);color:var(--amber)">${ic("mail")}</button>
+        <button class="btn-outline btn-sm" onclick="whatsappOrdine('${o.id}')" title="Invia su WhatsApp" style="border-color:rgba(37,211,102,.3);color:#25D366">${ic("dotGreen")}</button>
+        ${CONFIG.trasferimenti?`<button class="btn-outline btn-sm" onclick="inviaOrdineAdAltroLocale('${o.id}')" title="Passa l'ordine a un altro locale (manifesto)" style="border-color:rgba(90,200,250,.4);color:#5AC8FA">${ic("refresh")}</button>`:''}
+        <button class="btn-icon" onclick="deleteOrdine('${o.id}')" title="Elimina" style="color:var(--txt4);font-size:14px">${ic("trash")}</button>
       </td>
     </tr>`;
   }).join("") : `<tr><td colspan="8" style="text-align:center;color:var(--txt4);padding:24px">Nessun ordine aperto</td></tr>`;
@@ -5571,10 +5587,10 @@ function renderOrdini(){
       <td style="color:var(--txt4);font-size:.75rem">${h(_fmtDataIT(o.dataCarico))||"—"}</td>
       <td style="white-space:nowrap">
         <button class="btn-outline btn-sm" onclick="mostraDettaglioOrdine('${o.id}')" style="font-size:11px;padding:2px 8px;color:var(--txt4)">dettaglio</button>
-        <button class="btn-outline btn-sm" onclick="apriOrdineEvasoModal('${o.id}')" style="font-size:11px;padding:2px 8px;color:var(--amber);border-color:rgba(var(--amber-rgb,255,159,10),.25)">✏️</button>
+        <button class="btn-outline btn-sm" onclick="apriOrdineEvasoModal('${o.id}')" style="font-size:11px;padding:2px 8px;color:var(--amber);border-color:rgba(var(--amber-rgb,255,159,10),.25)">${ic("edit")}</button>
         <button class="btn-outline btn-sm" onclick="duplicaOrdine('${o.id}')" style="font-size:11px;padding:2px 8px;color:#bf5fff;border-color:rgba(191,95,255,.25)" title="Duplica in nuovo ordine">⧉</button>
-        <button class="btn-outline btn-sm" onclick="annullaRicezione('${o.id}')" style="font-size:11px;padding:2px 8px;color:#30D158;border-color:rgba(22,163,74,.3)" title="Annulla ricezione e rimetti in attesa">↩︎ ricezione</button>
-        <button onclick="deleteEvaso('${o.id}')" style="color:#FF453A;font-size:13px;background:none;border:none;cursor:pointer;margin-left:4px;padding:2px 4px" title="Elimina ordine evaso">🗑️</button>
+        <button class="btn-outline btn-sm" onclick="annullaRicezione('${o.id}')" style="font-size:11px;padding:2px 8px;color:#30D158;border-color:rgba(22,163,74,.3)" title="Annulla ricezione e rimetti in attesa">${ic("undo")} ricezione</button>
+        <button onclick="deleteEvaso('${o.id}')" style="color:#FF453A;font-size:13px;background:none;border:none;cursor:pointer;margin-left:4px;padding:2px 4px" title="Elimina ordine evaso">${ic("trash")}</button>
       </td>
     </tr>
     <tr id="det-${o.id}" class="hidden" style="background:rgba(28,28,30,.6)">
@@ -5606,11 +5622,11 @@ function renderOrdini(){
   <div class="card" style="margin-bottom:16px">
     ${selMode==='ordini'?renderBulkBar('ordini', ordiniAttivi.map(o=>o.id)):''}
     <div class="card-header" style="display:flex;align-items:center;justify-content:space-between">
-      <span>📋 Ordini Fornitore (${ordiniAttivi.length} aperti, ${ordiniAttesa.length} in attesa)</span>
+      <span>${ic("clipboard")} Ordini Fornitore (${ordiniAttivi.length} aperti, ${ordiniAttesa.length} in attesa)</span>
       <div style="display:flex;gap:8px">
-        ${selMode!=='ordini'?`<button class="btn-outline btn-sm" onclick="enterSel('ordini')" style="border-color:rgba(59,130,246,.5);color:#93c5fd">☑ Selezione multipla</button>`:''}
-        <button class="btn-outline btn-sm" onclick="_pulisciDateOrdiniImportati()" title="Rimuove date arrivo/carico errate dagli ordini importati" style="border-color:rgba(255,69,58,.3);color:#FF453A;font-size:11px">🧹 Pulisci date import</button>
-        <button class="btn-primary" onclick="apriOrdineModal(null)">➕ Nuovo Ordine</button>
+        ${selMode!=='ordini'?`<button class="btn-outline btn-sm" onclick="enterSel('ordini')" style="border-color:rgba(59,130,246,.5);color:#93c5fd">${ic("checkCircle")} Selezione multipla</button>`:''}
+        <button class="btn-outline btn-sm" onclick="_pulisciDateOrdiniImportati()" title="Rimuove date arrivo/carico errate dagli ordini importati" style="border-color:rgba(255,69,58,.3);color:#FF453A;font-size:11px">${ic("sparkle")} Pulisci date import</button>
+        <button class="btn-primary" onclick="apriOrdineModal(null)">${ic("plus")} Nuovo Ordine</button>
       </div>
     </div>
     <div style="overflow-x:auto">
@@ -5626,7 +5642,7 @@ function renderOrdini(){
     </div>
     <div style="padding:12px 16px;display:flex;justify-content:flex-end">
       <button class="btn-primary" onclick="apriModalRicezioneGlobale()" style="background:linear-gradient(135deg,#16a34a,#15803d);gap:8px;display:flex;align-items:center">
-        ✅ Conferma Ricezione Multipla
+        ${ic("checkCircle")} Conferma Ricezione Multipla
       </button>
     </div>
   </div>
@@ -5635,17 +5651,17 @@ function renderOrdini(){
   <div id="ordine-modal-backdrop" class="modal-backdrop hidden" onclick="chiudiOrdineModal(event)">
     <div class="modal cm-modal-xl" onclick="event.stopPropagation()">
       <div class="modal-header">
-        <h2 id="ordine-modal-title">➕ Nuovo Ordine</h2>
-        <button style="font-size:18px;color:var(--txt3)" onclick="chiudiOrdineModal()">✕</button>
+        <h2 id="ordine-modal-title">${ic("plus")} Nuovo Ordine</h2>
+        <button style="font-size:18px;color:var(--txt3)" onclick="chiudiOrdineModal()">${ic("x")}</button>
       </div>
       <div class="modal-body" id="ordine-modal-body"></div>
       <div class="modal-footer">
         <button class="btn-outline" onclick="chiudiOrdineModal()">Annulla</button>
-        <button class="btn-outline" onclick="stampaOrdine(ordineModalData?.id)" title="Stampa / Salva PDF" style="border-color:rgba(0,122,255,.3);color:#007AFF">🖨️ Stampa / PDF</button>
-        <button class="btn-outline" onclick="emailOrdine(ordineModalData?.id)" title="Invia via email" style="border-color:rgba(var(--amber-rgb,255,159,10),.3);color:var(--amber)">✉️ Email fornitore</button>
-        <button class="btn-outline" onclick="whatsappOrdine(ordineModalData?.id)" title="Invia su WhatsApp" style="border-color:rgba(37,211,102,.3);color:#25D366">🟢 WhatsApp</button>
-        ${CONFIG.trasferimenti?`<button class="btn-outline" onclick="inviaOrdineAdAltroLocale(ordineModalData?.id)" title="Passa l'ordine a un altro locale" style="border-color:rgba(90,200,250,.4);color:#5AC8FA">🔄 Passa a un locale</button>`:''}
-        <button class="btn-primary" onclick="salvaOrdine()">💾 Salva Ordine</button>
+        <button class="btn-outline" onclick="stampaOrdine(ordineModalData?.id)" title="Stampa / Salva PDF" style="border-color:rgba(0,122,255,.3);color:#007AFF">${ic("print")} Stampa / PDF</button>
+        <button class="btn-outline" onclick="emailOrdine(ordineModalData?.id)" title="Invia via email" style="border-color:rgba(var(--amber-rgb,255,159,10),.3);color:var(--amber)">${ic("mail")} Email fornitore</button>
+        <button class="btn-outline" onclick="whatsappOrdine(ordineModalData?.id)" title="Invia su WhatsApp" style="border-color:rgba(37,211,102,.3);color:#25D366">${ic("dotGreen")} WhatsApp</button>
+        ${CONFIG.trasferimenti?`<button class="btn-outline" onclick="inviaOrdineAdAltroLocale(ordineModalData?.id)" title="Passa l'ordine a un altro locale" style="border-color:rgba(90,200,250,.4);color:#5AC8FA">${ic("refresh")} Passa a un locale</button>`:''}
+        <button class="btn-primary" onclick="salvaOrdine()">${ic("save")} Salva Ordine</button>
       </div>
     </div>
   </div>
@@ -5654,13 +5670,13 @@ function renderOrdini(){
   <div id="ricezione-modal-backdrop" class="modal-backdrop hidden" onclick="chiudiRicezioneModal(event)">
     <div class="modal cm-modal-xl" onclick="event.stopPropagation()">
       <div class="modal-header">
-        <h2>📦 Conferma Arrivo Ordine</h2>
-        <button style="font-size:18px;color:var(--txt3)" onclick="chiudiRicezioneModal()">✕</button>
+        <h2>${ic("box")} Conferma Arrivo Ordine</h2>
+        <button style="font-size:18px;color:var(--txt3)" onclick="chiudiRicezioneModal()">${ic("x")}</button>
       </div>
       <div class="modal-body" id="ricezione-modal-body"></div>
       <div class="modal-footer">
         <button class="btn-outline" onclick="chiudiRicezioneModal()">Annulla</button>
-        <button class="btn-primary" onclick="confermaRicezioneOrdine()" style="background:linear-gradient(135deg,#16a34a,#15803d)">✅ Carica in Magazzino</button>
+        <button class="btn-primary" onclick="confermaRicezioneOrdine()" style="background:linear-gradient(135deg,#16a34a,#15803d)">${ic("checkCircle")} Carica in Magazzino</button>
       </div>
     </div>
   </div>
@@ -5669,11 +5685,11 @@ function renderOrdini(){
   <div id="ricezione-globale-backdrop" class="modal-backdrop hidden" onclick="chiudiRicezioneGlobale(event)">
     <div class="modal" onclick="event.stopPropagation()">
       <div class="modal-header">
-        <h2>📦 Conferma Ricezione Multipla</h2>
-        <button style="font-size:18px;color:var(--txt3)" onclick="chiudiRicezioneGlobale()">✕</button>
+        <h2>${ic("box")} Conferma Ricezione Multipla</h2>
+        <button style="font-size:18px;color:var(--txt3)" onclick="chiudiRicezioneGlobale()">${ic("x")}</button>
       </div>
       <div class="modal-body">
-        <p style="color:var(--txt3);margin-bottom:16px;font-size:.9rem">Verranno processati gli ordini con la spunta attiva. Per modificare quantità o aggiungere referenze usa "📦 Ricevi" sul singolo ordine.</p>
+        <p style="color:var(--txt3);margin-bottom:16px;font-size:.9rem">Verranno processati gli ordini con la spunta attiva. Per modificare quantità o aggiungere referenze usa "${ic("box")} Ricevi" sul singolo ordine.</p>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
           <div><label class="form-label">Data Arrivo</label><input id="ric-glob-data" type="date" class="form-input" value="${today()}"></div>
           <div><label class="form-label">Numero Fattura <span style="color:var(--txt4)">(opzionale)</span></label><input id="ric-glob-fattura" type="text" class="form-input" placeholder="Es. FT-2025-001"></div>
@@ -5682,7 +5698,7 @@ function renderOrdini(){
       </div>
       <div class="modal-footer">
         <button class="btn-outline" onclick="chiudiRicezioneGlobale()">Annulla</button>
-        <button class="btn-primary" onclick="confermaRicezioneGlobale()" style="background:linear-gradient(135deg,#16a34a,#15803d)">✅ Conferma Tutti</button>
+        <button class="btn-primary" onclick="confermaRicezioneGlobale()" style="background:linear-gradient(135deg,#16a34a,#15803d)">${ic("checkCircle")} Conferma Tutti</button>
       </div>
     </div>
   </div>
@@ -5690,14 +5706,14 @@ function renderOrdini(){
   ${evasi.length ? `
   <div class="card" style="margin-top:20px;border-color:rgba(68,64,60,.4)">
     <div class="card-header" style="background:rgba(41,37,36,.5);flex-wrap:wrap;gap:8px">
-      <span style="color:var(--txt3)">📁 Storico Ordini Evasi (${evasi.length}${filteredEvasi.length!==evasi.length?` · ${filteredEvasi.length} mostrati`:""})</span>
+      <span style="color:var(--txt3)">${ic("folder")} Storico Ordini Evasi (${evasi.length}${filteredEvasi.length!==evasi.length?` · ${filteredEvasi.length} mostrati`:""})</span>
       <div style="display:flex;gap:8px;align-items:center">
-        <button class="btn-danger btn-sm" onclick="deleteEvasiSelezionati()" style="font-size:11px;padding:3px 10px">🗑️ Elimina selezionati</button>
+        <button class="btn-danger btn-sm" onclick="deleteEvasiSelezionati()" style="font-size:11px;padding:3px 10px">${ic("trash")} Elimina selezionati</button>
         <button class="btn-outline btn-sm" onclick="exportStoricoOrdiniCSV()" style="color:var(--txt3);border-color:var(--border)">↓ CSV</button>
       </div>
     </div>
     <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end">
-      <div class="search-wrap" style="flex:1;min-width:160px"><span class="search-icon">🔍</span><input id="storico-search" class="form-input" style="padding-left:28px;font-size:12px" placeholder="Cerca vino, fornitore…" value="${h(storicoQ)}" oninput="storicoQ=this.value;renderOrdiniOnly()"></div>
+      <div class="search-wrap" style="flex:1;min-width:160px"><span class="search-icon">${ic("search")}</span><input id="storico-search" class="form-input" style="padding-left:28px;font-size:12px" placeholder="Cerca vino, fornitore…" value="${h(storicoQ)}" oninput="storicoQ=this.value;renderOrdiniOnly()"></div>
       <div style="min-width:140px"><select class="form-select" style="font-size:12px" onchange="storicoForn=this.value;render()">
         <option value="">Tutti i fornitori</option>
         ${fornEvasi.map(f=>`<option value="${h(f)}" ${storicoForn===f?"selected":""}>${h(f)}</option>`).join("")}
@@ -5707,7 +5723,7 @@ function renderOrdini(){
         <span style="color:var(--txt4);font-size:12px">→</span>
         <input type="date" class="form-input" style="font-size:12px;width:130px" value="${storicoDataA}" onchange="storicoDataA=this.value;render()">
       </div>
-      ${(storicoQ||storicoForn||storicoDataDa||storicoDataA)?`<button class="btn-outline btn-sm" onclick="storicoQ='';storicoForn='';storicoDataDa='';storicoDataA='';render()" style="color:var(--txt4)">✕ Reset</button>`:""}
+      ${(storicoQ||storicoForn||storicoDataDa||storicoDataA)?`<button class="btn-outline btn-sm" onclick="storicoQ='';storicoForn='';storicoDataDa='';storicoDataA='';render()" style="color:var(--txt4)">${ic("x")} Reset</button>`:""}
     </div>
     <div style="overflow-x:auto">
       <table class="wine-table" style="opacity:.85">
@@ -5721,13 +5737,13 @@ function renderOrdini(){
   <div class="modal-backdrop hidden" id="ordine-evaso-modal-backdrop" onclick="chiudiOrdineEvasoModal(event)">
     <div class="modal" style="max-width:820px" onclick="event.stopPropagation()">
       <div class="modal-header">
-        <h2>✏️ Modifica Ordine Evaso</h2>
-        <button style="font-size:18px;color:var(--txt3)" onclick="chiudiOrdineEvasoModal()">✕</button>
+        <h2>${ic("edit")} Modifica Ordine Evaso</h2>
+        <button style="font-size:18px;color:var(--txt3)" onclick="chiudiOrdineEvasoModal()">${ic("x")}</button>
       </div>
       <div class="modal-body" id="ordine-evaso-modal-body"></div>
       <div class="modal-footer">
         <button class="btn-outline" onclick="chiudiOrdineEvasoModal()">Annulla</button>
-        <button class="btn-primary" onclick="salvaOrdineEvaso()">💾 Salva Modifiche</button>
+        <button class="btn-primary" onclick="salvaOrdineEvaso()">${ic("save")} Salva Modifiche</button>
       </div>
     </div>
   </div>`;
@@ -5771,7 +5787,7 @@ function duplicaOrdine(id){
     referenze:srcRefs.map(r=>{ const {qtyArr,id:_,...rest}=r; return {...rest,id:uid(),scontoRef:parseFloat(r.scontoRef)||0}; })
   };
   if(!ordineModalData.referenze.length) ordineModalData.referenze.push(_newRef());
-  document.getElementById("ordine-modal-title").textContent="➕ Nuovo Ordine (copia)";
+  document.getElementById("ordine-modal-title").textContent="Nuovo Ordine (copia)";
   _renderOrdineModalBody(allFornitori, allProduttori, allNomi);
   document.getElementById("ordine-modal-backdrop").classList.remove("hidden");
 }
@@ -5786,7 +5802,7 @@ function annullaRicezione(id){
   const totQty=(o.referenze||[]).reduce((s,r)=>s+(parseInt(r.qtyArr??r.qty)||0),0);
   _confirmModal(
     `Annullare la ricezione di <strong>${h(o.fornitore||'—')}</strong> del ${h(o.dataOrdine||'—')}?<br><span style="color:var(--txt3);font-size:13px">Verranno stornate ${totQty} bottiglie dal magazzino e l'ordine tornerà «in attesa» per una nuova ricezione.</span>`,
-    "🔄 Annulla ricezione",
+    ic("refresh")+" Annulla ricezione",
     ()=>{
       _rollbackOrdine(o);
       (o.referenze||[]).forEach(r=>{ delete r.qtyArr; });
@@ -5794,7 +5810,7 @@ function annullaRicezione(id){
       o.dataArrivo=""; o.dataCarico="";
       delete o.numeroFattura; delete o.fattura;
       scheduleSave(); clearTimeout(saveTimer); _flushSave();
-      notify(`🔄 Ricezione annullata (−${totQty} bt) · ordine di nuovo in attesa`);
+      notify(`Ricezione annullata (−${totQty} bt) · ordine di nuovo in attesa`);
       render();
     },
     'danger'
@@ -5820,13 +5836,13 @@ function mostraDettaglioOrdine(id){
 }
 function _setQuickCarta(wineId){
   const val=parseFloat(document.getElementById("mov-quick-carta")?.value)||0;
-  if(!val){notify("⚠️ Inserisci un prezzo valido","err");return;}
+  if(!val){notify("Inserisci un prezzo valido","err");return;}
   wines=wines.map(w=>{
     if(w.id!==wineId) return w;
     const wt=_trackPriceChange(w, null, val, 'carta_rapida');
     return {...wt, prezzoCarta:val};
   });
-  scheduleSave(); notify(`✅ Prezzo carta aggiornato: ${fmt(val)}`); render();
+  scheduleSave(); notify(`Prezzo carta aggiornato: ${fmt(val)}`); render();
 }
 
 function _rollbackOrdine(ordine){
@@ -5868,21 +5884,21 @@ function deleteEvaso(id){
   const totQty=(o.referenze||[]).reduce((s,r)=>s+(parseInt(r.qtyArr??r.qty)||0),0);
   _confirmModal2(
     `Eliminare l'ordine <strong>${o.fornitore||'—'}</strong> del ${o.dataOrdine||'—'}?`,
-    { label:`🔄 Annulla carico (−${totQty} bt)`, cb:()=>{ _rollbackOrdine(o); orders=orders.filter(x=>x.id!==id); scheduleSave(); clearTimeout(saveTimer); _flushSave(); notify(`🗑️ Ordine e carico annullati (−${totQty} bt)`); render(); } },
-    { label:"🗑️ Solo storico",                  cb:()=>{ orders=orders.filter(x=>x.id!==id); scheduleSave(); clearTimeout(saveTimer); _flushSave(); notify("🗑️ Ordine rimosso dallo storico"); render(); } }
+    { label:`${ic("refresh")} Annulla carico (−${totQty} bt)`, cb:()=>{ _rollbackOrdine(o); orders=orders.filter(x=>x.id!==id); scheduleSave(); clearTimeout(saveTimer); _flushSave(); notify(`Ordine e carico annullati (−${totQty} bt)`); render(); } },
+    { label:ic("trash")+" Solo storico",                  cb:()=>{ orders=orders.filter(x=>x.id!==id); scheduleSave(); clearTimeout(saveTimer); _flushSave(); notify("Ordine rimosso dallo storico"); render(); } }
   );
 }
 
 function deleteEvasiSelezionati(){
   const checked=[...document.querySelectorAll(".evaso-check:checked")].map(cb=>cb.dataset.id);
-  if(!checked.length){notify("⚠️ Seleziona almeno un ordine","err");return;}
+  if(!checked.length){notify("Seleziona almeno un ordine","err");return;}
   const selOrdini=orders.filter(o=>checked.includes(o.id));
   const totQty=selOrdini.reduce((s,o)=>(o.referenze||[]).reduce((s2,r)=>s2+(parseInt(r.qtyArr??r.qty)||0),s),0);
   const ids=new Set(checked);
   _confirmModal2(
     `Eliminare <strong>${checked.length} ordin${checked.length===1?'e':'i'}</strong>?`,
-    { label:`🔄 Annulla carichi (−${totQty} bt)`, cb:()=>{ selOrdini.forEach(o=>_rollbackOrdine(o)); orders=orders.filter(o=>!ids.has(o.id)); scheduleSave(); notify(`🗑️ ${checked.length} ordini e carichi annullati`); render(); } },
-    { label:"🗑️ Solo storico",                   cb:()=>{ orders=orders.filter(o=>!ids.has(o.id)); scheduleSave(); notify(`🗑️ ${checked.length} ordini rimossi`); render(); } }
+    { label:`${ic("refresh")} Annulla carichi (−${totQty} bt)`, cb:()=>{ selOrdini.forEach(o=>_rollbackOrdine(o)); orders=orders.filter(o=>!ids.has(o.id)); scheduleSave(); notify(`${checked.length} ordini e carichi annullati`); render(); } },
+    { label:ic("trash")+" Solo storico",                   cb:()=>{ orders=orders.filter(o=>!ids.has(o.id)); scheduleSave(); notify(`${checked.length} ordini rimossi`); render(); } }
   );
 }
 
@@ -5907,7 +5923,7 @@ function apriOrdineEvasoModal(id){
       <td style="padding:5px 8px;text-align:center"><input type="number" class="form-input" style="font-size:12px;width:60px;text-align:center" value="${r.qty||0}" min="0"></td>
       <td style="padding:5px 8px;text-align:center"><input type="number" class="form-input" style="font-size:12px;width:60px;text-align:center" value="${r.qtyArr??r.qty??0}" min="0"></td>
       <td style="padding:5px 8px"><input type="number" class="form-input" style="font-size:12px;width:80px" value="${r.prezzoAcq||''}" step="0.01" min="0" placeholder="0.00"></td>
-      <td style="padding:5px 8px;text-align:center"><button onclick="this.closest('tr').remove()" style="background:none;border:none;color:#FF453A;font-size:14px;cursor:pointer" title="Rimuovi riga">🗑️</button></td>
+      <td style="padding:5px 8px;text-align:center"><button onclick="this.closest('tr').remove()" style="background:none;border:none;color:#FF453A;font-size:14px;cursor:pointer" title="Rimuovi riga">${ic("trash")}</button></td>
     </tr>`).join("");
 
   document.getElementById("ordine-evaso-modal-body").innerHTML = `
@@ -5953,7 +5969,7 @@ function apriOrdineEvasoModal(id){
     </div>
     <button onclick="_addEvasoRefRow()" class="btn-outline btn-sm" style="margin-bottom:8px">+ Aggiungi referenza</button>
     <div style="padding:10px;background:rgba(28,28,30,.6);border:1px solid var(--border);font-size:12px;color:var(--txt4)">
-      ⚠️ Modificare quantità arrivate aggiorna lo storico ma <strong style="color:var(--amber3)">non ricalcola automaticamente le giacenze</strong>. Per correggere le giacenze usa un movimento manuale.
+      ${ic("alert")} Modificare quantità arrivate aggiorna lo storico ma <strong style="color:var(--amber3)">non ricalcola automaticamente le giacenze</strong>. Per correggere le giacenze usa un movimento manuale.
     </div>`;
 
   document.getElementById("ordine-evaso-modal-backdrop").classList.remove("hidden");
@@ -5972,7 +5988,7 @@ function _addEvasoRefRow(){
       <td style="padding:5px 8px;text-align:center"><input type="number" class="form-input" style="font-size:12px;width:60px;text-align:center" value="0" min="0"></td>
       <td style="padding:5px 8px;text-align:center"><input type="number" class="form-input" style="font-size:12px;width:60px;text-align:center" value="0" min="0"></td>
       <td style="padding:5px 8px"><input type="number" class="form-input" style="font-size:12px;width:80px" value="" step="0.01" min="0" placeholder="0.00"></td>
-      <td style="padding:5px 8px;text-align:center"><button onclick="this.closest('tr').remove()" style="background:none;border:none;color:#FF453A;font-size:14px;cursor:pointer">🗑️</button></td>
+      <td style="padding:5px 8px;text-align:center"><button onclick="this.closest('tr').remove()" style="background:none;border:none;color:#FF453A;font-size:14px;cursor:pointer">${ic("trash")}</button></td>
     </tr>`);
 }
 
@@ -6020,7 +6036,7 @@ function salvaOrdineEvaso(){
   document.getElementById("ordine-evaso-modal-backdrop").classList.add("hidden");
   _editOrdineEvasoId = null;
   scheduleSave();
-  notify("✅ Ordine aggiornato");
+  notify("Ordine aggiornato");
   render();
 }
 
@@ -6160,7 +6176,7 @@ function apriOrdineModal(idOrNull){
   };
   if(ordineModalData.referenze.length===0) ordineModalData.referenze.push(_newRef());
 
-  document.getElementById("ordine-modal-title").textContent=idOrNull?"✏️ Modifica Ordine":"➕ Nuovo Ordine";
+  document.getElementById("ordine-modal-title").textContent=idOrNull?"Modifica Ordine":"Nuovo Ordine";
   _renderOrdineModalBody(allFornitori, allProduttori, allNomi);
   document.getElementById("ordine-modal-backdrop").classList.remove("hidden");
 }
@@ -6205,7 +6221,7 @@ function _renderOrdineModalBody(allFornitori, allProduttori, allNomi){
       </div>
     </div>
     <!-- Referenze -->
-    <div class="modal-section-label">🍾 Referenze dell'ordine</div>
+    <div class="modal-section-label">${ic("bottle")} Referenze dell'ordine</div>
     <div class="cm-grid-wrap">
       <table class="cm-grid-tbl">
         <colgroup>
@@ -6260,7 +6276,7 @@ function _refRowHtml(r,i,tipoOpts,ivaOpts,allProduttori,allNomi){
   const isOmaggio = scontoRef>=100;
   const totRigaHtml = totRiga
     ? (isOmaggio
-        ? `<span style="color:#30D158;font-weight:600;font-size:12px">🎁 OMAGGIO</span>`
+        ? `<span style="color:#30D158;font-weight:600;font-size:12px">${ic("gift")} OMAGGIO</span>`
         : hasDiscount
           ? `<span style="color:var(--txt4);text-decoration:line-through;font-size:12px">${fmtRound(totRiga)}</span><br><span style="color:#30D158">${fmtRound(totRigaNetto)}</span>`
           : `<span style="color:var(--txt2)">${fmtRound(totRiga)}</span>`)
@@ -6288,10 +6304,10 @@ function _refRowHtml(r,i,tipoOpts,ivaOpts,allProduttori,allNomi){
       <input type="number" class="form-input" id="ref-sc-${r.id}" style="font-size:12px;text-align:center;min-width:52px;width:100%;background:transparent;border-color:rgba(255,69,58,.2)" min="0" max="100" step="1" value="${scontoRef||''}" placeholder="0"
         oninput="_refChange('${r.id}','scontoRef',parseFloat(this.value)||0)"
         title="Sconto referenza % (100 = omaggio)">
-      ${scontoRef>=100?`<div style="font-size:10px;color:#30D158;text-align:center;margin-top:1px">🎁</div>`:scontoRef>0?`<div style="font-size:10px;color:#FF453A;text-align:center;margin-top:1px">−${scontoRef}%</div>`:''}
+      ${scontoRef>=100?`<div style="font-size:10px;color:#30D158;text-align:center;margin-top:1px">${ic("gift")}</div>`:scontoRef>0?`<div style="font-size:10px;color:#FF453A;text-align:center;margin-top:1px">−${scontoRef}%</div>`:''}
     </td>
     <td id="ref-tot-${r.id}" style="padding:5px 8px;text-align:right;font-size:12px;white-space:nowrap;background:rgba(48,209,88,.04);border-left:1px solid rgba(48,209,88,.12)">${totRigaHtml}</td>
-    <td style="padding:5px 6px;text-align:right"><button onclick="_removeRefRow('${r.id}')" style="color:var(--txt4);font-size:13px;background:none;border:none;cursor:pointer" title="Rimuovi">✕</button></td>
+    <td style="padding:5px 6px;text-align:right"><button onclick="_removeRefRow('${r.id}')" style="color:var(--txt4);font-size:13px;background:none;border:none;cursor:pointer" title="Rimuovi">${ic("x")}</button></td>
   </tr>`;
 }
 
@@ -6362,7 +6378,7 @@ function _refAutofillSafe(refId){
     try{ _updateRefCartaSuggerita(refId); }catch{}
   }
   _updateOrdineModalTotale();
-  notify(`↺ Da inventario (${src.nome}${src.annata?" "+src.annata:""}): ${fatti.join(", ")}`);
+  notify(`Da inventario (${src.nome}${src.annata?" "+src.annata:""}): ${fatti.join(", ")}`);
 }
 
 function _addRefRow(){
@@ -6422,7 +6438,7 @@ function _applyCartaSuggerita(refId, val){
   if(inp){ inp.value=val; inp.focus(); }
   _refChange(refId,'prezzoCarta',val);
   const hint=document.getElementById(`ref-carta-hint-${refId}`);
-  if(hint) hint.innerHTML=`<span style="color:#30D158;font-size:11px">✓ applicato</span>`;
+  if(hint) hint.innerHTML=`<span style="color:#30D158;font-size:11px">${ic("check")} applicato</span>`;
 }
 
 function _showRefGiacenza(refId, nomeVino){
@@ -6440,7 +6456,7 @@ function _showRefGiacenza(refId, nomeVino){
   if(ref && !ref.wineId) ref.wineId = w.id;
   const g = parseInt(w.giacenza)||0;
   const color = g===0?"#FF453A":g<=3?"#fb923c":"#30D158";
-  el.innerHTML = `<span style="color:${color}">⬢ ${g} bt in cantina</span>`;
+  el.innerHTML = `<span style="color:${color}">${ic("hex")} ${g} bt in cantina</span>`;
 }
 function _removeRefRow(refId){
   if(ordineModalData.referenze.length<=1){notify("L'ordine deve avere almeno una referenza","err");return;}
@@ -6474,7 +6490,7 @@ function _updateOrdineModalTotale(){
       const hasDiscount=scontoRef>0||scontoOrd>0;
       rigaEl.innerHTML = rigaLorda
         ? (isOmaggio
-            ? `<span style="color:#30D158;font-weight:600;font-size:12px">🎁 OMAGGIO</span>`
+            ? `<span style="color:#30D158;font-weight:600;font-size:12px">${ic("gift")} OMAGGIO</span>`
             : hasDiscount
               ? `<span style="color:var(--txt4);text-decoration:line-through;font-size:12px">${fmtRound(rigaLorda)}</span><br><span style="color:#30D158">${fmtRound(rigaNetta)}</span>`
               : `<span style="color:var(--txt2)">${fmtRound(rigaLorda)}</span>`)
@@ -6486,7 +6502,7 @@ function _updateOrdineModalTotale(){
       const badge=scEl.nextElementSibling;
       if(badge){
         badge.innerHTML=scontoRef>=100
-          ?`<div style="font-size:10px;color:#30D158;text-align:center;margin-top:1px">🎁</div>`
+          ?`<div style="font-size:10px;color:#30D158;text-align:center;margin-top:1px">${ic("gift")}</div>`
           :scontoRef>0
             ?`<div style="font-size:10px;color:#FF453A;text-align:center;margin-top:1px">−${scontoRef}%</div>`
             :'';
@@ -6506,7 +6522,7 @@ function salvaOrdine(){
   const fornitore=(document.getElementById("omd-fornitore")?.value||"").trim();
   const dataOrdine=document.getElementById("omd-data")?.value||today();
   const note=(document.getElementById("omd-note")?.value||"").trim();
-  if(!fornitore){notify("⚠️ Inserisci il fornitore","err");return;}
+  if(!fornitore){notify("Inserisci il fornitore","err");return;}
   // Read refs from in-memory ordineModalData.referenze (kept in sync by _refChange)
   // instead of fragile positional DOM selectors.
   const refs=[];
@@ -6535,8 +6551,8 @@ function salvaOrdine(){
       scontoRef:parseFloat(r.scontoRef)||0
     });
   });
-  if(!ok){notify("⚠️ Inserisci il nome vino per tutte le referenze","err");return;}
-  if(!refs.length){notify("⚠️ Aggiungi almeno una referenza","err");return;}
+  if(!ok){notify("Inserisci il nome vino per tutte le referenze","err");return;}
+  if(!refs.length){notify("Aggiungi almeno una referenza","err");return;}
 
   const _bozzaId = _bozzeSb.some(b=>b.id===ordineModalData.id) ? ordineModalData.id : null;
   if(ordineModalData.id){
@@ -6566,7 +6582,7 @@ function salvaOrdine(){
       .then(()=>{}, e=>console.warn('delete bozza fallita:',e));
   }
   chiudiOrdineModal();
-  notify("🛒 Ordine salvato");
+  notify("Ordine salvato");
   render();
 }
 
@@ -6637,11 +6653,11 @@ function _renderRicezioneModalBody(ordine, allForn, allProd, allNomi){
           <td>Nazione</td>
           <td>Regione</td>
           <td style="text-align:center">Ordin.</td>
-          <td style="text-align:center;color:var(--amber)">Arrivato ✏️</td>
-          <td>P.Acq ✏️</td>
-          <td>IVA ✏️</td>
+          <td style="text-align:center;color:var(--amber)">Arrivato ${ic("edit")}</td>
+          <td>P.Acq ${ic("edit")}</td>
+          <td>IVA ${ic("edit")}</td>
           <td style="text-align:right">P.Acq+IVA</td>
-          <td>P.Carta ✏️</td>
+          <td>P.Carta ${ic("edit")}</td>
           <td style="text-align:right;background:rgba(48,209,88,.04)">Tot. riga</td>
           <td></td>
         </tr></thead>
@@ -6700,7 +6716,7 @@ function _ricRowHtml(r){
           oninput="_ricRefChange('${r.id}','prezzoCarta',parseFloat(this.value)||0)">
       </td>
       <td id="ric-tot-${r.id}" style="text-align:right;white-space:nowrap;background:rgba(48,209,88,.04)">${tot?fmtRound(tot):"—"}</td>
-      <td style="text-align:right;white-space:nowrap">${ex?`<button class="btn-outline btn-sm" style="padding:2px 5px;font-size:12px" onclick="_addRicezioneRow('${r.id}')" title="Modifica scheda">✏️</button> <button style="color:var(--txt4);font-size:13px;background:none;border:none;cursor:pointer" onclick="_ricRemoveRow('${r.id}')" title="Rimuovi">✕</button>`:""}</td>
+      <td style="text-align:right;white-space:nowrap">${ex?`<button class="btn-outline btn-sm" style="padding:2px 5px;font-size:12px" onclick="_addRicezioneRow('${r.id}')" title="Modifica scheda">${ic("edit")}</button> <button style="color:var(--txt4);font-size:13px;background:none;border:none;cursor:pointer" onclick="_ricRemoveRow('${r.id}')" title="Rimuovi">${ic("x")}</button>`:""}</td>
     </tr>`;
 }
 
@@ -6751,8 +6767,8 @@ function _addRicezioneRow(editId){
   bd.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(6px);z-index:46;display:flex;align-items:center;justify-content:center;padding:16px";
   bd.innerHTML=`
     <div class="modal" style="max-width:720px;width:100%" onclick="event.stopPropagation()">
-      <div class="modal-header"><h2>${r?"✏️ Modifica referenza non prevista":"➕ Referenza non prevista"}</h2>
-        <button style="font-size:18px;color:var(--txt3)" onclick="_ricNewRefChiudi()">✕</button></div>
+      <div class="modal-header"><h2>${r?ic("edit")+" Modifica referenza non prevista":ic("plus")+" Referenza non prevista"}</h2>
+        <button style="font-size:18px;color:var(--txt3)" onclick="_ricNewRefChiudi()">${ic("x")}</button></div>
       <div class="modal-body">
         <div style="font-size:12px;color:var(--txt3);margin-bottom:14px">Compila la scheda come in composizione ordine: questi dati creano la referenza in inventario.</div>
         <datalist id="ricnr-prod-dl">${allProd.map(v=>`<option value="${h(v)}">`).join("")}</datalist>
@@ -6823,9 +6839,9 @@ function _ricNewRefSalva(editId){
   if(!ricezioneModalData) return;
   const val=id=>(document.getElementById(id)?.value||"").trim();
   const nomeVino=val("ricnr-nome");
-  if(!nomeVino){ notify("⚠️ Il nome del vino è obbligatorio","err"); document.getElementById("ricnr-nome")?.focus(); return; }
+  if(!nomeVino){ notify("Il nome del vino è obbligatorio","err"); document.getElementById("ricnr-nome")?.focus(); return; }
   const qtyArr=parseInt(val("ricnr-qty"))||0;
-  if(qtyArr<=0){ notify("⚠️ Indica quante bottiglie sono arrivate","err"); document.getElementById("ricnr-qty")?.focus(); return; }
+  if(qtyArr<=0){ notify("Indica quante bottiglie sono arrivate","err"); document.getElementById("ricnr-qty")?.focus(); return; }
   const nazione=inferPaese(val("ricnr-nazione"),val("ricnr-regione"),val("ricnr-zona"))||val("ricnr-nazione")||"Italia";
   const dati={produttore:val("ricnr-prod"),nomeVino,annata:val("ricnr-annata"),
     formato:parseFloat(val("ricnr-formato"))||0.75,vitigni:_normVitigni(val("ricnr-vitigni")),
@@ -6837,7 +6853,7 @@ function _ricNewRefSalva(editId){
   else ricezioneModalData.righe.push({id:uid(),...dati});
   _ricNewRefChiudi();
   _ricRenderRighe();
-  notify(ex?`✔️ Referenza aggiornata: ${nomeVino}`:`➕ ${nomeVino} aggiunta alla ricezione (${qtyArr}bt)`);
+  notify(ex?`Referenza aggiornata: ${nomeVino}`:`${nomeVino} aggiunta alla ricezione (${qtyArr}bt)`);
 }
 
 function _ricRefChange(refId,field,value){
@@ -6855,7 +6871,7 @@ function confermaRicezioneOrdine(){
   ricezioneModalData.fattura=fattura;
 
   const daProcessare=ricezioneModalData.righe.filter(r=>(parseInt(r.qtyArr)||0)>0);
-  if(!daProcessare.length){notify("⚠️ Nessuna bottiglia da caricare","err");return;}
+  if(!daProcessare.length){notify("Nessuna bottiglia da caricare","err");return;}
 
   // Eccedenze: il fornitore manda spesso qualche bottiglia in piu' per compensare
   // referenze mancanti. NON e' un errore bloccante — si carica quel che e'
@@ -6863,7 +6879,7 @@ function confermaRicezioneOrdine(){
   const _ecced=daProcessare.filter(r=>!r._extra && (parseInt(r.qtyArr)||0)>(parseInt(r.qty)||0))
     .map(r=>`${r.nomeVino} +${(parseInt(r.qtyArr)||0)-(parseInt(r.qty)||0)}`);
   if(_ecced.length){
-    notify(`📦 Ricevute in eccedenza rispetto all'ordine: ${_ecced.slice(0,3).join(" · ")}${_ecced.length>3?` · +altre ${_ecced.length-3}`:""}`,"info");
+    notify(`Ricevute in eccedenza rispetto all'ordine: ${_ecced.slice(0,3).join(" · ")}${_ecced.length>3?` · +altre ${_ecced.length-3}`:""}`,"info");
   }
 
   daProcessare.forEach(r=>{
@@ -6905,7 +6921,7 @@ function confermaRicezioneOrdine(){
       // Nessun match trovato — crea nuovo vino in inventario
       // Log visibile: avvisa l'utente che è stato creato un nuovo vino (non aggiornato uno esistente)
       console.warn(`[Ricezione] Nessun match per "${r.nomeVino}" ${r.annata||'NV'} (wineId=${r.wineId||'—'}, fmt=${rFmt}) — creato come nuovo vino`);
-      notify(`➕ Nuovo vino creato: ${r.nomeVino}${r.annata?' '+r.annata:''}`, "info");
+      notify(`Nuovo vino creato: ${r.nomeVino}${r.annata?' '+r.annata:''}`, "info");
       const newWine = {id:uid(),nome:r.nomeVino,produttore:r.produttore||"",distributore:fornitureName,
         annata:r.annata||"",vitigni:r.vitigni||"",tipologia:r.tipologia||"Bianco",regione:r.regione||"",nazione:r.nazione||"Italia",zona:r.zona||"",
         formato:parseFloat(r.formato)||0.75,
@@ -6957,7 +6973,7 @@ function confermaRicezioneOrdine(){
   clearTimeout(saveTimer);
   _flushSave();
   chiudiRicezioneModal();
-  notify(`✅ ${daProcessare.length} referenze caricate in magazzino!`);
+  notify(`${daProcessare.length} referenze caricate in magazzino!`);
   render();
 }
 
@@ -6973,7 +6989,7 @@ function apriModalRicezioneGlobale(){
     const cb=document.querySelector(`.ord-check[data-id="${o.id}"]`);
     return cb&&cb.checked&&o.stato!=="caricato";
   });
-  if(!selezionati.length){notify("⚠️ Seleziona almeno un ordine dalla lista","err");return;}
+  if(!selezionati.length){notify("Seleziona almeno un ordine dalla lista","err");return;}
   const prev=document.getElementById("ric-glob-preview");
   if(prev){
     prev.innerHTML=selezionati.map(o=>{
@@ -7072,14 +7088,14 @@ function confermaRicezioneGlobale(){
   clearTimeout(saveTimer);
   _flushSave();
   chiudiRicezioneGlobale();
-  notify(`✅ ${selezionati.length} ordini (${totRef} referenze) caricati in magazzino!`);
+  notify(`${selezionati.length} ordini (${totRef} referenze) caricati in magazzino!`);
   render();
 }
 
 function _setDataArrivo(id,val){
   const o=orders.find(x=>x.id===id)||_promuoviBozzaSb(id);
   if(!o){ notify("Ordine non trovato","err"); return; }
-  o.dataArrivo=val; scheduleSave(); notify('📅 Data arrivo aggiornata');
+  o.dataArrivo=val; scheduleSave(); notify('Data arrivo aggiornata');
 }
 
 function toggleOrdineArrivato(id,checked){
@@ -7094,7 +7110,7 @@ function deleteOrdine(id){
   if(o.stato==="caricato"){notify("Gli ordini evasi non possono essere eliminati","err");return;}
   _confirmModal(
     `Eliminare l'ordine <strong>${o.fornitore||o.distributore||'—'}</strong> del ${o.dataOrdine||o.data_ordine||'—'}?`,
-    "🗑️ Elimina",
+    ic("trash")+" Elimina",
     async ()=>{
       orders=orders.filter(x=>x.id!==id);
       if(_bozzeSb.some(b=>b.id===id)){
@@ -7166,7 +7182,7 @@ function _saveLocale(d){
     .catch(e=>{
       const m = [e?.code, e?.message, e?.details].filter(Boolean).join(" · ") || String(e);
       console.warn("[locale] upsert fallito:", m, "| tabella: cm_locale | user_id:", _effectiveDbUser());
-      notify("⚠️ Fatturazione solo in locale — cm_locale: "+m.slice(0,90),"err");
+      notify("Fatturazione solo in locale — cm_locale: "+m.slice(0,90),"err");
     });
 }
 // Allineamento all'avvio e dopo un rebase.
@@ -7365,7 +7381,7 @@ function stampaOrdine(id) {
     const fattore=(1-scontoRef/100)*(1-scontoOrd/100);
     const totNettaRiga=tot*fattore;
     const isOmaggio=scontoRef>=100;
-    const scLabel=scontoRef>0?(isOmaggio?'🎁 100%':`${scontoRef}%`):(scontoOrd>0?`ord.${scontoOrd}%`:'—');
+    const scLabel=scontoRef>0?(isOmaggio?'100%':`${scontoRef}%`):(scontoOrd>0?`ord.${scontoOrd}%`:'—');
     return `<tr>
       <td>${h(r.produttore||'—')}</td>
       <td>${h(r.nomeVino)}</td>
@@ -7428,7 +7444,7 @@ function stampaOrdine(id) {
   </style></head><body>
   <div class="header">
     <div>
-      <div class="brand">🍷 ${localeData.nome||NOME_LOCALE}</div>
+      <div class="brand">${ic("glass")} ${localeData.nome||NOME_LOCALE}</div>
       <div class="brand-sub">${(()=>{const r=_ragione(localeData),a=_addrFatt(localeData);const rs=(r&&r!==(localeData.nome||NOME_LOCALE))?r:'';return [rs,a].filter(Boolean).join(' — ')||'Gestione Cantina';})()}</div>
       ${localeData.piva?`<div style="font-size:9px;color:#888;margin-top:2px">P.IVA: ${localeData.piva}${localeData.cf?' &middot; C.F.: '+localeData.cf:''}</div>`:''}
       ${(localeData.email||localeData.telefono)?`<div style="font-size:9px;color:#888">${[localeData.email,localeData.telefono].filter(Boolean).join(' &middot; ')}</div>`:''}
@@ -7500,7 +7516,7 @@ function _printHtml(html){
       setTimeout(cleanup,60000);
     }catch(err){
       console.error('print error',err);
-      notify("⚠️ Stampa non disponibile: usa Condividi → Stampa","err");
+      notify("Stampa non disponibile: usa Condividi → Stampa","err");
       cleanup();
     }
   };
@@ -7633,12 +7649,12 @@ function whatsappOrdine(id) {
   const righeWa = ref.map((r,i) => {
     const scontoRef=parseFloat(r.scontoRef)||0;
     const isOmaggio=scontoRef>=100;
-    const scTag=isOmaggio?' 🎁 OMAGGIO':scontoRef>0?` (−${scontoRef}%)`:'';
+    const scTag=isOmaggio?' OMAGGIO':scontoRef>0?` (−${scontoRef}%)`:'';
     return `${i+1}. *${r.produttore||'—'} — ${r.nomeVino}*${r.annata?' ('+r.annata+')':''} × ${r.qty||0} bt${scTag}`;
   }).join('\n');
 
   const mittente = [loc.nome||NOME_LOCALE, loc.telefono?'Tel: '+loc.telefono:''].filter(Boolean).join(' · ');
-  const consegna = (()=>{const c=_addrConsegna(loc);const b=[c,loc.noteConsegna].filter(Boolean).join(' — ');return b?'\n\n📦 *Consegna:* '+b:'';})();
+  const consegna = (()=>{const c=_addrConsegna(loc);const b=[c,loc.noteConsegna].filter(Boolean).join(' — ');return b?'\n\n*Consegna:* '+b:'';})();
   const totaleWa = hasAnyDiscount
     ? `*Lordo: ${fmt(totLordo)}* — sconti applicati → *Netto: ${fmt(totNetto)}* · ${totQty} bottiglie`
     : `*Totale: ${totQty} bottiglie*`;
@@ -7648,14 +7664,14 @@ function whatsappOrdine(id) {
     `Vi inviamo il nostro ordine del *${o.dataOrdine}*:\n\n` +
     righeWa +
     `\n\n${totaleWa}` +
-    (o.note ? `\n📝 Note: ${o.note}` : '') +
+    (o.note ? `\nNote: ${o.note}` : '') +
     consegna +
     `\n\nCordiali saluti,\n${mittente}`;
 
   const url = `https://wa.me/${tel?_waNum(tel):''}?text=${encodeURIComponent(testo)}`;
 
   if(!tel){
-    notify("⚠️ Nessun telefono per questo fornitore — aggiungi il numero in Impostazioni → Rubrica Fornitori","err");
+    notify("Nessun telefono per questo fornitore — aggiungi il numero in Impostazioni → Rubrica Fornitori","err");
     window.open(`https://web.whatsapp.com/send?text=${encodeURIComponent(testo)}`,'_blank');
     const _owb = orders.find(x => x.id === id) || _promuoviBozzaSb(id);
     if(_owb){ _owb.inviatoVia = _owb.inviatoVia === 'email' ? 'entrambi' : 'whatsapp'; _owb.dataInvio = _owb.dataInvio || today(); scheduleSave(); render(); }
@@ -7682,7 +7698,7 @@ function _pulisciDateOrdiniImportati(){
   const soglia = (input.trim() || defaultSoglia);
   // Validazione formato data
   if(!/^\d{4}-\d{2}-\d{2}$/.test(soglia)){
-    notify("⚠️ Formato data non valido (usa YYYY-MM-DD)","err");
+    notify("Formato data non valido (usa YYYY-MM-DD)","err");
     return;
   }
   let n = 0;
@@ -7702,7 +7718,7 @@ function _pulisciDateOrdiniImportati(){
     if(changed) n++;
     return updated;
   });
-  if(n > 0){ scheduleSave(); render(); notify(`✅ Corrette le date su ${n} ordin${n===1?"e":"i"} (soglia: ${soglia})`); }
+  if(n > 0){ scheduleSave(); render(); notify(`Corrette le date su ${n} ordin${n===1?"e":"i"} (soglia: ${soglia})`); }
   else notify(`Nessuna data da correggere trovata con soglia ${soglia}`);
 }
 
@@ -7736,28 +7752,28 @@ function renderImpostazioni(){
   const fe=h(emails[fk]||'');
   const ft=h(forniTel[fk]||'');
   const fh=h(f);
-  const waBtn=forniTel[fk]?`<a href="https://wa.me/${_waNum(forniTel[fk])}" target="_blank" title="Apri WhatsApp" style="flex-shrink:0;display:flex;align-items:center;justify-content:center;width:30px;height:30px;background:rgba(37,211,102,.15);border:1px solid rgba(37,211,102,.3);border-radius:6px;font-size:15px;text-decoration:none">🟢</a>`:'';
+  const waBtn=forniTel[fk]?`<a href="https://wa.me/${_waNum(forniTel[fk])}" target="_blank" title="Apri WhatsApp" style="flex-shrink:0;display:flex;align-items:center;justify-content:center;width:30px;height:30px;background:rgba(37,211,102,.15);border:1px solid rgba(37,211,102,.3);border-radius:6px;font-size:15px;text-decoration:none"></a>`:'';
   return `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;align-items:center">
     <span style="font-size:13px;color:var(--txt2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${fh}">${fh}</span>
-    <input class="form-input" style="font-size:12px" placeholder="email@fornitore.it" value="${fe}" onchange="_setFornEmail('${fh}',this.value);notify('✓ Email salvata')">
-    <div style="display:flex;gap:4px;align-items:center"><input class="form-input" style="font-size:12px;flex:1" placeholder="+39 333 1234567" value="${ft}" onchange="_setFornTelefono('${fh}',this.value);notify('✓ Telefono salvato')">${waBtn}</div>
+    <input class="form-input" style="font-size:12px" placeholder="email@fornitore.it" value="${fe}" onchange="_setFornEmail('${fh}',this.value);notify('Email salvata')">
+    <div style="display:flex;gap:4px;align-items:center"><input class="form-input" style="font-size:12px;flex:1" placeholder="+39 333 1234567" value="${ft}" onchange="_setFornTelefono('${fh}',this.value);notify('Telefono salvato')">${waBtn}</div>
   </div>`;
 }).join('')}</div>`;
   return `<div class="card" style="margin-bottom:20px">
-  <div class="section-label"><span>🔒 Chiusura periodo contabile</span></div>
+  <div class="section-label"><span>${ic("lock")} Chiusura periodo contabile</span></div>
   <p style="font-size:12px;color:var(--txt3);margin-bottom:10px;line-height:1.5">I movimenti con data fino a questo giorno (compreso) non si possono più registrare, modificare, eliminare o stornare: sono i numeri già consegnati al commercialista. Le correzioni si registrano con una rettifica datata oggi.</p>
   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
     <input type="date" class="form-input" style="max-width:180px" value="${h(_chiusoFino)}" onchange="_setChiusoFino(this.value)">
     ${_chiusoFino?`<button class="btn-outline btn-sm" onclick="_setChiusoFino('')">Rimuovi blocco</button>`:""}
     <span style="font-size:12px;color:var(--txt4)">di norma l'ultimo giorno del mese inviato</span>
   </div>
-  <div class="section-label" style="margin-top:20px"><span>🌍 Regioni</span></div>
+  <div class="section-label" style="margin-top:20px"><span>${ic("globe")} Regioni</span></div>
   <p style="font-size:12px;color:var(--txt3);margin-bottom:10px">Unifica le varianti di scrittura (trattini, accenti, maiuscole) che spezzano filtri, statistiche e carta vini. Mostra l'anteprima prima di modificare.</p>
   <button class="btn-outline btn-sm" onclick="normalizzaRegioni()">Analizza e unifica regioni</button>
 </div>
 <div class="kpi-grid g2" style="gap:20px">
     <div class="card">
-      <div class="section-label"><span>🏠 Dati del Locale</span></div>
+      <div class="section-label"><span>${ic("home")} Dati del Locale</span></div>
       <div class="form-grid g2">
         <div><label class="form-label">Nome Locale <span style="color:var(--txt4);font-size:11px;text-transform:none;letter-spacing:0">— insegna</span></label><input class="form-input" id="loc-nome" value="${h(d.nome)}" placeholder="Palinurobar"></div>
         <div><label class="form-label">Ragione Sociale</label><input class="form-input" id="loc-ragioneSociale" value="${h(d.ragioneSociale||'')}" placeholder="es. Palinuro S.r.l."></div>
@@ -7765,7 +7781,7 @@ function renderImpostazioni(){
         <div><label class="form-label">Telefono</label><input class="form-input" id="loc-telefono" value="${h(d.telefono)}" placeholder="+39 02 1234567"></div>
       </div>
 
-      <div class="section-label" style="margin-top:20px"><span>🚚 Indirizzo di Consegna</span></div>
+      <div class="section-label" style="margin-top:20px"><span>${ic("truck")} Indirizzo di Consegna</span></div>
       <div class="form-grid g2">
         <div class="col-span-2"><label class="form-label">Indirizzo</label><input class="form-input" id="loc-indirizzo" value="${h(d.indirizzo)}" placeholder="es. Via Roma 1"></div>
         <div><label class="form-label">CAP</label><input class="form-input" id="loc-cap" value="${h(d.cap)}" placeholder="20100"></div>
@@ -7775,7 +7791,7 @@ function renderImpostazioni(){
       <label class="form-label" style="margin-top:12px;display:block">Indicazioni Consegna</label>
       <textarea class="form-input" id="loc-noteConsegna" rows="3" style="resize:vertical" placeholder="es. Consegnare martedì 8–12. Suonare citofono Cucina. Ingresso merci su Via Verdi.">${h(d.noteConsegna)}</textarea>
 
-      <div class="section-label" style="margin-top:20px"><span>🏛️ Sede Legale</span></div>
+      <div class="section-label" style="margin-top:20px"><span>${ic("building")} Sede Legale</span></div>
       <p style="font-size:12px;color:var(--txt4);margin-bottom:8px">Se lasciata vuota, per la fatturazione viene usato l'indirizzo di consegna.</p>
       <div class="form-grid g2">
         <div class="col-span-2"><label class="form-label">Indirizzo</label><input class="form-input" id="loc-sedeIndirizzo" value="${h(d.sedeIndirizzo||'')}" placeholder="es. Via Verdi 10"></div>
@@ -7784,20 +7800,20 @@ function renderImpostazioni(){
         <div><label class="form-label">Provincia</label><input class="form-input" id="loc-sedeProvincia" value="${h(d.sedeProvincia||'')}" placeholder="MI"></div>
       </div>
 
-      <div class="section-label" style="margin-top:20px"><span>🧾 Dati Fatturazione</span></div>
+      <div class="section-label" style="margin-top:20px"><span>${ic("receipt")} Dati Fatturazione</span></div>
       <div class="form-grid g2">
         <div><label class="form-label">Partita IVA</label><input class="form-input" id="loc-piva" value="${h(d.piva)}" placeholder="IT12345678901"></div>
         <div><label class="form-label">Codice Fiscale</label><input class="form-input" id="loc-cf" value="${h(d.cf)}" placeholder="Codice fiscale società"></div>
         <div><label class="form-label">Codice SDI <span style="color:var(--txt4);font-size:11px;text-transform:none;letter-spacing:0">— per fatture elettroniche</span></label><input class="form-input" id="loc-sdi" value="${h(d.sdi||'')}" placeholder="es. ABC1234"></div>
         <div><label class="form-label">PEC <span style="color:var(--txt4);font-size:11px;text-transform:none;letter-spacing:0">— alternativa a SDI</span></label><input class="form-input" id="loc-pec" value="${h(d.pec||'')}" placeholder="es. azienda@pec.it"></div>
       </div>
-      <button class="btn-primary" style="margin-top:16px;width:100%;justify-content:center" onclick="salvaImpostazioni()">💾 Salva Impostazioni</button>
+      <button class="btn-primary" style="margin-top:16px;width:100%;justify-content:center" onclick="salvaImpostazioni()">${ic("save")} Salva Impostazioni</button>
     </div>
     <div class="card">
-      <div class="section-label"><span>📋 Rubrica Fornitori</span></div>
-      <p style="font-size:12px;color:var(--txt4);margin-bottom:16px;line-height:1.6">Email e telefono di ogni fornitore. L'email si compila in automatico nell'ordine; il 🟢 apre WhatsApp direttamente.</p>
+      <div class="section-label"><span>${ic("clipboard")} Rubrica Fornitori</span></div>
+      <p style="font-size:12px;color:var(--txt4);margin-bottom:16px;line-height:1.6">Email e telefono di ogni fornitore. L'email si compila in automatico nell'ordine; il ${ic("dotGreen")} apre WhatsApp direttamente.</p>
       ${fornRighe}
-      ${fornitori.length>0?'<div style="margin-top:14px;padding:10px 12px;background:rgba(0,122,255,.08);border:1px solid rgba(0,122,255,.2);font-size:12px;color:var(--txt3);line-height:1.6">💡 Formato telefono internazionale: <strong>+39 333 1234567</strong>. Il tasto 🟢 apre WhatsApp Web o l\'app mobile.</div>':''}
+      ${fornitori.length>0?'<div style="margin-top:14px;padding:10px 12px;background:rgba(0,122,255,.08);border:1px solid rgba(0,122,255,.2);font-size:12px;color:var(--txt3);line-height:1.6">'+ic("bulb")+' Formato telefono internazionale: <strong>+39 333 1234567</strong>. Il tasto '+ic("dotGreen")+' apre WhatsApp Web o l\'app mobile.</div>':''}
     </div>
   </div>`;
 }
@@ -7822,7 +7838,7 @@ function salvaImpostazioni(){
     noteConsegna:(document.getElementById("loc-noteConsegna")?.value||"").trim(),
   };
   _saveLocale(localeData);
-  notify("✅ Impostazioni salvate");
+  notify("Impostazioni salvate");
 }
 
 
@@ -7839,29 +7855,29 @@ function renderExport(){
 
   let html=`<div class="card card-amber" style="margin-bottom:20px">
     <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px">
-      <div><div style="font-size:12px;letter-spacing:.25em;text-transform:uppercase;color:var(--txt2);margin-bottom:4px">💾 Bilancio di Magazzino</div><div style="font-family:'Montserrat',sans-serif;font-weight:300;font-size:1.3rem;color:var(--txt)">Situazione al ${dateStr}</div></div>
+      <div><div style="font-size:12px;letter-spacing:.25em;text-transform:uppercase;color:var(--txt2);margin-bottom:4px">${ic("save")} Bilancio di Magazzino</div><div style="font-family:'Montserrat',sans-serif;font-weight:300;font-size:1.3rem;color:var(--txt)">Situazione al ${dateStr}</div></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
-        <button class="btn-outline btn-sm" onclick="exportBackupJSON()" title="Backup completo di tutti i dati">💾 Backup JSON</button>
+        <button class="btn-outline btn-sm" onclick="exportBackupJSON()" title="Backup completo di tutti i dati">${ic("save")} Backup JSON</button>
         <label class="btn-outline btn-sm" style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border:1px solid var(--border);font-size:12px;letter-spacing:.04em" title="Ripristina da file JSON">
-          📥 Importa Backup
+          ${ic("inbox")} Importa Backup
           <input type="file" accept=".json" onchange="importBackupJSON(event)" style="display:none">
         </label>
-        <button class="btn-outline btn-sm" onclick="openDuplicatiModal()" style="border-color:rgba(191,95,255,.4);color:#bf5fff" title="Trova e fondi vini duplicati nel database">🔍 Trova Duplicati</button>
+        <button class="btn-outline btn-sm" onclick="openDuplicatiModal()" style="border-color:rgba(191,95,255,.4);color:#bf5fff" title="Trova e fondi vini duplicati nel database">${ic("search")} Trova Duplicati</button>
         <button class="btn-primary" onclick="exportBilancioCSV()">↓ Esporta Bilancio Completo</button>
       </div>
     </div>
   </div>
   <div class="kpi-grid g2">
     ${[
-      {icon:"🗂️",tag:"A",title:"Giacenze al "+dateStr,desc:"Inventario fisico con giacenza, prezzo acquisto, IVA, valore costo e potenziale. Totali aggregati in calce.",badge:"background:rgba(var(--amber-rgb,255,159,10),.2);color:var(--amber);border-color:rgba(var(--amber3-rgb,180,83,9),.5)",fn:"exportInventarioCSV()",label:"Esporta Giacenze CSV"},
-      {icon:"📑",tag:"B",title:"Registro Acquisti",desc:"Ordine cronologico con n° fattura, fornitore, imponibile per riga, IVA assolta. Pronto per la contabilità.",badge:"background:rgba(30,64,175,.4);color:#93c5fd;border-color:rgba(37,99,235,.5)",fn:"exportAcquistiCSV()",label:"Esporta Acquisti CSV"},
-      {icon:"⚠️",tag:"C",title:"Registro Perdite / Fallate",desc:"Perdite da scaricare a bilancio: valore costo, IVA su merce persa, totale perdita. Ordine cronologico.",badge:"background:rgba(255,69,58,.2);color:#FF6B6B;border-color:#CC3025",fn:"exportFallateCSV()",label:"Esporta Fallate CSV"},
-      {icon:"↕️",tag:"D",title:"Tutti i Movimenti",desc:"Log completo carico e scarico con valore del movimento, riferimenti fattura e note.",badge:"background:var(--bg3);color:#e7e5e4;border-color:var(--border2)",fn:"exportMovimentiCSV()",label:"Esporta Movimenti CSV"},
-      {icon:"🏭",tag:"E",title:"Report Fornitori (Commercialista)",desc:"Carichi attivi dal 1° gennaio 2026: data, fornitore, ID ordine, bottiglie e totale speso. Testi ripuliti da virgole per Excel.",badge:"background:rgba(0,122,255,.2);color:#93c5fd;border-color:rgba(0,122,255,.5)",fn:"exportFornitoriCSV()",label:"Esporta Fornitori CSV"},
+      {icon:ic("folder"),tag:"A",title:"Giacenze al "+dateStr,desc:"Inventario fisico con giacenza, prezzo acquisto, IVA, valore costo e potenziale. Totali aggregati in calce.",badge:"background:rgba(var(--amber-rgb,255,159,10),.2);color:var(--amber);border-color:rgba(var(--amber3-rgb,180,83,9),.5)",fn:"exportInventarioCSV()",label:"Esporta Giacenze CSV"},
+      {icon:"",tag:"B",title:"Registro Acquisti",desc:"Ordine cronologico con n° fattura, fornitore, imponibile per riga, IVA assolta. Pronto per la contabilità.",badge:"background:rgba(30,64,175,.4);color:#93c5fd;border-color:rgba(37,99,235,.5)",fn:"exportAcquistiCSV()",label:"Esporta Acquisti CSV"},
+      {icon:"",tag:"C",title:"Registro Perdite / Fallate",desc:"Perdite da scaricare a bilancio: valore costo, IVA su merce persa, totale perdita. Ordine cronologico.",badge:"background:rgba(255,69,58,.2);color:#FF6B6B;border-color:#CC3025",fn:"exportFallateCSV()",label:"Esporta Fallate CSV"},
+      {icon:"",tag:"D",title:"Tutti i Movimenti",desc:"Log completo carico e scarico con valore del movimento, riferimenti fattura e note.",badge:"background:var(--bg3);color:#e7e5e4;border-color:var(--border2)",fn:"exportMovimentiCSV()",label:"Esporta Movimenti CSV"},
+      {icon:"",tag:"E",title:"Report Fornitori (Commercialista)",desc:"Carichi attivi dal 1° gennaio 2026: data, fornitore, ID ordine, bottiglie e totale speso. Testi ripuliti da virgole per Excel.",badge:"background:rgba(0,122,255,.2);color:#93c5fd;border-color:rgba(0,122,255,.5)",fn:"exportFornitoriCSV()",label:"Esporta Fornitori CSV"},
     ].map(card=>`<div class="export-card"><div class="export-icon">${card.icon}</div><div style="flex:1"><div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span class="export-tag" style="${card.badge}">${card.tag}</span><span style="font-family:'Montserrat',sans-serif;font-size:13px;color:var(--txt)">${card.title}</span></div><p class="export-desc">${card.desc}</p><button class="btn-primary btn-sm" onclick="${card.fn}">↓ ${card.label}</button></div></div>`).join("")}
   </div>
   <div style="margin-top:20px;padding:16px 20px;background:var(--bg2);border:1px solid var(--border)">
-    <div class="section-label"><span>📊 Ripartizione Valore al Costo per Tipologia</span></div>
+    <div class="section-label"><span>${ic("chart")} Ripartizione Valore al Costo per Tipologia</span></div>
     <div style="display:flex;flex-direction:column;gap:10px">
       ${TIPOLOGIE.filter(t=>wines.some(w=>w.tipologia===t)).map(t=>{
         const tw=wines.filter(w=>w.tipologia===t);
@@ -7885,7 +7901,7 @@ function renderExport(){
 // ─── SCHEDA VINO — SOLA LETTURA ───────────────────────────────────────────────
 // Pannello di consultazione rapida: mostra tutti i dati del vino, lotti,
 // storico prezzi e movimenti recenti senza entrare in modalità modifica.
-// Si apre con un doppio click sulla riga (o dal bottone 👁 futuro).
+// Si apre con un doppio click sulla riga (o dal bottone futuro).
 function openWineDetail(id){
   const w = wines.find(x=>x.id===id);
   if(!w) return;
@@ -7901,7 +7917,7 @@ function openWineDetail(id){
     const esauriti = [...w.lots].reverse().filter(l=>l.qtyRimanente===0).slice(0,3);
     const all = [...attivi, ...esauriti];
     return `<div style="margin-top:20px">
-      <div class="modal-section-label">📦 Lotti FIFO${attivi.length>0?` <span style="font-size:12px;color:#30D158;font-weight:400;letter-spacing:0;text-transform:none">${attivi.length} attivi</span>`:''}</div>
+      <div class="modal-section-label">${ic("box")} Lotti FIFO${attivi.length>0?` <span style="font-size:12px;color:#30D158;font-weight:400;letter-spacing:0;text-transform:none">${attivi.length} attivi</span>`:''}</div>
       <div style="display:grid;grid-template-columns:90px 80px 1fr 90px 70px 70px;gap:0;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--txt4);padding:6px 10px;background:rgba(41,37,36,.4)">
         <span>Data</span><span>Fattura</span><span>Fornitore</span><span style="text-align:right">P.Acq</span><span style="text-align:right">Caricato</span><span style="text-align:right">Rimanente</span>
       </div>
@@ -7923,7 +7939,7 @@ function openWineDetail(id){
   // Movimenti recenti (ultimi 6)
   const wMovs = [...movements].filter(m=>m.wineId===id).sort((a,b)=>b.data.localeCompare(a.data)||b.ts-a.ts).slice(0,6);
   const movsHtml = wMovs.length ? `<div style="margin-top:20px">
-    <div class="modal-section-label">↕️ Movimenti Recenti</div>
+    <div class="modal-section-label">Movimenti Recenti</div>
     ${wMovs.map(m=>`<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:1px solid rgba(41,37,36,.4);font-size:13px">
       <span style="color:${_movVis(m).c}">${_movVis(m).i}</span>
       <span style="color:var(--txt3);width:88px;flex-shrink:0">${m.data||'—'}</span>
@@ -7934,7 +7950,7 @@ function openWineDetail(id){
 
   // Storico prezzi
   const histHtml = w.priceHistory?.length ? `<div style="margin-top:20px">
-    <div class="modal-section-label">📈 Storico Prezzi (ultimi ${Math.min(w.priceHistory.length,5)})</div>
+    <div class="modal-section-label">${ic("trend")} Storico Prezzi (ultimi ${Math.min(w.priceHistory.length,5)})</div>
     ${[...w.priceHistory].reverse().slice(0,5).map(e=>`<div style="display:flex;align-items:center;gap:12px;padding:6px 10px;border-bottom:1px solid rgba(41,37,36,.4);font-size:12px">
       <span style="color:var(--txt4);width:88px;flex-shrink:0">${e.data}</span>
       <span style="color:var(--txt3);flex:1;font-size:12px;letter-spacing:.06em;text-transform:uppercase">${e.source||'manuale'}</span>
@@ -7954,13 +7970,13 @@ function openWineDetail(id){
     bd.addEventListener('click', e => { if(e.target === bd) closeWineDetail(); });
     bd.innerHTML = `<div class="modal" style="max-width:820px;width:calc(100% - 24px);overflow-y:auto;max-height:92dvh;overscroll-behavior:contain" onclick="event.stopPropagation()">
       <div class="modal-header" style="position:sticky;top:0;z-index:1;background:var(--bg2);border-bottom:1px solid var(--border)">
-        <h2 id="wine-detail-title" style="font-size:clamp(13px,3.5vw,17px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0">🍾 Scheda Vino</h2>
-        <button style="font-size:22px;color:var(--txt3);background:none;border:none;cursor:pointer;padding:4px 8px;flex-shrink:0;line-height:1" onclick="closeWineDetail()" aria-label="Chiudi">✕</button>
+        <h2 id="wine-detail-title" style="font-size:clamp(13px,3.5vw,17px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0">${ic("bottle")} Scheda Vino</h2>
+        <button style="font-size:22px;color:var(--txt3);background:none;border:none;cursor:pointer;padding:4px 8px;flex-shrink:0;line-height:1" onclick="closeWineDetail()" aria-label="Chiudi">${ic("x")}</button>
       </div>
       <div class="modal-body" id="wine-detail-body" style="padding-bottom:8px"></div>
       <div class="modal-footer" style="position:sticky;bottom:0;z-index:1;background:var(--bg2);border-top:1px solid var(--border);gap:10px">
         <button class="btn-outline" onclick="closeWineDetail()">Chiudi</button>
-        <button class="btn-primary" id="wine-detail-edit-btn" onclick="closeWineDetail();openWineModal(document.getElementById('wine-detail-backdrop').dataset.wineId)">✏️ Modifica</button>
+        <button class="btn-primary" id="wine-detail-edit-btn" onclick="closeWineDetail();openWineModal(document.getElementById('wine-detail-backdrop').dataset.wineId)">${ic("edit")} Modifica</button>
       </div>
     </div>`;
     document.body.appendChild(bd);
@@ -7977,7 +7993,7 @@ function openWineDetail(id){
           ${w.sku?`<span style="font-family:ui-monospace,monospace;font-size:12px;letter-spacing:.05em;color:var(--txt3);background:var(--bg3);border:1px solid var(--border2);border-radius:5px;padding:2px 7px" title="Codice referenza (SKU)">${h(w.sku)}</span>`:''}
           ${w.annata?`<span style="color:var(--amber);font-family:'Montserrat',sans-serif;font-size:1rem">${h(w.annata)}</span>`:'<span style="color:var(--txt4);font-size:12px">N.V.</span>'}
           ${(()=>{const _fv=parseFloat(w.formato)||0.75;return _fv!==0.75?`<span style="font-size:12px;padding:2px 7px;border:1px solid ${_fv>=1.5?"rgba(0,122,255,.3)":"rgba(var(--amber-rgb,255,159,10),.35)"};color:${_fv>=1.5?"#60a5fa":"#fbbf24"};background:${_fv>=1.5?"rgba(0,122,255,.08)":"rgba(var(--amber-rgb,255,159,10),.08)"};border-radius:4px">${_fv}L</span>`:''})()}
-          ${w.vitigni?`<span style="font-size:12px;color:var(--txt3)">🍇 ${h(w.vitigni)}</span>`:''}
+          ${w.vitigni?`<span style="font-size:12px;color:var(--txt3)">${ic("grape")} ${h(w.vitigni)}</span>`:''}
         </div>
         ${(w.regione||w.nazione)?`<div style="margin-top:8px;font-size:12px;color:var(--txt3)">${[w.regione,w.zona,w.nazione].filter(Boolean).map((v,i)=>i===2?`<span style="color:var(--amber3);font-weight:600">${h(v)}</span>`:h(v)).join(' · ')}</div>`:''}
       </div>
@@ -8045,7 +8061,7 @@ function openWineModal(idOrNull){
       delBtn.id="modal-delete-btn";
       delBtn.className="btn-danger";
       delBtn.style.marginRight="auto";
-      delBtn.innerHTML="🗑️ Elimina vino";
+      delBtn.innerHTML=ic("trash")+" Elimina vino";
       const footer=document.querySelector("#wine-modal .modal-footer");
       footer.insertBefore(delBtn,footer.firstChild);
     }
@@ -8101,7 +8117,7 @@ function renderModalBody(wine){
   const f=wine||{nome:"",produttore:"",distributore:"",annata:"",vitigni:"",tipologia:"Rosso",regione:"",nazione:"Italia",zona:"",prezzoAcq:"",iva:22,prezzoCarta:"",prezzoCalice:"",giacenza:0};
   const lotsHtml=wine?.lots?.length?`
     <div style="margin-top:4px">
-      <div class="modal-section-label">📦 Storico Lotti (FIFO)</div>
+      <div class="modal-section-label">${ic("box")} Storico Lotti (FIFO)</div>
       <div class="lot-grid" style="color:var(--txt4);font-size:11px"><span>Data</span><span>Fattura</span><span>Fornitore</span><span style="text-align:right">P.Acq</span><span style="text-align:right">Caricato</span><span style="text-align:right">Rimanente</span></div>
       ${[...wine.lots].reverse().map(l=>{const done=l.qtyRimanente===0;return `<div class="lot-row ${done?"lot-done":"lot-active"}" style="margin-bottom:2px">
         <span>${l.data}</span><span style="overflow:hidden;text-overflow:ellipsis">${l.fattura||"—"}</span><span style="overflow:hidden;text-overflow:ellipsis;color:${done?"var(--txt4)":"var(--txt3)"}">${l.fornitore||"—"}</span>
@@ -8127,7 +8143,7 @@ function renderModalBody(wine){
   ].map(x=>{const sel=(x.v!=="altro"&&parseFloat(f.formato||"0.75")===parseFloat(x.v));return `<option value="${x.v}" ${sel?"selected":""}>${x.l}</option>`;}).join("");
   return `
     <div class="modal-section">
-      <div class="modal-section-label">🍷 Identità del Vino</div>
+      <div class="modal-section-label">${ic("glass")} Identità del Vino</div>
       <div class="form-grid g2">
         <div><label class="form-label">Nome Vino *</label><input class="form-input" id="mf-nome" value="${h(f.nome)}" placeholder="es. Barolo Cannubi" oninput="updateModalCalc()"></div>
         <div><label class="form-label">Produttore *</label><input class="form-input" id="mf-produttore" list="mf-prod-dl" autocomplete="off" value="${h(f.produttore)}" placeholder="es. Giacomo Conterno"><datalist id="mf-prod-dl">${_dlOpts(_dlProd)}</datalist></div>
@@ -8139,7 +8155,7 @@ function renderModalBody(wine){
       </div>
     </div>
     <div class="modal-section">
-      <div class="modal-section-label">🌍 Provenienza</div>
+      <div class="modal-section-label">${ic("globe")} Provenienza</div>
       <div class="form-grid g2">
         <div><label class="form-label">Regione</label><input class="form-input" id="mf-regione" list="mf-reg-dl" autocomplete="off" value="${h(f.regione)}" placeholder="es. Piemonte" onchange="_mfInferNazione(this.value)"><datalist id="mf-reg-dl">${_dlOpts(_ordRegioniPer(f.nazione||"Italia"))}</datalist></div>
         <div><label class="form-label">Nazione</label><input class="form-input" id="mf-nazione" list="mf-naz-dl" autocomplete="off" value="${h(f.nazione||"Italia")}" placeholder="es. Italia" onchange="_mfSyncRegioni(this.value)"><datalist id="mf-naz-dl">${_dlOpts(_ordNazioni())}</datalist></div>
@@ -8147,7 +8163,7 @@ function renderModalBody(wine){
       </div>
     </div>
     <div class="modal-section">
-      <div class="modal-section-label">💰 Prezzi & Giacenza</div>
+      <div class="modal-section-label">${ic("euro")} Prezzi & Giacenza</div>
       <div class="form-grid g2">
         <div><label class="form-label">Prezzo Acquisto (escl. IVA) €</label><input class="form-input" id="mf-prezzoAcq" type="number" inputmode="decimal" onfocus="this.select()" value="${f.prezzoAcq}" placeholder="0.00" oninput="updateModalCalc()"></div>
         <div><label class="form-label">IVA %</label><select class="form-select" id="mf-iva" onchange="updateModalCalc()">${IVA_OPTIONS.map(v=>`<option value="${v}" ${parseInt(f.iva)===v?"selected":""}>${v}%</option>`).join("")}</select></div>
@@ -8160,7 +8176,7 @@ function renderModalBody(wine){
         <div><label class="form-label">Prezzo in Carta €</label><input class="form-input" id="mf-prezzoCarta" type="number" inputmode="decimal" onfocus="this.select()" value="${f.prezzoCarta}" placeholder="0.00" oninput="document.getElementById('mf-prezzoCarta')._userEdited=true;updateModalCalc()">
         </div>
         <div><label class="form-label">Prezzo al Calice € <span style="color:var(--txt4);font-size:11px;text-transform:none;letter-spacing:0">— opzionale</span></label><input class="form-input" id="mf-prezzoCalice" type="number" inputmode="decimal" onfocus="this.select()" value="${f.prezzoCalice||''}" placeholder="es. 8.00"></div>
-        <div><label class="form-label">Giacenza (bottiglie)</label><input class="form-input" id="mf-giacenza" type="number" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" value="${f.giacenza||0}" placeholder="0" oninput="updateModalCalc()" ${wine&&(wine.lots||[]).some(l=>l.qtyRimanente>0)?'title="⚠️ Vino con lotti FIFO attivi: modifica tramite carico/scarico per non desincronizzare i lotti" style="border-color:rgba(var(--amber3-rgb,180,83,9),.5)"':''} ><\/div>${wine&&(wine.lots||[]).some(l=>l.qtyRimanente>0)?'<div style="font-size:11px;color:rgba(251,146,60,.8);margin-top:3px;letter-spacing:.05em">⚠️ Lotti FIFO attivi — usa carico/scarico per aggiornare la giacenza<\/div>':''}
+        <div><label class="form-label">Giacenza (bottiglie)</label><input class="form-input" id="mf-giacenza" type="number" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" value="${f.giacenza||0}" placeholder="0" oninput="updateModalCalc()" ${wine&&(wine.lots||[]).some(l=>l.qtyRimanente>0)?'title="Vino con lotti FIFO attivi: modifica tramite carico/scarico per non desincronizzare i lotti" style="border-color:rgba(var(--amber3-rgb,180,83,9),.5)"':''} ><\/div>${wine&&(wine.lots||[]).some(l=>l.qtyRimanente>0)?'<div style="font-size:11px;color:rgba(251,146,60,.8);margin-top:3px;letter-spacing:.05em">Lotti FIFO attivi — usa carico/scarico per aggiornare la giacenza<\/div>':''}
       </div>
       ${(()=>{const on=!!f.inFresco;return `<div style="margin-top:12px">
         <label class="form-label">Servizio in carta</label>
@@ -8168,7 +8184,7 @@ function renderModalBody(wine){
           style="display:flex;align-items:center;gap:12px;cursor:pointer;padding:12px 16px;border:1.5px solid ${on?'#30D158':'#FF453A'};border-radius:10px;user-select:none;transition:all .2s;background:${on?'rgba(48,209,88,.10)':'rgba(255,69,58,.08)'}">
           <span id="mf-fresco-dot" style="width:16px;height:16px;border-radius:50%;flex-shrink:0;transition:all .2s;background:${on?'#30D158':'#FF453A'};box-shadow:0 0 8px ${on?'rgba(48,209,88,.7)':'rgba(255,69,58,.6)'}"></span>
           <span id="mf-fresco-txt" style="font-size:13px;font-weight:700;font-family:'Montserrat',sans-serif;letter-spacing:.02em;color:${on?'#30D158':'#FF6B6B'}">${on?'In fresco':'Non in fresco'}</span>
-          <span id="mf-fresco-ico" style="margin-left:auto;font-size:18px">${on?'❄️':'🌡️'}</span>
+          <span id="mf-fresco-ico" style="margin-left:auto;font-size:18px">${on?ic("snow"):ic("thermo")}</span>
         </div>
         <input type="checkbox" id="mf-infresco" ${on?'checked':''} style="display:none">
       </div>`})()}
@@ -8188,7 +8204,7 @@ function renderModalBody(wine){
       const hist=[...wine.priceHistory].reverse();
       const SOURCE_LABEL={'carico':'Carico','modifica_scheda':'Modifica scheda','carta_rapida':'P.Carta rapida','ricezione_ordine':'Ricezione ordine','ricezione_globale':'Ricezione globale','manuale':'Manuale'};
       return `<div style="margin-top:4px">
-        <div class="modal-section-label">📈 Storico Prezzi</div>
+        <div class="modal-section-label">${ic("trend")} Storico Prezzi</div>
         <div style="display:grid;grid-template-columns:90px 1fr 110px 110px 110px 110px;gap:0;font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt4);padding:6px 12px;background:rgba(41,37,36,.4)">
           <span>Data</span><span>Evento</span><span style="text-align:right">P.Acq nuovo</span><span style="text-align:right">P.Acq prec.</span><span style="text-align:right">P.Carta nuovo</span><span style="text-align:right">P.Carta prec.</span>
         </div>
@@ -8289,7 +8305,7 @@ function _paintFresco(){
   dot.style.boxShadow=on?"0 0 8px rgba(48,209,88,.7)":"0 0 8px rgba(255,69,58,.6)";
   const txt=document.getElementById("mf-fresco-txt");
   txt.textContent=on?"In fresco":"Non in fresco"; txt.style.color=on?"#30D158":"#FF6B6B";
-  document.getElementById("mf-fresco-ico").textContent=on?"❄️":"🌡️";
+  document.getElementById("mf-fresco-ico").innerHTML=on?ic("snow"):ic("thermo");
 }
 function _toggleFresco(){
   const cb=document.getElementById("mf-infresco"); if(!cb) return;
@@ -8311,7 +8327,7 @@ function saveWine(){
     sku:modalWine?.sku,
     lots:modalWine?.lots||[]
   };
-  if(!wine.nome||!wine.produttore){ notify("⚠️ Nome e Produttore sono obbligatori","err"); return; }
+  if(!wine.nome||!wine.produttore){ notify("Nome e Produttore sono obbligatori","err"); return; }
   // Auto-inferisce la nazione dalla regione se non compilata
   if(!wine.nazione && wine.regione){
     wine.nazione = inferPaese("", wine.regione, wine.zona);
@@ -8328,7 +8344,7 @@ function saveWine(){
     const _gForm=parseInt(get("mf-giacenza"));
     let _d=0;
     if(!isNaN(_gForm)) _d=_rettificaGiacenzaLedger(wine.id, _gForm, "Rettifica da scheda vino");
-    notify(_d ? `✅ Vino aggiornato · rettifica giacenza ${_d>0?"+":""}${_d} registrata` : "✅ Vino aggiornato");
+    notify(_d ? `Vino aggiornato · rettifica giacenza ${_d>0?"+":""}${_d} registrata` : "Vino aggiornato");
   }
   else{
     if(!wine.sku) wine.sku=_nextSku();
@@ -8337,7 +8353,7 @@ function saveWine(){
     // senza, la bottiglia esisterebbe solo nel blob e non sarebbe ricostruibile.
     const _gNew=parseInt(get("mf-giacenza"))||0;
     if(_gNew>0) _rettificaGiacenzaLedger(wine.id, _gNew, "Giacenza iniziale referenza");
-    notify("✅ Vino aggiunto in cantina");
+    notify("Vino aggiunto in cantina");
   }
   const _scrollY = window.scrollY;
   closeWineModal();
@@ -8353,7 +8369,7 @@ function bulkDeleteWines(){
   const snap = new Set(selIds); // snapshot — selIds può cambiare durante callback
   _confirmModal(
     `Eliminare <strong>${n} vin${n===1?'o':'i'}</strong>?<br><span style="font-size:12px;color:var(--txt4)">Verranno rimossi anche movimenti e fallate collegati.</span>`,
-    `🗑️ Elimina ${n} ${n===1?'vino':'vini'}`,
+    `${ic("trash")} Elimina ${n} ${n===1?'vino':'vini'}`,
     () => {
       _tombstonaVini([...snap].map(_id=>{
         const _w=wines.find(x=>x.id===_id);
@@ -8363,7 +8379,7 @@ function bulkDeleteWines(){
       movements=movements.filter(m=>!snap.has(m.wineId));
       fallate=fallate.filter(f=>!snap.has(f.wineId));
       snap.forEach(id=>{ delete alertSoglie[id]; delete scaricoSerata.qtys[id]; });
-      notify(`🗑️ ${n} vin${n===1?'o':'i'} eliminati`);
+      notify(`${n} vin${n===1?'o':'i'} eliminati`);
       exitSel(); scheduleSave();
       // PATCH: flush immediato — eliminazione irreversibile
       clearTimeout(saveTimer); _flushSave();
@@ -8380,7 +8396,7 @@ function bulkDeleteMovimenti(){
   if(_inChiuso && _bloccaChiuso(_inChiuso.data,"Eliminazione")) return;
   _confirmModal(
     `Eliminare <strong>${n} moviment${n===1?'o':'i'}</strong>?<br><span style="font-size:12px;color:var(--txt4)">La giacenza dei soli vini coinvolti verrà corretta invertendo l'effetto dei movimenti eliminati.</span>`,
-    `🗑️ Elimina`,
+    `${ic("trash")} Elimina`,
     () => {
       // FIX DATA-LOSS: NIENTE rebuild globale (azzerava i vini con giacenza non
       // coperta da carichi in memoria → import/edit manuali). Delta-reversal
@@ -8396,7 +8412,7 @@ function bulkDeleteMovimenti(){
       });
       wines=wines.map((w,i)=>patch[i]||w);
       const nVini=Object.keys(patch).length;
-      notify(`🗑️ ${n} movimenti eliminati — giacenza corretta su ${nVini} vin${nVini===1?'o':'i'}`);
+      notify(`${n} movimenti eliminati — giacenza corretta su ${nVini} vin${nVini===1?'o':'i'}`);
       exitSel(); scheduleSave();
       // PATCH: flush immediato — eliminazione + ricalcolo FIFO è irreversibile
       clearTimeout(saveTimer); _flushSave();
@@ -8411,7 +8427,7 @@ function bulkDeleteOrdini(){
   const snap=new Set(selIds);
   _confirmModal(
     `Eliminare <strong>${n} ordin${n===1?'e':'i'}</strong>?`,
-    `🗑️ Elimina ${n} ${n===1?'ordine':'ordini'}`,
+    `${ic("trash")} Elimina ${n} ${n===1?'ordine':'ordini'}`,
     async ()=>{
       // Ordini locali
       orders=orders.filter(o=>!snap.has(o.id));
@@ -8421,7 +8437,7 @@ function bulkDeleteOrdini(){
         await _sb.from('ordini_testata').delete().in('id', bozzeIds);
         _bozzeSb=_bozzeSb.filter(b=>!snap.has(b.id));
       }
-      notify(`🗑️ ${n} ordin${n===1?'e':'i'} eliminati`);
+      notify(`${n} ordin${n===1?'e':'i'} eliminati`);
       exitSel(); scheduleSave();
       // PATCH: flush immediato — eliminazione irreversibile
       clearTimeout(saveTimer); _flushSave();
@@ -8477,7 +8493,7 @@ function openBulkEditModal(mode){
   _bulkMode=mode;
   const fields=_bulkFields[mode]||[];
   const n=selIds.size;
-  document.getElementById("bulk-modal-title").textContent=`✏️ Modifica in blocco — ${n} element${n===1?"o":"i"}`;
+  document.getElementById("bulk-modal-title").textContent=`Modifica in blocco — ${n} element${n===1?"o":"i"}`;
   const body=document.getElementById("bulk-modal-body");
   body.innerHTML=`
     <p style="font-size:12px;color:var(--txt3);margin-bottom:16px">Attiva i campi che vuoi modificare. I campi non attivati resteranno invariati.</p>
@@ -8524,7 +8540,7 @@ function applyBulkEdit(){
       count++;
       return {...w,...changes};
     });
-    notify(`✅ ${count} vini aggiornati`);
+    notify(`${count} vini aggiornati`);
   } else if(_bulkMode==="movimenti"){
     // vitigni e annata appartengono al vino, non al movimento — aggiorna il wine corrispondente
     const wineChanges={};
@@ -8576,14 +8592,14 @@ function applyBulkEdit(){
         wines[wIdx]={...w,giacenza:Math.max(0,w.giacenza-q),lots:updLots};
       });
     }
-    notify(`✅ ${count} movimenti aggiornati`);
+    notify(`${count} movimenti aggiornati`);
   } else if(_bulkMode==="ordini"){
     orders=orders.map(o=>{
       if(!selIds.has(o.id)) return o;
       count++;
       return {...o,...changes};
     });
-    notify(`✅ ${count} ordini aggiornati`);
+    notify(`${count} ordini aggiornati`);
   }
   scheduleSave();
   // PATCH: flush immediato se la bulk edit ha toccato giacenze
@@ -8662,7 +8678,7 @@ function _confirmModal2(message, actionA, actionB){
 // una referenza separata (FIFO, costi e carta vini ragionano per referenza).
 function duplicaWine(id){
   const w=wines.find(x=>x.id===id);
-  if(!w){ notify("⚠️ Vino non trovato","err"); return; }
+  if(!w){ notify("Vino non trovato","err"); return; }
   const copia={...w, id:uid(), sku:"", giacenza:0, lots:[], noteVeloce:"" };
   delete copia.priceHistory; // lo storico prezzi appartiene alla referenza originale
   openWineModal(copia);
@@ -8674,7 +8690,7 @@ function deleteWine(id){
   if(!w) return;
   _confirmModal(
     `Eliminare <strong>${w.nome}</strong>${w.produttore?' ('+w.produttore+')':''}?<br><span style="font-size:12px;color:var(--txt4)">Verranno rimossi anche movimenti e fallate collegati.</span>`,
-    "🗑️ Elimina",
+    ic("trash")+" Elimina",
     () => {
       _tombstonaVini([{id:id, nome:w.nome||""}]);
       wines=wines.filter(x=>x.id!==id);
@@ -8686,7 +8702,7 @@ function deleteWine(id){
       _updateTopbarActions(null);
       // PATCH: flush immediato — eliminazione irreversibile
       clearTimeout(saveTimer); _flushSave();
-      notify("🗑️ Vino eliminato"); render();
+      notify("Vino eliminato"); render();
     },
     'danger'
   );
@@ -8706,7 +8722,7 @@ function exportInventarioCSV(){
   const headers=["Distributore","Produttore","Nome Vino","Vitigni","Annata","Zona/Cru","Regione","Tipologia","P.Acq (escl.IVA)","IVA %","Costo+IVA/bt","P.Carta","Marg.Lordo/bt","Marg.%","Giacenza","Val.Costo","IVA su Stock","Val.Potenziale Carta","IVA Pot.Vendita","Nota Veloce"];
   const rows=wines.map(w=>{const mb=calcMargineBottiglia(w);const mp=calcMarginePerc(w);const vc=calcValore(w);return [w.distributore||"",w.produttore,w.nome,w.vitigni||"",w.annata||"",w.zona||"",w.regione||"",w.tipologia,fmtN(w.prezzoAcq),w.iva+"%",fmtN(calcCostoIvaBottiglia(w)),fmtN(w.prezzoCarta),mb!==null?fmtN(mb):"—",mp!==null?fmtN(mp,1)+"%":"—",w.giacenza,fmtN(vc),fmtN(vc*(parseInt(w.iva)||22)/100),fmtN(calcValoreCarta(w)),fmtN(calcValoreCarta(w)*(parseInt(w.iva)||22)/100),w.noteVeloce||""];});
   dlCSV(toCSV([headers,...rows]),`giacenze_al_${dateStr.replace(/\//g,"-")}.csv`);
-  notify("📥 Giacenze esportate");
+  notify("Giacenze esportate");
 }
 function exportAcquistiCSV(){
   const dateStr=new Date().toLocaleDateString("it-IT");
@@ -8716,7 +8732,7 @@ function exportAcquistiCSV(){
   let totQty=0,totImp=0,totIva=0;
   const rows=carichi.map(m=>{const w=wineMap[m.wineId];const p=costoCarico(m,w);const iva=parseInt(w?.iva)||22;const imp=p*m.qty;const iv=imp*(iva/100);totQty+=m.qty;totImp+=imp;totIva+=iv;return [m.data,m.fattura||"—",m.fornitore||w?.distributore||"—",m.produttore||w?.produttore||"",m.wineName,w?.annata||"",w?.tipologia||"",m.qty,fmtN(p),iva+"%",fmtN(imp),fmtN(iv),fmtN(imp+iv),m.note||""];});
   dlCSV(toCSV([headers,...rows,[],["","","","","","","TOTALE",totQty,"","",fmtN(totImp),fmtN(totIva),fmtN(totImp+totIva),""]]),`registro_acquisti_${dateStr.replace(/\//g,"-")}.csv`);
-  notify("📥 Acquisti esportati");
+  notify("Acquisti esportati");
 }
 // ── BACKFILL COSTI LOTTO ────────────────────────────────────────────────────────
 // Ripara i carichi legacy privi di prezzoAcqLotto (che ricadono su w.prezzoAcq
@@ -8726,7 +8742,7 @@ function exportAcquistiCSV(){
 // al netto di scontoRef riga e o.sconto ordine).
 //   backfillCostiLotto()      → DRY-RUN: stampa tabella + impatto sui totali, non scrive
 //   backfillCostiLotto(true)  → APPLICA: muta movements (immutabile) + scheduleSave()
-// ⚠️ PRIMA DI APPLICARE fai un backup (export JSON o cm_take_backup()).
+// PRIMA DI APPLICARE fai un backup (export JSON o cm_take_backup()).
 function backfillCostiLotto(apply=false){
   const EPOCH="2026-01-01";
   const _n=v=>parseFloat(v)||0;
@@ -8775,7 +8791,7 @@ function backfillCostiLotto(apply=false){
   if(!patch.size){ notify("Backfill: nessun carico da correggere","ok"); return {risolti:0,irrisolti:irr.length}; }
   movements=movements.map(m=> patch.has(m.id) ? {...m,prezzoAcqLotto:patch.get(m.id).p,_backfill:patch.get(m.id).src} : m);
   scheduleSave();
-  notify(`✅ Backfill: ${patch.size} carichi corretti, ${irr.length} irrisolti · totale fornitori +€${(totPost-totPre).toFixed(0)}`,"ok");
+  notify(`Backfill: ${patch.size} carichi corretti, ${irr.length} irrisolti · totale fornitori +€${(totPost-totPre).toFixed(0)}`,"ok");
   return {risolti:patch.size,irrisolti:irr.length,totPre,totPost};
 }
 
@@ -8828,7 +8844,7 @@ function listCarichiSospetti(mese){
 // Riclassifica i carichi indicati in `tipo:"rettifica"` (segno +): NON tocca giacenza né lotti
 // (le bottiglie restano in cantina, FIFO/COGS intatti al costo reale del lotto) — cambia
 // solo la classificazione, così i movimenti NON contano più come spesa/acquisto in
-// plancia, fornitori ed export. Questa è la via SICURA (il modale ✏️ ricalcola il FIFO
+// plancia, fornitori ed export. Questa è la via SICURA (il modale ricalcola il FIFO
 // e su carichi creati da UI può desincronizzare i lotti: non usarlo per convertire).
 //   convertiCaricoInCorrezione(["id1","id2"])        → DRY-RUN (nessuna scrittura)
 //   convertiCaricoInCorrezione(["id1","id2"], true)  → APPLICA (fa prima un backup JSON automatico)
@@ -8861,7 +8877,7 @@ function convertiCaricoInCorrezione(ids, apply=false){
     ? {...m,tipo:"rettifica",segno:"+",_rettificaDa:"carico",_rettificaTs:ts} : m);
   scheduleSave(); clearTimeout(saveTimer); _flushSave();
   const tolta=Object.values(perMese).reduce((s,v)=>s+v,0);
-  notify(`✅ ${target.length} carichi → correzione · spesa tolta €${tolta.toFixed(0)} (backup JSON scaricato)`,"ok");
+  notify(`${target.length} carichi → correzione · spesa tolta €${tolta.toFixed(0)} (backup JSON scaricato)`,"ok");
   if(section==="movimenti"||section==="dashboard") render();
   return {convertiti:target.length,saltati:skip.length,perMese};
 }
@@ -8945,7 +8961,7 @@ function ricostruisciOrdiniDaCarichi(mese, apply=false){
     numeroFattura:p.fatt||"",note:"Ricostruito da carichi",stato:"caricato",sconto:0,referenze:p.referenze}));
   orders=[...orders,...nuovi];
   scheduleSave(); clearTimeout(saveTimer); _flushSave();
-  notify(`✅ ${nuovi.length} ordini ricostruiti da ${carichi.length} carichi (backup scaricato)`,"ok");
+  notify(`${nuovi.length} ordini ricostruiti da ${carichi.length} carichi (backup scaricato)`,"ok");
   if(section==="ordini"||section==="dashboard") render();
   return {creati:nuovi.length,carichi:carichi.length};
 }
@@ -8967,7 +8983,7 @@ function backfillSku(apply=false){
   const map=Object.fromEntries(plan.map(p=>[p.id,p.sku]));
   wines=wines.map(w=> map[w.id]?{...w,sku:map[w.id]}:w );
   scheduleSave(); clearTimeout(saveTimer); _flushSave();
-  notify(`✅ SKU assegnati a ${plan.length} referenze (backup scaricato)`,"ok");
+  notify(`SKU assegnati a ${plan.length} referenze (backup scaricato)`,"ok");
   if(section==="inventario") render();
   return {assegnati:plan.length};
 }
@@ -9000,16 +9016,16 @@ function drillFornitore(encForn){
 
   const groupsHtml=groupArr.map(g=>{
     const ord=(ordByFatt[String(g.fattura).trim()]||[]);
-    const ordBadge=ord.length?`<span style="font-size:11px;padding:1px 7px;border-radius:4px;background:rgba(0,122,255,.14);border:1px solid rgba(0,122,255,.4);color:#7cc0ff;white-space:nowrap">🔗 ${ord.length} ordine${ord.length>1?"i":""} · ${h(_statoLabel[ord[0].stato]||ord[0].stato||"—")}</span>`
+    const ordBadge=ord.length?`<span style="font-size:11px;padding:1px 7px;border-radius:4px;background:rgba(0,122,255,.14);border:1px solid rgba(0,122,255,.4);color:#7cc0ff;white-space:nowrap">${ic("link")} ${ord.length} ordine${ord.length>1?"i":""} · ${h(_statoLabel[ord[0].stato]||ord[0].stato||"—")}</span>`
       : (g.fattura?`<span style="font-size:11px;padding:1px 7px;border-radius:4px;background:rgba(var(--amber-rgb,255,159,10),.1);border:1px solid rgba(var(--amber3-rgb,180,83,9),.4);color:var(--amber);white-space:nowrap">nessun ordine collegato</span>`:"");
     const righeHtml=g.righe.map(r=>`<div style="display:flex;gap:10px;align-items:baseline;padding:4px 0;font-size:13px;border-top:1px dashed var(--border)">
-        <span style="flex:1;min-width:0;color:var(--txt2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${h(r.vino)}${r.annata?` <span style="color:var(--txt4)">${h(r.annata)}</span>`:""}${r.manca?` <span title="costo lotto mancante: stima su costo scheda" style="color:var(--amber);font-size:11px">⚠</span>`:""}</span>
+        <span style="flex:1;min-width:0;color:var(--txt2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${h(r.vino)}${r.annata?` <span style="color:var(--txt4)">${h(r.annata)}</span>`:""}${r.manca?` <span title="costo lotto mancante: stima su costo scheda" style="color:var(--amber);font-size:11px">${ic("alert")}</span>`:""}</span>
         <span style="font-family:'Montserrat',sans-serif;color:var(--txt3);white-space:nowrap">${fmtN(r.qty,0)}bt × ${fmt(r.pAcq)}</span>
         <span style="font-family:'Montserrat',sans-serif;color:var(--amber);white-space:nowrap;min-width:70px;text-align:right">${fmt(r.imp)}</span>
       </div>`).join("");
     return `<div style="padding:10px 14px;border:1px solid var(--border);border-radius:8px;margin-bottom:10px;background:var(--bg2)">
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
-        <span style="font-size:13px;color:var(--txt1);font-weight:600">${g.fattura?("🧾 "+h(g.fattura)):"🧾 (senza fattura)"}</span>
+        <span style="font-size:13px;color:var(--txt1);font-weight:600">${g.fattura?(ic("receipt")+" "+h(g.fattura)):"(senza fattura)"}</span>
         <span style="font-size:12px;color:var(--txt4)">${h(g.data||"—")}</span>
         ${ordBadge}
         <span style="margin-left:auto;font-family:'Montserrat',sans-serif;color:var(--amber);font-size:.95rem">${fmt(g.tot)}</span>
@@ -9031,7 +9047,7 @@ function drillFornitore(encForn){
         <div style="font-size:1.2rem;color:var(--txt1);font-family:'Montserrat',sans-serif;font-weight:300">${h(forn)}</div>
         <div style="font-size:12px;color:var(--txt3);margin-top:4px">${fmt(tot)} · ${fmtN(bt,0)} bottiglie · ${groupArr.length} boll${groupArr.length===1?"a":"e"}/date</div>
       </div>
-      <button onclick="document.getElementById('forn-drill-backdrop').remove()" style="background:none;border:1px solid var(--border2);color:var(--txt3);font-size:16px;line-height:1;padding:4px 10px;cursor:pointer;border-radius:8px">✕</button>
+      <button onclick="document.getElementById('forn-drill-backdrop').remove()" style="background:none;border:1px solid var(--border2);color:var(--txt3);font-size:16px;line-height:1;padding:4px 10px;cursor:pointer;border-radius:8px">${ic("x")}</button>
     </div>
     <div style="max-height:60vh;overflow:auto">${groupsHtml||'<div style="padding:24px;text-align:center;color:var(--txt4);font-size:13px">Nessun carico trovato.</div>'}</div>
   </div>`;
@@ -9058,7 +9074,7 @@ function exportFornitoriCSV(){
     return [m.data||"",forn,clean(m.fattura||m.data||"—"),q,fmtN(tot,2)];
   });
   dlCSV(toCSV([headers,...rows,[],["","","TOTALE",tQ,fmtN(tT,2)]]),`fornitori_${EPOCH.slice(0,4)}_al_${dateStr.replace(/\//g,"-")}.csv`);
-  notify("📥 Report fornitori esportato");
+  notify("Report fornitori esportato");
 }
 function exportFallateCSV(){
   const dateStr=new Date().toLocaleDateString("it-IT");
@@ -9069,7 +9085,7 @@ function exportFallateCSV(){
   const rows=sorted.map(f=>{const w=wineMap[f.wineId];const p=parseFloat(w?.prezzoAcq)||0;const iva=parseInt(w?.iva)||22;const vc=p*f.qty;const iv=vc*(iva/100);tQ+=f.qty;tC+=vc;tI+=iv;return [f.data,f.wineName,f.produttore||"",w?.nazione||"",w?.tipologia||"",w?.annata||"",f.qty,fmtN(p),iva+"%",fmtN(vc),fmtN(iv),fmtN(vc+iv),f.motivo,f.note||""];});
   // M6: allinea riga totali alle 14 colonne dell'header (Data,Nome,Prod,Naz,Tipo,Annata,Qtà,Costo/bt,IVA%,ValCosto,IVAPerdita,Totale,Motivo,Note)
   dlCSV(toCSV([headers,...rows,[],["","","","","","",tQ,"","",fmtN(tC),fmtN(tI),fmtN(tC+tI),"",""]]),`registro_fallate_${dateStr.replace(/\//g,"-")}.csv`);
-  notify("📥 Fallate esportate");
+  notify("Fallate esportate");
 }
 function exportMovimentiCSV(){
   const dateStr=new Date().toLocaleDateString("it-IT");
@@ -9086,7 +9102,7 @@ function exportMovimentiCSV(){
     const srv=calcServizioMovimento(m);
     return [m.data,(m.tipo||"").toUpperCase(),m.fattura||"",m.fornitore||"",m.wineName,m.produttore||"",m.nazione||w?.nazione||"",w?.annata||"",_movVis(m).s+m.qty,fmtN(p),(parseInt(w?.iva)||22)+"%",fmtN(p*m.qty),m.tipo==="scarico"?fmtN(ric):"",srv?fmtN(srv):"",m.tipo==="scarico"?fmtN(ric+srv):"",m.note||""];});
   dlCSV(toCSV([headers,...rows]),`movimenti_${dateStr.replace(/\//g,"-")}.csv`);
-  notify("📥 Movimenti esportati");
+  notify("Movimenti esportati");
 }
 // ─── MODALITÀ MOBILE ─────────────────────────────────────────────────────────
 
@@ -9304,12 +9320,12 @@ function exportMovimentiCSV(){
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
   line-height: 1.25; word-break: break-word;
 }
-/* indicatore ❄ SOLA LETTURA nella lista scarico (toggle sta nella scheda Fresco) */
+/* indicatore SOLA LETTURA nella lista scarico (toggle sta nella scheda Fresco) */
 .mob-fresco-flag {
   display: inline-block; margin-left: 6px; font-size: .92em; vertical-align: baseline;
   color: #4fc3f7; text-shadow: 0 0 5px rgba(79,195,247,.6);
 }
-/* confirm scarico: da "Scarica" a ✓ compatto, ma tap target pieno */
+/* confirm scarico: da "Scarica" a compatto, ma tap target pieno */
 .mob-confirm-btn { min-width: 46px; padding: 0 12px; font-size: 20px; letter-spacing: 0; }
 
 /* ── SCHEDA FRESCO ── */
@@ -9357,7 +9373,7 @@ function enterMobileMode(){
   _mobActive = true;
   const _xb=document.getElementById("mob-exit-btn");
   if(_xb){
-    if(_isStaff()){ _xb.textContent="⎋ Esci"; _xb.title=authWhoAmI()||""; _xb.onclick=function(e){ e.preventDefault(); authSignOut(); }; }
+    if(_isStaff()){ _xb.textContent="Esci"; _xb.title=authWhoAmI()||""; _xb.onclick=function(e){ e.preventDefault(); authSignOut(); }; }
     else if(CONFIG.authEmail){ _xb.title=authWhoAmI()||""; }
   }
   document.getElementById("mob-screen").style.display = "flex";
@@ -9377,7 +9393,7 @@ function enterMobileMode(){
   } else {
     // Nessun dato locale: mostra messaggio di attesa esplicito
     const list = document.getElementById("mob-list");
-    if(list) list.innerHTML = `<div style="text-align:center;padding:48px 24px;color:var(--txt4);font-size:13px;line-height:2">⏳ Connessione a Supabase…<br><span style="font-size:12px;color:var(--txt4);opacity:.6">Attendere qualche secondo</span></div>`;
+    if(list) list.innerHTML = `<div style="text-align:center;padding:48px 24px;color:var(--txt4);font-size:13px;line-height:2">${ic("clock")} Connessione a Supabase…<br><span style="font-size:12px;color:var(--txt4);opacity:.6">Attendere qualche secondo</span></div>`;
   }
 }
 
@@ -9458,7 +9474,7 @@ function _renderMobList(){
         const canScarica = giac >= qty;
         html += `<div class="mob-wine-row" data-mob-id="${w.id}">
           <div class="mob-wine-info">
-            <div class="mob-wine-name">${h(w.nome)}${w.annata ? `<span class="mob-wine-annata"> ${h(w.annata)}</span>` : ""}${w.inFresco ? ` <span class="mob-fresco-flag" title="In fresco">\u2744\uFE0E</span>` : ""}</div>
+            <div class="mob-wine-name">${h(w.nome)}${w.annata ? `<span class="mob-wine-annata"> ${h(w.annata)}</span>` : ""}${w.inFresco ? ` <span class="mob-fresco-flag" title="In fresco">${ic("snow")}</span>` : ""}</div>
             ${w.produttore || w.denominazione ? `<div class="mob-wine-sub">${[w.produttore,w.denominazione].filter(Boolean).map(s=>h(s)).join(" — ")}</div>` : ""}
           </div>
           <div class="mob-wine-right">
@@ -9468,7 +9484,7 @@ function _renderMobList(){
               <span class="mob-step-val" id="mob-step-${w.id}">${qty}</span>
               <button class="mob-step-btn" onclick="mobStepChange('${w.id}',1)" aria-label="Aumenta">+</button>
             </div>
-            <button class="mob-confirm-btn${canScarica?"":" disabled"}" onclick="mobScaricaConfirm('${w.id}')" ${canScarica?"":"disabled"} aria-label="Scarica" title="Scarica">✓</button>
+            <button class="mob-confirm-btn${canScarica?"":" disabled"}" onclick="mobScaricaConfirm('${w.id}')" ${canScarica?"":"disabled"} aria-label="Scarica" title="Scarica">${ic("check")}</button>
           </div>
         </div>`;
       });
@@ -9679,7 +9695,7 @@ function _showMobToast(msg){
   const bar = document.getElementById("mob-toast-bar");
   if(!toast||!msgEl||!bar) return;
 
-  msgEl.textContent = (msg.startsWith("Scaricato") ? "⬇ " : "⬆ ") + msg;
+  msgEl.textContent = (msg.startsWith("Scaricato") ? "" : "") + msg;
   toast.classList.add("visible");
 
   // Barra da 100% a 0 sulla finestra di undo (MOB_UNDO_MS)
@@ -9722,7 +9738,7 @@ async function mobUndo(){
   // Log undo
   const ts = new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"});
   _mobLog = _mobLog.map(e => e.movId === movId ? {...e, annullato:true} : e);
-  _mobLog = [{ts, desc:"↩ Annullato", annullato:false, movId:null, wineId:null, qty:0}, ..._mobLog];
+  _mobLog = [{ts, desc:"Annullato", annullato:false, movId:null, wineId:null, qty:0}, ..._mobLog];
   _renderMobLog();
   _renderMobList();
   _renderMobStorico();
@@ -9752,9 +9768,9 @@ function _injectMobStoricoDom(){
   const tabBar = document.createElement("div");
   tabBar.id = "mob-tab-bar";
   tabBar.innerHTML = `
-    <button class="mob-tab-btn active" id="mob-tab-scarico" onclick="mobSwitchView('scarico')">🍾 Scarico</button>
-    <button class="mob-tab-btn" id="mob-tab-fresco" onclick="mobSwitchView('fresco')">❄ Fresco</button>
-    <button class="mob-tab-btn" id="mob-tab-storico" onclick="mobSwitchView('storico')">📋 Storico</button>`;
+    <button class="mob-tab-btn active" id="mob-tab-scarico" onclick="mobSwitchView('scarico')">${ic("bottle")} Scarico</button>
+    <button class="mob-tab-btn" id="mob-tab-fresco" onclick="mobSwitchView('fresco')">${ic("snow")} Fresco</button>
+    <button class="mob-tab-btn" id="mob-tab-storico" onclick="mobSwitchView('storico')">${ic("clipboard")} Storico</button>`;
 
   // Crea storico pane
   const storicoPaneHTML = `
@@ -9781,7 +9797,7 @@ function _injectMobStoricoDom(){
   // Inserisci storico pane dopo scarico pane
   scaricoPane.insertAdjacentHTML("afterend", storicoPaneHTML);
 
-  // Fresco pane (gestione ❄ in-fresco da mobile) — tra scarico e storico
+  // Fresco pane (gestione in-fresco da mobile) — tra scarico e storico
   const frescoPaneHTML = `
     <div id="mob-fresco-pane">
       <div class="mob-stor-header">
@@ -9875,7 +9891,7 @@ function _renderMobFrescoList(){
         ${w.produttore ? `<div class="mob-fresco-sub">${h(w.produttore)}</div>` : ""}
       </div>
       <button class="mob-fresco-toggle ${on?"on":"off"}" onclick="mobToggleFresco('${w.id}')" aria-pressed="${on}" aria-label="${on?"Servito in fresco":"Non in fresco"}">
-        <span class="fx">\u2744\uFE0E</span>
+        <span class="fx">${ic("snow")}</span>
       </button>
     </div>`;
   }).join("");
@@ -9888,14 +9904,14 @@ function mobToggleFresco(id){
   wines = wines.map(x => x.id === id ? {...x, inFresco: nv} : x);
   scheduleSave();
   _renderMobFrescoList();
-  _renderMobList(); // sincronizza il flag ❄ nella lista scarico
+  _renderMobList(); // sincronizza il flag nella lista scarico
 }
 
 function _updateStoricoBadge(){
   const tabStor = document.getElementById("mob-tab-storico");
   if(!tabStor) return;
   const count = _mobLog.filter(e => e.movId && !e.annullato).length;
-  tabStor.textContent = count > 0 ? `📋 Storico (${count})` : "📋 Storico";
+  tabStor.textContent = count > 0 ? `Storico (${count})` : "Storico";
 }
 
 function _renderMobStorico(){
@@ -9948,8 +9964,8 @@ function _renderMobStorico(){
       <div class="mob-stor-qty">${parseInt(m.qty)||0}</div>
       <div class="mob-stor-actions">
         ${annullabile
-          ? `<button class="mob-stor-btn mob-stor-btn-edit" onclick="mobOpenSheet('${m.id}')" title="Modifica">✏️</button>
-             <button class="mob-stor-btn mob-stor-btn-del" onclick="mobAnnullaStorico('${m.id}')" title="Annulla">✕</button>`
+          ? `<button class="mob-stor-btn mob-stor-btn-edit" onclick="mobOpenSheet('${m.id}')" title="Modifica">${ic("edit")}</button>
+             <button class="mob-stor-btn mob-stor-btn-del" onclick="mobAnnullaStorico('${m.id}')" title="Annulla">${ic("x")}</button>`
           : ``}
       </div>
     </div>`;
@@ -10021,7 +10037,7 @@ async function mobAnnullaStorico(movId){
   const wine = wines.find(w => w.id === wineId);
   const wineName = wine ? wine.nome : "";
   const ts = new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"});
-  _mobLog = [{ts, desc:`↩ Annullato: ${wineName}`, annullato:false, movId:null, wineId:null, qty:0}, ..._mobLog];
+  _mobLog = [{ts, desc:`Annullato: ${wineName}`, annullato:false, movId:null, wineId:null, qty:0}, ..._mobLog];
 
   _renderMobLog();
   _renderMobList();
@@ -10029,7 +10045,7 @@ async function mobAnnullaStorico(movId){
   updateSidebar();
 
   // Feedback toast
-  _showMobToast(`↩ Annullato: ${wineName}`);
+  _showMobToast(`Annullato: ${wineName}`);
 }
 
 function mobOpenSheet(movId){
@@ -10115,9 +10131,9 @@ function openMovModal(id){
       <div>
         <label class="form-label">Tipo</label>
         <select class="form-select" id="me-tipo">
-          <option value="carico" ${m.tipo==="carico"?"selected":""}>📦 Carico</option>
-          <option value="scarico" ${m.tipo==="scarico"?"selected":""}>🍾 Scarico</option>
-          ${_isRettifica(m.tipo)?'<option value="'+m.tipo+'" selected>🩹 Rettifica giacenza (± senza spesa)</option>':''}
+          <option value="carico" ${m.tipo==="carico"?"selected":""}>Carico</option>
+          <option value="scarico" ${m.tipo==="scarico"?"selected":""}>Scarico</option>
+          ${_isRettifica(m.tipo)?'<option value="'+m.tipo+'" selected>Rettifica giacenza (± senza spesa)</option>':''}
             ${m.tipo==="scarico-stornato"?'<option value="scarico-stornato" selected>Scarico stornato (nessun ricavo)</option>':''}
         </select>
       </div>
@@ -10173,7 +10189,7 @@ function saveMovEdit(){
   if(!_editMovId) return;
   const get = id => document.getElementById(id)?.value ?? "";
   const qty = parseInt(get("me-qty"))||0;
-  if(qty <= 0){ notify("⚠️ Inserisci una quantità valida","err"); return; }
+  if(qty <= 0){ notify("Inserisci una quantità valida","err"); return; }
 
   const oldMov = movements.find(m => m.id === _editMovId);
   const oldTipo = oldMov?.tipo;
@@ -10221,7 +10237,7 @@ function saveMovEdit(){
   scheduleSave();
   // PATCH: flush immediato — saveMovEdit modifica giacenza via FIFO replay
   clearTimeout(saveTimer); _flushSave();
-  notify("✅ Movimento aggiornato");
+  notify("Movimento aggiornato");
   render();
 }
 
@@ -10278,7 +10294,7 @@ function exportBilancioCSV(){
   const url=URL.createObjectURL(blob);
   Object.assign(document.createElement("a"),{href:url,download:`bilancio_cantina_${dateStr.replace(/\//g,"-")}.csv`}).click();
   URL.revokeObjectURL(url);
-  notify("📊 Bilancio completo esportato");
+  notify("Bilancio completo esportato");
 }
 
 // ─── BACKUP JSON ──────────────────────────────────────────────────────────────
@@ -10301,7 +10317,7 @@ function exportBackupJSON(){
     download: `cantina-backup-${dateStr}.json`
   }).click();
   URL.revokeObjectURL(url);
-  notify("💾 Backup esportato");
+  notify("Backup esportato");
 }
 
 // ─── IMPORT NAZIONI DA ODS/XLSX ──────────────────────────────────────────────
@@ -10326,14 +10342,14 @@ function importNazioniDaFile(event){
       const ws=wb.Sheets[wb.SheetNames[0]];
       const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:""});
       let hdrIdx=rows.findIndex(r=>r.some(c=>String(c).toLowerCase()==="nazione"));
-      if(hdrIdx<0){notify("⚠️ Colonna 'Nazione' non trovata nel file","err");return;}
+      if(hdrIdx<0){notify("Colonna 'Nazione' non trovata nel file","err");return;}
       const hdr=rows[hdrIdx].map(c=>String(c).toLowerCase().trim());
       const iNaz=hdr.indexOf("nazione");
       const iReg=hdr.indexOf("regione");
       const iDist=["distributore","distributor"].map(k=>hdr.indexOf(k)).find(i=>i>=0)??-1;
       const iProd=["produttore","producer"].map(k=>hdr.indexOf(k)).find(i=>i>=0)??-1;
       const iNome=["nome vino","nome","wine","vino"].map(k=>hdr.indexOf(k)).find(i=>i>=0)??-1;
-      if(iNaz<0||iProd<0||iNome<0){notify("⚠️ Colonne richieste non trovate (Produttore, Nome vino, Nazione)","err");return;}
+      if(iNaz<0||iProd<0||iNome<0){notify("Colonne richieste non trovate (Produttore, Nome vino, Nazione)","err");return;}
 
       // Build lookup maps: exact + normalized
       const lookup=new Map();       // "norm_prod§norm_nome" → entry
@@ -10378,11 +10394,11 @@ function importNazioniDaFile(event){
         return w;
       });
       scheduleSave(); render();
-      let msg=`✅ Nazioni aggiornate: ${updated} (exact) + ${updatedFallback} (solo nome)`;
-      if(notFound.length) msg+=` | ⚠️ Non trovati: ${notFound.length} (${notFound.slice(0,3).join(", ")}${notFound.length>3?"…":""})`;
+      let msg=`Nazioni aggiornate: ${updated} (exact) + ${updatedFallback} (solo nome)`;
+      if(notFound.length) msg+=` | Non trovati: ${notFound.length} (${notFound.slice(0,3).join(", ")}${notFound.length>3?"…":""})`;
       notify(msg, (updated+updatedFallback)>0?"ok":"warn");
-      if(notFound.length) notify(`⚠️ Non trovati nell'import: ${notFound.slice(0,5).join(", ")}${notFound.length>5?"…":""}`, "warn");
-    }catch(err){notify("❌ Errore lettura file: "+err.message,"err");}
+      if(notFound.length) notify(`Non trovati nell'import: ${notFound.slice(0,5).join(", ")}${notFound.length>5?"…":""}`, "warn");
+    }catch(err){notify("Errore lettura file: "+err.message,"err");}
   };
   reader.readAsArrayBuffer(file);
 }
@@ -10406,7 +10422,7 @@ function importBackupJSON(event){
       // _confirmModal è non-blocking: la catch gestisce solo il parse JSON
       _confirmModal(
         `Importare <strong>${data.wines.length} vini</strong>${mov?` e <strong>${mov.length} movimenti</strong>`:""}?<br><span style="font-size:12px;color:var(--txt4)">I dati esistenti verranno sostituiti.</span>`,
-        "📥 Importa",
+        ic("inbox")+" Importa",
         () => {
           wines = data.wines;
           if(mov) movements = mov;
@@ -10418,13 +10434,13 @@ function importBackupJSON(event){
           _migrateWines();
           scheduleSave();
           render();
-          notify(`✅ Importati ${wines.length} vini`);
+          notify(`Importati ${wines.length} vini`);
           event.target.value = '';
         },
         'danger'
       );
     } catch(err) {
-      notify("❌ Errore: " + err.message, "err");
+      notify("Errore: " + err.message, "err");
     }
     event.target.value = '';
   };
@@ -10454,7 +10470,7 @@ function saveNoteVeloce(){
   document.getElementById("note-veloce-backdrop").classList.add("hidden");
   _noteVeloceId = null;
   scheduleSave();
-  notify("📝 Nota salvata");
+  notify("Nota salvata");
   render();
 }
 
@@ -10611,7 +10627,7 @@ function _findDuplicateGroups(){
 function openDuplicatiModal(){
   _dupGroups = _findDuplicateGroups();
   if(_dupGroups.length === 0){
-    notify("✅ Nessun duplicato trovato nel database");
+    notify("Nessun duplicato trovato nel database");
     return;
   }
   _dupGroupIdx = 0;
@@ -10639,7 +10655,7 @@ function _renderDupModal(){
   document.getElementById("dup-next-btn").disabled = _dupGroupIdx === total-1;
 
   const badgeHtml = matchType === "exact"
-    ? `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600;background:rgba(48,209,88,.15);color:#30D158;letter-spacing:.06em">✓ ESATTO</span>`
+    ? `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600;background:rgba(48,209,88,.15);color:#30D158;letter-spacing:.06em">${ic("check")} ESATTO</span>`
     : `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600;background:rgba(var(--amber-rgb,255,159,10),.15);color:var(--amber);letter-spacing:.06em">~ FUZZY ${Math.round(score*100)}%</span>`;
 
   // Corpo: tabella dei vini nel gruppo con campi selezionabili
@@ -10670,7 +10686,7 @@ function _renderDupModal(){
     headerCols += `<th style="padding:8px 10px;text-align:left;min-width:180px">
       <div style="font-size:13px;color:var(--txt);font-weight:600">${h(w.nome)}</div>
       <div style="font-size:12px;color:var(--txt3);margin-top:2px">${h(w.produttore)}</div>
-      <div style="font-size:12px;color:var(--amber);margin-top:3px">⬢ ${giac} bt &nbsp;·&nbsp; ${movCount} mov.</div>
+      <div style="font-size:12px;color:var(--amber);margin-top:3px">${ic("hex")} ${giac} bt &nbsp;·&nbsp; ${movCount} mov.</div>
     </th>`;
   });
 
@@ -10787,13 +10803,13 @@ function mergeDuplicati(){
 
   // Rimuovi il gruppo fuso dalla lista e aggiorna il modal
   _dupGroups.splice(_dupGroupIdx, 1);
-  notify(`✅ Vini fusi — ${removeIds.length} duplicat${removeIds.length===1?"o":"i"} rimoss${removeIds.length===1?"o":"i"}`);
+  notify(`Vini fusi — ${removeIds.length} duplicat${removeIds.length===1?"o":"i"} rimoss${removeIds.length===1?"o":"i"}`);
 
   if(_dupGroups.length === 0){
     document.getElementById("dup-modal-backdrop").classList.add("hidden");
     _dupGroupIdx = 0;
     render();
-    notify("✅ Tutti i duplicati sono stati risolti");
+    notify("Tutti i duplicati sono stati risolti");
   } else {
     if(_dupGroupIdx >= _dupGroups.length) _dupGroupIdx = _dupGroups.length-1;
     _renderDupModal();
@@ -10883,10 +10899,10 @@ function _qtyDaOrdinare(w) {
  * Fallback offline: aggiunge agli ordini locali.
  */
 async function creaBasiOrdineDatiSelezionati() {
-  if (!selIds.size) { notify('⚠️ Nessun vino selezionato', 'err'); return; }
+  if (!selIds.size) { notify('Nessun vino selezionato', 'err'); return; }
 
   const viniSel = [...selIds].map(id => wines.find(w => w.id === id)).filter(Boolean);
-  if (!viniSel.length) { notify('⚠️ Vini non trovati', 'err'); return; }
+  if (!viniSel.length) { notify('Vini non trovati', 'err'); return; }
 
   // Raggruppa per distributore (fallback fornitore → "—")
   const byDist = {};
@@ -10973,12 +10989,12 @@ async function creaBasiOrdineDatiSelezionati() {
           totRighe += wNuovi.length;
         }
       }
-      notify(`✅ ${totRighe} righe aggiunte a ${Object.keys(byDist).length} bozze ordine`);
+      notify(`${totRighe} righe aggiunte a ${Object.keys(byDist).length} bozze ordine`);
       exitSel();
       await _loadBozzeSb(); // aggiorna il bridge così la sezione Ordini è subito allineata
     } catch(err) {
       console.error('creaBasiOrdine error:', err);
-      notify('❌ Errore: ' + (err.message || err), 'err');
+      notify('Errore: ' + (err.message || err), 'err');
     }
   } else {
     // ── OFFLINE: popola array locale orders ──────────────────────────────────
@@ -11007,7 +11023,7 @@ async function creaBasiOrdineDatiSelezionati() {
       });
     }
     scheduleSave();
-    notify(`📋 Bozze offline: ${Object.keys(byDist).length} distrib., vai in Ordini`);
+    notify(`Bozze offline: ${Object.keys(byDist).length} distrib., vai in Ordini`);
     exitSel();
     if (section === 'ordini') render();
   }
@@ -11018,14 +11034,14 @@ function openShortcutsModal(){
   const sections = [
     {
       label: 'Globali',
-      icon: '🌐',
+      icon: ic("globe"),
       rows: [
         ['Esc', 'Chiude qualsiasi modal aperto'],
       ]
     },
     {
       label: 'Inventario',
-      icon: '🍷',
+      icon: ic("glass"),
       note: 'Solo fuori dai campi di testo',
       rows: [
         ['↑ ↓', 'Naviga riga per riga, scrolla automaticamente'],
@@ -11034,12 +11050,12 @@ function openShortcutsModal(){
         ['N', 'Nuovo vino'],
         ['E', 'Modifica vino selezionato'],
         ['P', 'Nota veloce sul vino selezionato'],
-        ['Del / ⌫', 'Elimina vino selezionato'],
+        ['Del /', 'Elimina vino selezionato'],
       ]
     },
     {
       label: 'Movimenti',
-      icon: '📦',
+      icon: ic("box"),
       rows: [
         ['Ctrl + Enter', 'Registra carico / scarico'],
       ]
@@ -11223,7 +11239,7 @@ document.addEventListener('keydown', function(e){
     const t = since ? " · in attesa da "+_minutes(Date.now()-since)+" min" : "";
     _bannerEl.style.background = offline ? "#8a1420" : (since ? "#8a5b14" : "#14603a");
     _bannerEl.innerHTML =
-      (offline ? "🔌 Offline" : "⏳ Da sincronizzare") +
+      (offline ? ic("plug")+" Offline" : ic("clock")+" Da sincronizzare") +
       (n ? " · "+n+" moviment"+(n===1?"o":"i") : "") + t +
       (navigator.onLine
         ? ' <button id="cm-ob-retry" style="margin-left:10px;padding:5px 12px;border:1px solid rgba(255,255,255,.5);background:transparent;color:#fff;border-radius:6px;cursor:pointer;font:inherit">Invia ora</button>'
@@ -11294,7 +11310,7 @@ document.addEventListener('keydown', function(e){
       if(rv === null || rv <= _localVersion) return;
       await _rebaseOnRemote();
       _renderIfIdle();
-      notify("🔄 Aggiornato con le modifiche di un'altra postazione");
+      notify("Aggiornato con le modifiche di un'altra postazione");
     }catch{}
   }, 25000);
 })();
@@ -11371,7 +11387,7 @@ function _tfSelAll(on){ if(on) _tfResults().forEach(w=>_tfSel.add(w.id)); else _
 function _tfAddOne(id){ _tfAddIds([id]); }
 function _tfAddSelected(){
   const ids=_tfResults().filter(w=>_tfSel.has(w.id)).map(w=>w.id);
-  if(!ids.length){ notify("⚠️ Nessuna referenza selezionata","err"); return; }
+  if(!ids.length){ notify("Nessuna referenza selezionata","err"); return; }
   _tfAddIds(ids);
 }
 function _tfAddIds(ids){
@@ -11388,9 +11404,9 @@ function _tfAddIds(ids){
     else { _tfCart.push({wineId:id,qty:Math.min(g,1)}); added++; }
     _tfSel.delete(id);
   });
-  if(added) notify(`➕ ${added} referenz${added===1?"a aggiunta":"e aggiunte"} all'invio`);
-  else if(skipped) notify(`⚠️ ${skipped} referenz${skipped===1?"a senza giacenza":"e senza giacenza"}: usa "📄 Solo scheda" per inviare la sola anagrafica`,"err");
-  else notify("➕ Quantità aggiornata");
+  if(added) notify(`${added} referenz${added===1?"a aggiunta":"e aggiunte"} all'invio`);
+  else if(skipped) notify(`${skipped} referenz${skipped===1?"a senza giacenza":"e senza giacenza"}: usa "Solo scheda" per inviare la sola anagrafica`,"err");
+  else notify("Quantità aggiornata");
   _tfRenderResults(); _tfRenderCart();
 }
 function _tfSetQty(id,v){
@@ -11470,38 +11486,38 @@ function renderTrasferimenti(){
   if(!_tfMeta.data) _tfMeta.data=today();
   return `
   <div class="card" style="margin-bottom:20px;border-color:rgba(90,200,250,.35)">
-    <div style="font-size:12px;letter-spacing:.25em;text-transform:uppercase;color:#5AC8FA;margin-bottom:4px">🔄 Trasferimenti tra locali</div>
+    <div style="font-size:12px;letter-spacing:.25em;text-transform:uppercase;color:#5AC8FA;margin-bottom:4px">${ic("refresh")} Trasferimenti tra locali</div>
     <div style="font-size:13px;color:var(--txt3)">Costo-neutro · isolamento totale · nessun impatto su acquisti, ricavi e P&amp;L. Cerca le referenze, componi l'invio, genera il manifesto e passalo al locale ricevente.</div>
   </div>
 
   <div class="card" style="margin-bottom:20px">
-    <div style="font-size:12px;letter-spacing:.25em;text-transform:uppercase;color:var(--txt2);margin-bottom:12px">📤 Nuovo invio</div>
-    <input id="tf-q" class="form-input" style="width:100%" placeholder="🔍 Cerca referenza: nome, produttore, annata, vitigno, regione, SKU…"
+    <div style="font-size:12px;letter-spacing:.25em;text-transform:uppercase;color:var(--txt2);margin-bottom:12px">${ic("upload")} Nuovo invio</div>
+    <input id="tf-q" class="form-input" style="width:100%" placeholder="Cerca referenza: nome, produttore, annata, vitigno, regione, SKU…"
       value="${h(_tfQ)}" oninput="_tfSetQ(this.value)" autocomplete="off">
     <div id="tf-results" style="margin-top:10px">${_tfResultsHtml()}</div>
     <div id="tf-cart" style="margin-top:18px">${_tfCartHtml()}</div>
   </div>
 
   <div class="card" style="margin-bottom:20px">
-    <div style="font-size:12px;letter-spacing:.25em;text-transform:uppercase;color:var(--txt2);margin-bottom:10px">📥 Ricevi un manifesto</div>
+    <div style="font-size:12px;letter-spacing:.25em;text-transform:uppercase;color:var(--txt2);margin-bottom:10px">${ic("inbox")} Ricevi un manifesto</div>
     <textarea id="tf-ricev" class="form-input" style="width:100%;height:90px;font-family:monospace;font-size:12px;resize:vertical"
       placeholder="Incolla qui il codice manifesto (base64 o JSON)…" oninput="_tfRicevPreview()"></textarea>
     <div style="display:flex;align-items:center;gap:10px;margin-top:8px;flex-wrap:wrap">
       <label class="btn-outline btn-sm" style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;padding:6px 12px">
-        📁 Carica file .json <input type="file" accept=".json,.txt" onchange="_tfRicevFile(event)" style="display:none"></label>
-      <button class="btn-primary btn-sm" id="tf-ricev-btn" onclick="_tfConfermaRicevi()" disabled style="opacity:.4;pointer-events:none">📥 Importa</button>
+        ${ic("folder")} Carica file .json <input type="file" accept=".json,.txt" onchange="_tfRicevFile(event)" style="display:none"></label>
+      <button class="btn-primary btn-sm" id="tf-ricev-btn" onclick="_tfConfermaRicevi()" disabled style="opacity:.4;pointer-events:none">${ic("inbox")} Importa</button>
     </div>
     <div id="tf-ricev-preview" style="margin-top:12px;font-size:13px;color:var(--txt2)"></div>
   </div>
 
   <div class="card">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px">
-      <div style="font-size:12px;letter-spacing:.25em;text-transform:uppercase;color:var(--txt2)">🗂️ Storico trasferimenti</div>
+      <div style="font-size:12px;letter-spacing:.25em;text-transform:uppercase;color:var(--txt2)">${ic("folder")} Storico trasferimenti</div>
       <button class="btn-outline btn-sm" onclick="_tfExportStoricoCSV()">↓ Esporta CSV</button>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
-      <input id="tf-hist-q" class="form-input" style="flex:1;min-width:200px" placeholder="🔍 Filtra storico: locale, referenza, data, nota…" value="${h(_tfHistQ)}" oninput="_tfHistSetQ(this.value)" autocomplete="off">
-      ${["tutti","inviati","ricevuti"].map(t=>`<button class="btn-outline btn-sm" onclick="_tfHistSetTab('${t}')" style="${_tfHistTab===t?"border-color:#5AC8FA;color:#5AC8FA":""}">${t==="tutti"?"Tutti":t==="inviati"?"📤 Inviati":"📥 Ricevuti"}</button>`).join("")}
+      <input id="tf-hist-q" class="form-input" style="flex:1;min-width:200px" placeholder="Filtra storico: locale, referenza, data, nota…" value="${h(_tfHistQ)}" oninput="_tfHistSetQ(this.value)" autocomplete="off">
+      ${["tutti","inviati","ricevuti"].map(t=>`<button class="btn-outline btn-sm" onclick="_tfHistSetTab('${t}')" style="${_tfHistTab===t?"border-color:#5AC8FA;color:#5AC8FA":""}">${t==="tutti"?"Tutti":t==="inviati"?ic("upload")+" Inviati":ic("inbox")+" Ricevuti"}</button>`).join("")}
     </div>
     <div id="tf-hist">${_tfHistHtml()}</div>
   </div>`;
@@ -11531,7 +11547,7 @@ function _tfResultsHtml(){
       <span style="font-size:12px;color:var(--txt4)">${res.length} risultat${res.length===1?"o":"i"}${res.length===80?" (primi 80)":""}</span>
       <button class="btn-outline btn-sm" style="padding:2px 8px;font-size:12px" onclick="_tfSelAll(true)">Seleziona tutti</button>
       <button class="btn-outline btn-sm" style="padding:2px 8px;font-size:12px" onclick="_tfSelAll(false)">Deseleziona</button>
-      <button class="btn-primary btn-sm" style="padding:2px 10px;font-size:12px;${nSel?"":"opacity:.4;pointer-events:none"}" onclick="_tfAddSelected()">➕ Aggiungi selezionati (${nSel})</button>
+      <button class="btn-primary btn-sm" style="padding:2px 10px;font-size:12px;${nSel?"":"opacity:.4;pointer-events:none"}" onclick="_tfAddSelected()">${ic("plus")} Aggiungi selezionati (${nSel})</button>
     </div>
     <div style="max-height:340px;overflow:auto;border:1px solid var(--border)">${rows}</div>`;
 }
@@ -11563,20 +11579,20 @@ function _tfSetMode(m){
 function _tfCartHtml(){
   const dl=_tfDestKnown();
   const scheda=_tfMeta.mode==="scheda";
-  const modeSw=`<div style="display:flex;gap:6px;margin-bottom:12px"><button class="btn-outline btn-sm" style="${!scheda?"border-color:#5AC8FA;color:#5AC8FA":""}" onclick="_tfSetMode('bottiglie')">📦 Bottiglie</button><button class="btn-outline btn-sm" style="${scheda?"border-color:#5AC8FA;color:#5AC8FA":""}" onclick="_tfSetMode('scheda')">📄 Solo scheda</button></div>`;
-  const head=`<div style="font-size:12px;letter-spacing:.25em;text-transform:uppercase;color:var(--txt2);margin-bottom:8px">📦 Invio in preparazione</div>`+modeSw;
+  const modeSw=`<div style="display:flex;gap:6px;margin-bottom:12px"><button class="btn-outline btn-sm" style="${!scheda?"border-color:#5AC8FA;color:#5AC8FA":""}" onclick="_tfSetMode('bottiglie')">${ic("box")} Bottiglie</button><button class="btn-outline btn-sm" style="${scheda?"border-color:#5AC8FA;color:#5AC8FA":""}" onclick="_tfSetMode('scheda')">${ic("file")} Solo scheda</button></div>`;
+  const head=`<div style="font-size:12px;letter-spacing:.25em;text-transform:uppercase;color:var(--txt2);margin-bottom:8px">${ic("box")} Invio in preparazione</div>`+modeSw;
   if(!_tfCart.length) return head+`<div style="font-size:12px;color:var(--txt4)">Nessuna referenza nell'invio. Cerca qui sopra e aggiungi con ＋ o in blocco.</div>`;
   let tot=0, err=false;
   const rows=_tfCart.map(l=>{
     const w=wines.find(x=>x.id===l.wineId);
     const g=parseInt(w?.giacenza)||0, q=parseInt(l.qty)||0;
     if(!scheda){ tot+=q; if(q<=0||q>g) err=true; }
-    const qtyCell=scheda?`<span style="font-size:12px;padding:2px 8px;border:1px solid #3a86a8;color:#5AC8FA;white-space:nowrap">📄 scheda</span>`:`<button class="btn-outline btn-sm" style="padding:2px 7px" onclick="_tfStepQty('${l.wineId}',-1)">−</button><input class="form-input" type="number" min="1" max="${g}" step="1" value="${q}" onfocus="this.select()" oninput="_tfSetQtySoft('${l.wineId}',this.value)" onchange="_tfSetQty('${l.wineId}',this.value)" style="width:64px;display:inline-block;text-align:center;margin:0 4px"><button class="btn-outline btn-sm" style="padding:2px 7px" onclick="_tfStepQty('${l.wineId}',1)">＋</button>`;
+    const qtyCell=scheda?`<span style="font-size:12px;padding:2px 8px;border:1px solid #3a86a8;color:#5AC8FA;white-space:nowrap">${ic("file")} scheda</span>`:`<button class="btn-outline btn-sm" style="padding:2px 7px" onclick="_tfStepQty('${l.wineId}',-1)">−</button><input class="form-input" type="number" min="1" max="${g}" step="1" value="${q}" onfocus="this.select()" oninput="_tfSetQtySoft('${l.wineId}',this.value)" onchange="_tfSetQty('${l.wineId}',this.value)" style="width:64px;display:inline-block;text-align:center;margin:0 4px"><button class="btn-outline btn-sm" style="padding:2px 7px" onclick="_tfStepQty('${l.wineId}',1)">＋</button>`;
     return `<tr>
       <td style="padding:6px 8px">${h(w?.nome||"?")}${w?.annata?` <span style="color:var(--amber)">${h(w.annata)}</span>`:""}<div style="font-size:12px;color:var(--txt3)">${h(w?.produttore||"")}</div></td>
       <td class="r" style="padding:6px 8px;color:var(--txt3);white-space:nowrap">${g}bt</td>
       <td class="r" style="padding:6px 8px;white-space:nowrap">${qtyCell}</td>
-      <td class="c" style="padding:6px 8px"><button class="btn-outline btn-sm" style="padding:2px 8px;border-color:rgba(255,69,58,.4);color:#FF6B6B" onclick="_tfRemove('${l.wineId}')">✕</button></td>
+      <td class="c" style="padding:6px 8px"><button class="btn-outline btn-sm" style="padding:2px 8px;border-color:rgba(255,69,58,.4);color:#FF6B6B" onclick="_tfRemove('${l.wineId}')">${ic("x")}</button></td>
     </tr>`;
   }).join("");
   const ready=_tfReady();
@@ -11600,7 +11616,7 @@ function _tfCartHtml(){
       <div style="font-size:12px;color:${err?"#FF453A":"var(--txt3)"}">${footer}</div>
       <div style="display:flex;gap:8px">
         <button class="btn-outline btn-sm" onclick="_tfClearCart()">Svuota</button>
-        <button class="btn-primary" id="tf-genera" style="${ready?"":"opacity:.4;pointer-events:none"}" onclick="_tfGenera()">${scheda?"📄 Genera manifesto schede":"📦 Genera manifesto"}</button>
+        <button class="btn-primary" id="tf-genera" style="${ready?"":"opacity:.4;pointer-events:none"}" onclick="_tfGenera()">${scheda?ic("file")+" Genera manifesto schede":ic("box")+" Genera manifesto"}</button>
       </div>
     </div>`;
 }
@@ -11636,30 +11652,30 @@ function _tfManifestLine(w,qty,snap){
 function _tfGenera(){
   if(!_syncGate("Carico da fattura")) return;
   const dest=(_tfMeta.dest||"").trim();
-  if(!dest){ notify("⚠️ Indica il locale destinazione","err"); return; }
-  if(!_tfCart.length){ notify("⚠️ Nessuna referenza nell'invio","err"); return; }
+  if(!dest){ notify("Indica il locale destinazione","err"); return; }
+  if(!_tfCart.length){ notify("Nessuna referenza nell'invio","err"); return; }
   const data=_tfMeta.data||today();
   const note=(_tfMeta.note||"").trim();
   if(_tfMeta.mode==="scheda"){
     const lines=[];
     for(const l of _tfCart){
       const w=wines.find(x=>x.id===l.wineId);
-      if(!w){ notify("⚠️ Referenza non trovata, rimuovila dall'invio","err"); return; }
+      if(!w){ notify("Referenza non trovata, rimuovila dall'invio","err"); return; }
       lines.push(_tfSchedaLine(w));
     }
     const manifest={v:TRANSFER_MANIFEST_V,type:"cantina-transfer",mode:"scheda",transferId:uid(),
       from:NOME_LOCALE,fromDbUser:_effectiveDbUser(),dest,data,note,lines};
     _tfCart=[]; _tfMeta={dest:"",data:today(),note:"",mode:"scheda"}; _tfSel.clear(); _tfQ="";
-    notify(`📄 ${lines.length} schede pronte per ${dest} (nessuna bottiglia spostata)`);
+    notify(`${lines.length} schede pronte per ${dest} (nessuna bottiglia spostata)`);
     render(); _tfShowManifesto(manifest); return;
   }
   const prepared=[];
   for(const l of _tfCart){
     const w=wines.find(x=>x.id===l.wineId);
-    if(!w){ notify("⚠️ Referenza non trovata, rimuovila dall'invio","err"); return; }
+    if(!w){ notify("Referenza non trovata, rimuovila dall'invio","err"); return; }
     const q=parseInt(l.qty)||0, g=parseInt(w.giacenza)||0;
-    if(q<=0){ notify(`⚠️ Quantità non valida su ${w.nome}`,"err"); return; }
-    if(q>g){ notify(`⚠️ Giacenza insufficiente su ${w.nome} (${g} disponibili)`,"err"); return; }
+    if(q<=0){ notify(`Quantità non valida su ${w.nome}`,"err"); return; }
+    if(q>g){ notify(`Giacenza insufficiente su ${w.nome} (${g} disponibili)`,"err"); return; }
     prepared.push({w,q});
   }
   const transferId=uid();
@@ -11683,7 +11699,7 @@ function _tfGenera(){
   const manifest={v:TRANSFER_MANIFEST_V,type:"cantina-transfer",transferId,
     from:NOME_LOCALE,fromDbUser:_effectiveDbUser(),dest,data,note,lines};
   _tfCart=[]; _tfMeta={dest:"",data:today(),note:"",mode:"bottiglie"}; _tfSel.clear(); _tfQ="";
-  notify(`📤 Trasferimento registrato: ${tot}bt → ${dest}`);
+  notify(`Trasferimento registrato: ${tot}bt → ${dest}`);
   render();
   _tfShowManifesto(manifest);
 }
@@ -11695,9 +11711,9 @@ function _tfManifestFromGroup(g){
 }
 function _tfShowManifestoGroup(key){
   const g=_tfHistory().find(x=>x.key===key);
-  if(!g){ notify("⚠️ Trasferimento non trovato","err"); return; }
+  if(!g){ notify("Trasferimento non trovato","err"); return; }
   const man=_tfManifestFromGroup(g);
-  if(!man){ notify("⚠️ Manifesto non ricostruibile (trasferimento antecedente all'aggiornamento)","err"); return; }
+  if(!man){ notify("Manifesto non ricostruibile (trasferimento antecedente all'aggiornamento)","err"); return; }
   _tfShowManifesto(man);
 }
 function _tfShowManifesto(manifest){
@@ -11713,17 +11729,17 @@ function _tfShowManifesto(manifest){
   bd.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);z-index:41;display:flex;align-items:center;justify-content:center;padding:16px";
   bd.innerHTML=`
     <div class="modal" style="max-width:560px" onclick="event.stopPropagation()">
-      <div class="modal-header"><h2>✅ Manifesto pronto</h2>
-        <button style="font-size:18px;color:var(--txt3)" onclick="document.getElementById('man-backdrop').remove()">✕</button></div>
+      <div class="modal-header"><h2>${ic("checkCircle")} Manifesto pronto</h2>
+        <button style="font-size:18px;color:var(--txt3)" onclick="document.getElementById('man-backdrop').remove()">${ic("x")}</button></div>
       <div class="modal-body">
-        <div style="font-size:13px;color:var(--txt2);margin-bottom:10px">${isOrdine?`🛒 Ordine <b>${h(manifest.ordine?.fornitore||"")}</b> · `:""}${manifest.lines.length} referenze · ${isScheda?"solo schede · nessuna bottiglia":tot+"bt"}${isOrdine?" da ordinare":""} → <b>${h(manifest.dest||"destinazione")}</b>. Consegna questo codice al locale ricevente (incolla in <b>Ricevi</b>) oppure scarica il file.</div>
-        <div style="max-height:130px;overflow:auto;border:1px solid var(--border);margin-bottom:10px">${manifest.lines.map(l=>`<div style="padding:4px 8px;border-bottom:1px solid var(--border);font-size:12px">${isScheda?"📄":`${parseInt(l.qty)||0}bt`} · <b>${h(l.nome)}</b>${l.annata?" "+h(l.annata):""} — ${h(l.produttore||"")}</div>`).join("")}</div>
+        <div style="font-size:13px;color:var(--txt2);margin-bottom:10px">${isOrdine?`${ic("cart")} Ordine <b>${h(manifest.ordine?.fornitore||"")}</b> · `:""}${manifest.lines.length} referenze · ${isScheda?"solo schede · nessuna bottiglia":tot+"bt"}${isOrdine?" da ordinare":""} → <b>${h(manifest.dest||"destinazione")}</b>. Consegna questo codice al locale ricevente (incolla in <b>Ricevi</b>) oppure scarica il file.</div>
+        <div style="max-height:130px;overflow:auto;border:1px solid var(--border);margin-bottom:10px">${manifest.lines.map(l=>`<div style="padding:4px 8px;border-bottom:1px solid var(--border);font-size:12px">${isScheda?ic("file"):`${parseInt(l.qty)||0}bt`} · <b>${h(l.nome)}</b>${l.annata?" "+h(l.annata):""} — ${h(l.produttore||"")}</div>`).join("")}</div>
         <textarea id="man-b64" readonly class="form-input" style="width:100%;height:110px;font-family:monospace;font-size:12px;resize:vertical" onclick="this.select()">${b64}</textarea>
         <div style="font-size:12px;color:var(--txt4);margin-top:6px">transferId: ${h(manifest.transferId)}</div>
       </div>
       <div class="modal-footer">
-        <button class="btn-outline" onclick="navigator.clipboard.writeText(document.getElementById('man-b64').value).then(()=>notify('📋 Codice copiato'))">📋 Copia codice</button>
-        <button class="btn-primary" onclick="_downloadManifesto(${JSON.stringify(fname)})">💾 Scarica .json</button>
+        <button class="btn-outline" onclick="navigator.clipboard.writeText(document.getElementById('man-b64').value).then(()=>notify('Codice copiato'))">${ic("clipboard")} Copia codice</button>
+        <button class="btn-primary" onclick="_downloadManifesto(${JSON.stringify(fname)})">${ic("save")} Scarica .json</button>
       </div>
     </div>`;
   bd._json=json;
@@ -11757,11 +11773,11 @@ function _ordManifestRef(r){
   };
 }
 function inviaOrdineAdAltroLocale(id){
-  if(!CONFIG.trasferimenti){ notify("⚠️ Trasferimenti non attivi su questo locale","err"); return; }
+  if(!CONFIG.trasferimenti){ notify("Trasferimenti non attivi su questo locale","err"); return; }
   const src=(orders||[]).find(o=>o.id===id) || (_bozzeSb||[]).find(b=>b.id===id);
   if(!src){ notify("Ordine non trovato","err"); return; }
   const refs=(src.referenze||(src.righe||[]).map(_refFromRigaSb)||[]).map(_ordManifestRef).filter(r=>r.nomeVino);
-  if(!refs.length){ notify("⚠️ Ordine senza referenze","err"); return; }
+  if(!refs.length){ notify("Ordine senza referenze","err"); return; }
   const dest=(prompt("Locale destinazione (es. Palinurobar):", "")||"").trim();
   if(!dest) return;
   const manifest={
@@ -11775,7 +11791,7 @@ function inviaOrdineAdAltroLocale(id){
   _tfShowManifesto(manifest);
 }
 function _ordImportaManifesto(man){
-  if((orders||[]).some(o=>o._importId===man.transferId)){ notify("⚠️ Ordine già importato","err"); return; }
+  if((orders||[]).some(o=>o._importId===man.transferId)){ notify("Ordine già importato","err"); return; }
   const o=man.ordine||{};
   const refs=(o.referenze||[]).filter(r=>r&&r.nomeVino).map(r=>{
     const fmt=String(parseFloat(r.formato)||0.75);
@@ -11789,7 +11805,7 @@ function _ordImportaManifesto(man){
       && String(parseFloat(w.formato)||0.75)===fmt)||{}).id||"";
     return {..._ordManifestRef(r), id:uid(), wineId};
   });
-  if(!refs.length){ notify("⚠️ Manifesto ordine senza referenze","err"); return; }
+  if(!refs.length){ notify("Manifesto ordine senza referenze","err"); return; }
   orders.push({ id:uid(), fornitore:o.fornitore||"", dataOrdine:o.dataOrdine||today(),
     note:[o.note,`importato da ${man.from||"altro locale"}`].filter(Boolean).join(" · "),
     sconto:parseFloat(o.sconto)||0, referenze:refs, stato:"attesa",
@@ -11797,7 +11813,7 @@ function _ordImportaManifesto(man){
   scheduleSave();
   try{ clearTimeout(saveTimer); _flushSave(); }catch{}
   const ta=document.getElementById("tf-ricev"); if(ta) ta.value="";
-  notify(`🛒 Ordine importato da ${man.from||"altro locale"} — ${refs.length} referenze, in attesa`);
+  notify(`Ordine importato da ${man.from||"altro locale"} — ${refs.length} referenze, in attesa`);
   go("ordini");
 }
 
@@ -11835,11 +11851,11 @@ function _tfRicevPreview(){
     const tot=(o.referenze||[]).reduce((s2,r)=>s2+(parseInt(r.qty)||0),0);
     const rows=(o.referenze||[]).map(r=>`<div style="padding:4px 0;border-bottom:1px solid var(--border)">${parseInt(r.qty)||0}bt · <b>${h(r.nomeVino||"?")}</b>${r.annata?" "+h(r.annata):""} — ${h(r.produttore||"")}</div>`).join("");
     if(el) el.innerHTML=`
-      <div style="margin-bottom:8px">🛒 <b>Ordine</b> da <b>${h(man.from||"?")}</b> · fornitore <b>${h(o.fornitore||"—")}</b> · ${h(_fmtDataIT(o.dataOrdine||man.data||""))} · ${(o.referenze||[]).length} referenze · ${tot}bt${o.sconto?` · sconto ${o.sconto}%`:""}</div>
+      <div style="margin-bottom:8px">${ic("cart")} <b>Ordine</b> da <b>${h(man.from||"?")}</b> · fornitore <b>${h(o.fornitore||"—")}</b> · ${h(_fmtDataIT(o.dataOrdine||man.data||""))} · ${(o.referenze||[]).length} referenze · ${tot}bt${o.sconto?` · sconto ${o.sconto}%`:""}</div>
       ${rows}
       <div style="margin-top:8px;font-size:12px;color:var(--txt4)">Verrà creato un ordine <b>in attesa</b>. Nessuna giacenza e nessun costo finché non confermi l'arrivo.</div>
-      ${dup?`<div style="margin-top:10px;color:#fb923c">⚠️ Ordine già importato (transferId ${h(String(man.transferId).slice(0,8))})</div>`:""}
-      ${self?`<div style="margin-top:10px;color:#FF453A">⚠️ Manifesto generato da questa stessa cantina</div>`:""}`;
+      ${dup?`<div style="margin-top:10px;color:#fb923c">${ic("alert")} Ordine già importato (transferId ${h(String(man.transferId).slice(0,8))})</div>`:""}
+      ${self?`<div style="margin-top:10px;color:#FF453A">${ic("alert")} Manifesto generato da questa stessa cantina</div>`:""}`;
     enable(!dup && !self); return;
   }
   if(man.mode==="scheda"){
@@ -11849,9 +11865,9 @@ function _tfRicevPreview(){
       return `<div style="padding:4px 0;border-bottom:1px solid var(--border)"><b>${h(l.nome)}</b>${l.annata?" "+h(l.annata):""} — ${h(l.produttore||"")} <span style="color:${known?"var(--txt4)":"#30D158"};font-size:12px">${known?"· già presente":"· clona scheda"}</span></div>`;
     }).join("");
     if(el) el.innerHTML=`
-      <div style="margin-bottom:8px">📄 Solo schede · da <b>${h(man.from||"?")}</b> · ${h(_fmtDataIT(man.data||""))} · ${man.lines.length} referenze · nessuna bottiglia${man.note?" · "+h(man.note):""}</div>
+      <div style="margin-bottom:8px">${ic("file")} Solo schede · da <b>${h(man.from||"?")}</b> · ${h(_fmtDataIT(man.data||""))} · ${man.lines.length} referenze · nessuna bottiglia${man.note?" · "+h(man.note):""}</div>
       ${rows}
-      ${self?`<div style="margin-top:10px;color:#FF453A">⚠️ Manifesto generato da questa stessa cantina</div>`:""}`;
+      ${self?`<div style="margin-top:10px;color:#FF453A">${ic("alert")} Manifesto generato da questa stessa cantina</div>`:""}`;
     enable(!self); return;
   }
   const dup=movements.some(m=>m.tipo==="trasferimento-entrata"&&m.transferId===man.transferId);
@@ -11865,19 +11881,19 @@ function _tfRicevPreview(){
   if(el) el.innerHTML=`
     <div style="margin-bottom:8px">Da <b>${h(man.from||"?")}</b> · ${h(_fmtDataIT(man.data||""))} · ${man.lines.length} referenze · ${tot}bt${man.note?" · "+h(man.note):""}</div>
     ${rows}
-    ${dup?`<div style="margin-top:10px;color:#fb923c">⚠️ Trasferimento già ricevuto (transferId ${h(String(man.transferId).slice(0,8))}) — reimportazione bloccata</div>`:""}
-    ${self?`<div style="margin-top:10px;color:#FF453A">⚠️ Questo manifesto è stato generato da questa stessa cantina — importarlo duplicherebbe le bottiglie</div>`:""}`;
+    ${dup?`<div style="margin-top:10px;color:#fb923c">${ic("alert")} Trasferimento già ricevuto (transferId ${h(String(man.transferId).slice(0,8))}) — reimportazione bloccata</div>`:""}
+    ${self?`<div style="margin-top:10px;color:#FF453A">${ic("alert")} Questo manifesto è stato generato da questa stessa cantina — importarlo duplicherebbe le bottiglie</div>`:""}`;
   enable(!dup && !self);
 }
 function _tfConfermaRicevi(){
   if(!_syncGate("Importazione fattura")) return;
   const raw=document.getElementById("tf-ricev")?.value||"";
   const man=_parseManifesto(raw);
-  if(!man){ notify("⚠️ Manifesto non valido","err"); return; }
-  if(man.fromDbUser && man.fromDbUser===_effectiveDbUser()){ notify("⚠️ Manifesto emesso da questa stessa cantina","err"); return; }
+  if(!man){ notify("Manifesto non valido","err"); return; }
+  if(man.fromDbUser && man.fromDbUser===_effectiveDbUser()){ notify("Manifesto emesso da questa stessa cantina","err"); return; }
   if(man.type==="cantina-order"){ _ordImportaManifesto(man); return; }
   if(movements.some(m=>m.tipo==="trasferimento-entrata"&&m.transferId===man.transferId)){
-    notify("⚠️ Trasferimento già ricevuto","err"); return;
+    notify("Trasferimento già ricevuto","err"); return;
   }
   if(man.mode==="scheda"){
     let clonate=0, presenti=0, arricchite=0;
@@ -11895,8 +11911,8 @@ function _tfConfermaRicevi(){
       wines=[...wines,_tfSchedaCreate(line)]; clonate++;
     });
     const coda=(presenti?` · ${presenti} già presenti`:"")+(arricchite?` · ${arricchite} completate`:"");
-    if(clonate===0 && arricchite===0){ notify(`📄 Nessuna scheda nuova: ${presenti} già presenti`); }
-    else { scheduleSave(); clearTimeout(saveTimer); _flushSave(); notify(`📄 ${clonate} schede clonate${coda}`); }
+    if(clonate===0 && arricchite===0){ notify(`Nessuna scheda nuova: ${presenti} già presenti`); }
+    else { scheduleSave(); clearTimeout(saveTimer); _flushSave(); notify(`${clonate} schede clonate${coda}`); }
     if(section==="trasferimenti") render(); else if(section==="inventario") renderInventarioOnly(); else render();
     return;
   }
@@ -11933,10 +11949,10 @@ function _tfConfermaRicevi(){
       origine:"trasferimento",transferId:man.transferId,from:man.from||"",transferNote:man.note||"",tLine:line});
     totBt+=qtyLine;
   });
-  if(totBt===0){ notify("⚠️ Nessuna riga valida nel manifesto","err"); return; }
+  if(totBt===0){ notify("Nessuna riga valida nel manifesto","err"); return; }
   movements=[...newMovs,...movements];
   scheduleSave(); clearTimeout(saveTimer); _flushSave();
-  notify(`📥 Ricevuti ${totBt}bt · ${updated} referenze aggiornate, ${created} nuove`);
+  notify(`Ricevuti ${totBt}bt · ${updated} referenze aggiornate, ${created} nuove`);
   if(section==="trasferimenti") render();
   else if(section==="inventario") renderInventarioOnly(); else render();
 }
@@ -11955,12 +11971,12 @@ function _tfHistHtml(){
           <span style="color:${col};white-space:nowrap">${out?"−":"+"}${l.qty}bt</span></div>`).join("")}
         <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
           <span style="font-size:12px;color:var(--txt4)">ID ${h(String(g.transferId).slice(0,8))}</span>
-          ${out?`<button class="btn-outline btn-sm" style="padding:2px 8px;font-size:12px" onclick="_tfShowManifestoGroup('${g.key}')">📋 Rivedi manifesto</button>`:""}
+          ${out?`<button class="btn-outline btn-sm" style="padding:2px 8px;font-size:12px" onclick="_tfShowManifestoGroup('${g.key}')">${ic("clipboard")} Rivedi manifesto</button>`:""}
         </div></div>`:"";
     return `<div style="border:1px solid var(--border);border-left:2px solid ${col};padding:10px 12px;margin-bottom:8px">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;cursor:pointer" onclick="_tfToggleOpen('${g.key}')">
         <div style="min-width:0">
-          <div style="font-size:13px;color:var(--txt)"><span style="color:${col}">${out?"📤 Inviato a":"📥 Ricevuto da"}</span> <b>${h(g.controparte||"—")}</b></div>
+          <div style="font-size:13px;color:var(--txt)"><span style="color:${col}">${out?ic("upload")+" Inviato a":ic("inbox")+" Ricevuto da"}</span> <b>${h(g.controparte||"—")}</b></div>
           <div style="font-size:12px;color:var(--txt3)">${h(_fmtDataIT(g.data))} · ${g.lines.length} referenze${g.note?" · "+h(g.note):""}</div>
         </div>
         <div style="font-family:'Montserrat',sans-serif;font-size:1.05rem;color:${col};white-space:nowrap">${out?"−":"+"}${g.tot}bt <span style="font-size:12px;color:var(--txt4)">${open?"▲":"▼"}</span></div>
@@ -11971,14 +11987,14 @@ function _tfRenderHist(){ const el=document.getElementById("tf-hist"); if(el) el
 
 function _tfExportStoricoCSV(){
   const gs=_tfHistFiltered();
-  if(!gs.length){ notify("⚠️ Nessun trasferimento da esportare","err"); return; }
+  if(!gs.length){ notify("Nessun trasferimento da esportare","err"); return; }
   const headers=["Data","Direzione","Locale","Referenza","Produttore","Annata","Bottiglie","Nota","TransferID"];
   const rows=[];
   gs.forEach(g=>g.lines.forEach(l=>rows.push([
     g.data,g.dir==="out"?"INVIATO":"RICEVUTO",g.controparte||"",l.nome,l.produttore||"",l.annata||"",
     (g.dir==="out"?"-":"+")+l.qty,g.note||"",g.transferId])));
   dlCSV(toCSV([headers,...rows]),`trasferimenti_${new Date().toLocaleDateString("it-IT").replace(/\//g,"-")}.csv`);
-  notify("📥 Storico trasferimenti esportato");
+  notify("Storico trasferimenti esportato");
 }
 
 // Registrazione voce di menu + titolo sezione: la differenza tra i tre locali
@@ -11989,7 +12005,7 @@ function _tfExportStoricoCSV(){
 // diventava irraggiungibile. Ora: ricerca su piu' selettori + ritentativi.
 function _tfInstallNav(){
   if(!CONFIG.trasferimenti) return true;
-  SECTION_TITLES.trasferimenti="🔄 Trasferimenti";
+  SECTION_TITLES.trasferimenti="Trasferimenti";
   const nav=document.getElementById("sidebar-nav")
     || document.querySelector('.sidebar-nav, #sidebar nav, nav.sidebar, #sidebar')
     || (document.querySelector('.nav-btn')||{}).parentNode;
@@ -12000,7 +12016,7 @@ function _tfInstallNav(){
   btn.setAttribute("data-section","trasferimenti");
   btn.setAttribute("data-label","Trasferimenti");
   btn.setAttribute("onclick","go('trasferimenti')");
-  btn.innerHTML='<span class="nav-icon">🔄</span><span class="nav-btn-label"> Trasferimenti</span>';
+  btn.innerHTML='<span class="nav-icon">'+ic("refresh")+'</span><span class="nav-btn-label"> Trasferimenti</span>';
   const ref=nav.querySelector('[data-section="export"]');
   if(ref) ref.parentNode.insertBefore(btn,ref); else nav.appendChild(btn);
   return true;
@@ -12196,7 +12212,7 @@ function renderAmministrazione(){
 
   if(!_fattTableOk){
     html += `<div class="card" style="margin-bottom:16px;border-left:3px solid var(--orange)">
-      <div style="font-size:13px;color:var(--txt2)">⚠️ Tabella <code>cm_fatture</code> non raggiungibile su questo progetto Supabase.
+      <div style="font-size:13px;color:var(--txt2)">${ic("alert")} Tabella <code>cm_fatture</code> non raggiungibile su questo progetto Supabase.
       Le fatture sono salvate <strong>solo su questo computer</strong> finché non viene creata.
       Va creata con lo stesso SQL delle altre tabelle blob.</div></div>`;
   }
@@ -12257,9 +12273,9 @@ function renderAmministrazione(){
               <td class="r" style="font-family:'Montserrat',sans-serif;color:${res>0?m.col:"var(--txt4)"}">${res>0?fmt(res):"—"}</td>
               <td><span style="color:${m.col};font-size:12px;letter-spacing:.08em;text-transform:uppercase">${m.lbl}</span></td>
               <td style="white-space:nowrap">
-                ${st!=="soluto"?`<button class="btn-outline btn-sm" onclick="amSaldaFattura('${f.id}')" title="Segna saldata">✓</button>`:""}
-                <button class="btn-outline btn-sm" onclick="amModificaFattura('${f.id}')" title="Modifica">✎</button>
-                <button class="btn-outline btn-sm" onclick="amEliminaFattura('${f.id}')" title="Elimina">🗑</button>
+                ${st!=="soluto"?`<button class="btn-outline btn-sm" onclick="amSaldaFattura('${f.id}')" title="Segna saldata">${ic("check")}</button>`:""}
+                <button class="btn-outline btn-sm" onclick="amModificaFattura('${f.id}')" title="Modifica">${ic("edit")}</button>
+                <button class="btn-outline btn-sm" onclick="amEliminaFattura('${f.id}')" title="Elimina">${ic("trash")}</button>
               </td></tr>`;
           }).join("")}
       </tbody></table></div></div>`;
@@ -12302,7 +12318,7 @@ function _amRenderForm(){
     .sort((a,b)=>String(b.dataOrdine||"").localeCompare(String(a.dataOrdine||"")))
     .slice(0,60);
   return `<div class="card" style="margin-bottom:16px;border-left:3px solid var(--amber)">
-    <div class="section-label"><span>${f._nuova?"➕ Nuova fattura":"✎ Modifica fattura"}</span></div>
+    <div class="section-label"><span>${f._nuova?ic("plus")+" Nuova fattura":ic("edit")+" Modifica fattura"}</span></div>
     ${f._nuova?`<div class="form-row" style="margin-bottom:12px">
       <label class="form-label">Collega a un ordine (facoltativo — precompila i campi)</label>
       <select class="form-select" onchange="amPrefillDaOrdine(this.value)">
@@ -12336,7 +12352,7 @@ function _amRenderForm(){
     <div class="form-row" style="margin-top:10px"><label class="form-label">Note</label>
       <input class="form-input" value="${h(f.note||"")}" placeholder="es. fattura cartacea 2023, bonifico 15/03…" oninput="amForm.note=this.value"></div>
     <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
-      <button class="btn-primary" onclick="amSalvaFattura()">💾 Salva fattura</button>
+      <button class="btn-primary" onclick="amSalvaFattura()">${ic("save")} Salva fattura</button>
       <button class="btn-outline" onclick="amAnnullaForm()">Annulla</button>
     </div>
   </div>`;
@@ -12391,7 +12407,7 @@ function amSalvaFattura(){
   if(i >= 0) fatture[i] = rec; else fatture = [...(fatture||[]), rec];
   amForm = null;
   _amPersist();
-  notify(i>=0 ? "✅ Fattura aggiornata" : "✅ Fattura registrata");
+  notify(i>=0 ? "Fattura aggiornata" : "Fattura registrata");
   render();
 }
 
@@ -12400,11 +12416,11 @@ function amSaldaFattura(id){
   _confirmModal(
     `Segnare come <strong>saldata</strong> la fattura ${h(f.numero||"—")} di ${h(f.fornitore||"—")} da ${fmt(_fattTotale(f))}?<br>
      <span style="color:var(--txt3);font-size:13px">Residuo attuale ${fmt(_fattResiduo(f))}. La data di pagamento sarà oggi.</span>`,
-    "✓ Segna saldata",
+    ic("check")+" Segna saldata",
     ()=>{
       f.importoPagato = _fattTotale(f);
       f.dataPagamento = f.dataPagamento || today();
-      _amPersist(); notify("✅ Fattura saldata"); render();
+      _amPersist(); notify("Fattura saldata"); render();
     }
   );
 }
@@ -12412,7 +12428,7 @@ function amEliminaFattura(id){
   const f = (fatture||[]).find(x=>x.id===id); if(!f) return;
   _confirmModal(
     `Eliminare la fattura ${h(f.numero||"—")} di <strong>${h(f.fornitore||"—")}</strong> da ${fmt(_fattTotale(f))}?`,
-    "🗑 Elimina",
+    ic("trash")+" Elimina",
     ()=>{ fatture = fatture.filter(x=>x.id!==id); _amPersist(); notify("Fattura eliminata"); render(); },
     "danger"
   );
@@ -12693,7 +12709,7 @@ function amExportCSV(){
     try{
       const ts=new Date().toISOString().replace(/[:.]/g,"-");
       localStorage.setItem(_lsKey("wines_backup_"+ts), JSON.stringify(wines));
-      console.log("💾 backup salvato:", _lsKey("wines_backup_"+ts));
+      console.log("backup salvato:", _lsKey("wines_backup_"+ts));
     }catch(e){ console.warn("backup fallito", e); }
   }
   function _flush(){
@@ -12709,12 +12725,12 @@ function amExportCSV(){
       if(g!==s) bad.push({sku:w.sku||"—", ref:`${w.produttore||""} ${w.nome||""} ${w.annata||""}`.trim(), giacenza:g, sommaLotti:s, delta:g-s});
     });
     console.table(bad);
-    console.log(`⚠️ ${bad.length} referenze con giacenza ≠ Σlots (su ${(wines||[]).length}).`);
+    console.log(`${bad.length} referenze con giacenza ≠ Σlots (su ${(wines||[]).length}).`);
     if(opts.fix && bad.length){
       _backup();
       wines.forEach(w=>{ const g=parseInt(w.giacenza)||0; if(g!==_sumLots(w.lots)) w.lots=_healLotsToGiac(w.lots,g,{prezzoAcq:parseFloat(w.prezzoAcq)||0,iva:w.iva||22}); });
       _flush();
-      console.log("✅ invariante ripristinata su tutte le referenze + flush.");
+      console.log("invariante ripristinata su tutte le referenze + flush.");
     }
     return bad;
   };
@@ -12726,11 +12742,11 @@ function amExportCSV(){
     corr.forEach(c=>{
       const m=_resolve(c);
       if(m.length!==1){
-        report.push({ref:`${c.produttore||""} ${c.nome||""} ${c.annata||""} ${c.formato||""}`.trim(), esito:m.length===0?"❌ non trovato":`⚠️ ambiguo (${m.length})`, da:"—", a:c.giac});
+        report.push({ref:`${c.produttore||""} ${c.nome||""} ${c.annata||""} ${c.formato||""}`.trim(), esito:m.length===0?"non trovato":`ambiguo (${m.length})`, da:"—", a:c.giac});
         return;
       }
       const w=m[0], g0=parseInt(w.giacenza)||0, s0=_sumLots(w.lots);
-      report.push({ref:`${w.produttore||""} ${w.nome||""} ${w.annata||""}`.trim(), sku:w.sku||"—", giacPrima:g0, lotPrima:s0, giacDopo:c.giac, deltaLotti:c.giac-s0, esito:"✅ ok"});
+      report.push({ref:`${w.produttore||""} ${w.nome||""} ${w.annata||""}`.trim(), sku:w.sku||"—", giacPrima:g0, lotPrima:s0, giacDopo:c.giac, deltaLotti:c.giac-s0, esito:"ok"});
       targets.push({w, giac:c.giac});
     });
     console.table(report);
@@ -12740,7 +12756,7 @@ function amExportCSV(){
       _backup();
       targets.forEach(({w,giac})=>{ w.giacenza=giac; w.lots=_healLotsToGiac(w.lots, giac, {prezzoAcq:parseFloat(w.prezzoAcq)||0, iva:w.iva||22}); });
       _flush();
-      console.log("✅ correzioni applicate + flush. Verifica con __cmAuditGiac().");
+      console.log("correzioni applicate + flush. Verifica con __cmAuditGiac().");
     } else if(!apply){
       console.log("Nessuna modifica scritta. Per applicare: __cmFixGiac(null,{apply:true})");
     }
@@ -12983,7 +12999,7 @@ function _acInit(root){
       const apertoDopo=(new Set(CONFIG.giorniApertura||[0,1,2,3,4,5,6])).has(_parseD(nuova).getDay()) && !_isChiuso(nuova);
       void apertoDopo;
       report.push({vino:m.wineName||"—", qty:m.qty, da:d, a:nuova,
-        origine:_isMobileMov(m)?"mobile":"altro", avviso:apertoDopo?"":"⚠️ giorno chiuso/non di apertura"});
+        origine:_isMobileMov(m)?"mobile":"altro", avviso:apertoDopo?"":"giorno chiuso/non di apertura"});
       targets.push({m, nuova});
     });
     console.table(report);
@@ -12992,7 +13008,7 @@ function _acInit(root){
     try{
       const ts=new Date().toISOString().replace(/[:.]/g,"-");
       localStorage.setItem(_lsKey("movements_backup_"+ts), JSON.stringify(movements));
-      console.log("💾 backup salvato:", _lsKey("movements_backup_"+ts));
+      console.log("backup salvato:", _lsKey("movements_backup_"+ts));
     }catch(e){ console.warn("backup fallito", e); }
     targets.forEach(({m,nuova})=>{
       m.data=nuova;
@@ -13004,7 +13020,7 @@ function _acInit(root){
     movements=[...movements];
     try{ scheduleSave(); if(typeof saveTimer!=="undefined") clearTimeout(saveTimer); _flushSave(); }
     catch(e){ console.warn("flush fallito", e); }
-    console.log("✅ date riallineate + flush. Ricarica la pagina per aggiornare i KPI.");
+    console.log("date riallineate + flush. Ricarica la pagina per aggiornare i KPI.");
     return report;
   };
 })();
@@ -13042,7 +13058,7 @@ function _acInit(root){
       const ts=new Date().toISOString().replace(/[:.]/g,"-");
       localStorage.setItem(_lsKey("wines_backup_"+ts), JSON.stringify(wines));
       localStorage.setItem(_lsKey("movements_backup_"+ts), JSON.stringify(movements));
-      console.log("💾 backup salvato:", _lsKey("wines_backup_"+ts));
+      console.log("backup salvato:", _lsKey("wines_backup_"+ts));
     }catch(e){ console.warn("backup fallito", e); }
     const nuovi=[];
     azioni.forEach(({w,delta,target})=>{
@@ -13070,7 +13086,7 @@ function _acInit(root){
     });
     try{ scheduleSave(); clearTimeout(saveTimer); _flushSave(); }
     catch(e){ console.warn("flush fallito", e); }
-    console.log(`✅ ${n} rettifiche scritte nel ledger + flush. Ricarica la pagina.`);
+    console.log(`${n} rettifiche scritte nel ledger + flush. Ricarica la pagina.`);
     return report;
   };
 })();
@@ -13098,7 +13114,7 @@ function _acInit(root){
     righe.sort((a,b)=>b.seed-a.seed);
     const bt=righe.reduce((a,r)=>a+r.seed,0);
     const tot=(wines||[]).reduce((a,w)=>a+(parseInt(w.giacenza)||0),0);
-    console.log(`📊 ${righe.length} referenze poggiano sul seed · ${bt} bottiglie non ricostruibili su ${tot} totali (${tot?Math.round(bt/tot*100):0}%).`);
+    console.log(`${righe.length} referenze poggiano sul seed · ${bt} bottiglie non ricostruibili su ${tot} totali (${tot?Math.round(bt/tot*100):0}%).`);
     if(opts.csv){
       const csv=["sku;referenza;giacenza;da_seed;da_movimenti;id",
         ...righe.map(r=>[r.sku,r.ref,r.giacenza,r.seed,r.daMovimenti,r.id].join(";"))].join("\n");
@@ -13151,7 +13167,7 @@ function _acInit(root){
     try{
       const k=new Date().toISOString().replace(/[:.]/g,"-");
       localStorage.setItem(_lsKey("movements_backup_"+k), JSON.stringify(movements));
-      console.log("💾 backup salvato:", _lsKey("movements_backup_"+k));
+      console.log("backup salvato:", _lsKey("movements_backup_"+k));
     }catch(e){ console.warn("backup fallito", e); }
     const nuovi=azioni.map(a=>({ id:uid(), wineId:a.w.id, wineName:a.w.nome, produttore:a.w.produttore||"",
       nazione:a.w.nazione||"", tipo:"rettifica", qty:a.buco, segno:"+", data:a.data,
@@ -13164,12 +13180,12 @@ function _acInit(root){
       // Tripwire: l'allineamento non deve MAI spostare una giacenza. Si annulla.
       movements=movements.filter(m=>!nuovi.includes(m));
       _reconcileGiacenze({silent:true});
-      console.error("⛔ Annullato: "+cambiate.length+" giacenze sarebbero cambiate.", cambiate.map(w=>w.nome));
+      console.error("Annullato: "+cambiate.length+" giacenze sarebbero cambiate.", cambiate.map(w=>w.nome));
       return report;
     }
     try{ scheduleSave(); if(typeof saveTimer!=="undefined") clearTimeout(saveTimer); _flushSave(); }
     catch(e){ console.warn("flush fallito", e); }
-    console.log(`✅ ${nuovi.length} rettifiche di allineamento scritte nel ledger + flush. Giacenze invariate.`);
+    console.log(`${nuovi.length} rettifiche di allineamento scritte nel ledger + flush. Giacenze invariate.`);
     return report;
   };
 })();
