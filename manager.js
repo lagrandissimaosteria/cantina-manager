@@ -4688,16 +4688,15 @@ function _ultimoGiornoServizio(dataISO){
 }
 // Regole, in ordine:
 //  1. prima di CONFIG.oraStacco (default 5) si sta ancora chiudendo la serata
-//     in corso → giorno precedente, qualunque sia il giorno;
-//  2. giorno con TURNO DIURNO (pranzo, CONFIG.turniDiurni) → giorno stesso;
-//  3. altrimenti → ultimo giorno di servizio precedente.
+//     in corso → ultimo giorno di servizio precedente;
+//  2. altrimenti → giorno stesso (scarico fatto a fine servizio, la sera stessa).
 function _dataServizioDefault(ref){
   const d = ref instanceof Date ? new Date(ref) : new Date();
   if(CONFIG.attribuzioneSerataPrec===false) return _isoD(d);
   const stacco = CONFIG.oraStacco==null ? 5 : (parseInt(CONFIG.oraStacco)||0);
   if(d.getHours() < stacco) return _ultimoGiornoServizio(_isoD(_shiftD(d,-1)));
-  if(_turniDiurniSet().has(d.getDay())) return _isoD(d);
-  return _ultimoGiornoServizio(_isoD(_shiftD(d,-1)));
+  // Da ottobre 2026 lo scarico si fa la sera stessa: dopo lo stacco compete al giorno corrente.
+  return _isoD(d);
 }
 // Etichetta breve per la UI: "Serata di ven 12/09" / "Pranzo di dom 14/09".
 function _labelGiornataServizio(dataISO){
