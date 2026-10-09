@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Cantina Manager — Osteria Lagrandissima</title>
+<title>Cantina · Osteria Lagrandissima</title>
 <link rel="icon" type="image/png" href="favicon.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<meta name="theme-color" content="#2E4D6A">
+<meta name="theme-color" content="#11171D">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600&family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
@@ -452,6 +452,87 @@ html:has(#mob-screen[style*="flex"]) body{background:var(--n-50);color:var(--ink
 .mob-acc-header{background:var(--n-100)!important}
 .db-dot.ok{background:var(--green)!important}
 </style>
+
+<!-- ══ OSTERIA LAGRANDISSIMA · IDENTITÀ 2026 ══
+     Logo vettoriale + Archivo (largo e pesante per numeri e titoli, come il
+     lettering del logo; normale per il resto). Niente corsivi, vetri, bagliori.
+     Palette per ambienti poco illuminati: fondo blu notte, testo avorio caldo
+     (meno abbagliante del bianco), un solo accento sabbia. Vale anche su mobile. -->
+<style id="lg-brand">
+:root,html:has(#mob-screen[style*="flex"]){
+  --font-sans:'Archivo',system-ui,-apple-system,'Helvetica Neue',Arial,sans-serif;
+  --font-serif:var(--font-sans);
+  --navy:#2E4D6A;
+  --bg:#11171D;--bg2:#182028;--bg3:#212B35;--border:#26313C;--border2:#34424F;
+  --txt:#ECE5D8;--txt1:#ECE5D8;--txt2:#D7D0C2;--txt3:#A39C8F;--txt4:#7F796E;
+  --amber:#E2C98F;--amber2:#D6B972;--amber3:#B89B5E;--amber4:#5A4A2A;
+  --amber-rgb:226,201,143;--amber3-rgb:184,155,94;
+  --amber-glow:0 0 0 3px rgba(226,201,143,.22);
+  --accent:#8FB0CC;--accent2:#6E93B3;--blue:#8FB0CC;
+  --green:#7FBF8E;--red:#E57A6E;--orange:#E0A458;
+  --glass:#141B22;--glass-border:#26313C;
+  --shadow-sm:none;--shadow-md:0 6px 20px rgba(0,0,0,.35);--shadow-lg:0 12px 36px rgba(0,0,0,.45);
+  --ink:#ECE5D8;--n-50:#11171D;--n-100:#212B35;--n-200:#34424F;--n-500:#8FB0CC;--n-700:#E2C98F;--n-900:#ECE5D8;
+  color-scheme:dark;
+}
+html:has(#mob-screen[style*="flex"]) body,body{background:var(--bg);color:var(--txt);font-family:var(--font-sans);-webkit-font-smoothing:antialiased}
+*{font-style:normal!important}
+::selection{background:rgba(226,201,143,.3);color:var(--txt)}
+input,select,textarea,button{font-family:var(--font-sans)}
+
+/* Superfici piene: via vetri, sfumature e bagliori */
+#sidebar,#topbar{background:var(--glass)!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;box-shadow:none!important}
+.login-bg{background:var(--bg)!important;background-image:none!important}
+.login-bg::before{display:none}
+.login-card{box-shadow:none!important;border-color:var(--border)!important}
+.modal{box-shadow:var(--shadow-lg)!important;border-color:var(--border)!important}
+
+/* Marchio */
+.brand-mark{height:1.25em;width:auto;display:inline-block;vertical-align:middle;flex-shrink:0}
+.brand-wordmark{display:block;width:100%;max-width:168px;height:auto}
+.sidebar-logo{padding:22px 18px 16px!important}
+.sidebar-logo h1{display:block!important}
+.sidebar-logo p{font-family:var(--font-sans)!important;font-size:10px!important;font-weight:600!important;letter-spacing:.2em!important;text-transform:uppercase;color:var(--txt3)!important;padding-left:0!important;margin-top:10px!important}
+#sidebar.collapsed .brand-wordmark{display:none}
+#sidebar:not(.collapsed) .sidebar-logo .brand-mark{display:none}
+.login-logo{display:flex;flex-direction:column;align-items:center;gap:16px}
+.login-logo-icon{width:auto!important;height:auto!important;background:none!important;border:0!important;box-shadow:none!important;margin:0!important;border-radius:0!important}
+.login-logo-icon img{height:64px!important;width:auto}
+.login-logo .brand-wordmark{max-width:280px}
+.login-logo h1{font-family:var(--font-sans)!important;font-size:12px!important;font-weight:600!important;letter-spacing:.24em!important;text-transform:uppercase;color:var(--txt3)!important}
+.login-logo p{display:none}
+
+/* Numeri e titoli: Archivo largo e pesante, l'eco del lettering del logo */
+.kpi-val,.giacenza-big,.calc-val,.mob-giacenza,.inv-table .giacenza-big{font-family:var(--font-sans)!important;font-weight:800!important;font-stretch:118%;letter-spacing:-.01em}
+.modal-header h2,#topbar h1{font-family:var(--font-sans)!important;font-weight:800!important;font-stretch:115%;letter-spacing:-.005em}
+.ss-label{font-family:var(--font-sans)!important;font-size:11px!important;color:var(--txt3)!important}
+.section-label em{font-family:var(--font-sans)!important;font-weight:700;font-stretch:112%;color:var(--txt)!important}
+
+/* Bottone primario: sabbia su testo scuro, leggibile al buio */
+.btn-primary{background:var(--amber)!important;color:#14110B!important}
+.btn-primary:hover{background:var(--amber2)!important}
+
+/* Mobile: scuro anche qui (in sala/cantina la luce è bassa) */
+#mob-screen{background:var(--bg)!important;color:var(--txt)!important}
+#mob-topbar{background:var(--glass)!important;border-bottom:1px solid var(--border)!important;color:var(--txt)}
+#mob-topbar-row1 h2,#mob-topbar-row1 h2 *,#mob-db-label{color:var(--txt)!important}
+#mob-topbar input{background:var(--bg3)!important;border:1px solid var(--border2)!important;color:var(--txt)!important}
+#mob-topbar input::placeholder{color:var(--txt4)}
+#mob-topbar button,#mob-exit-btn{background:transparent!important;border:1px solid var(--border2)!important;color:var(--txt2)!important}
+#mob-log{background:var(--bg2)!important;color:var(--txt3)!important}
+#mob-tab-bar{background:var(--glass)!important;border-color:var(--border)!important}
+.mob-wine-row:active{background:rgba(226,201,143,.08)}
+.mob-btn-minus{background:rgba(229,122,110,.1);border-color:rgba(229,122,110,.35);color:var(--red)}
+.mob-btn-plus{background:rgba(127,191,142,.1);border-color:rgba(127,191,142,.35);color:var(--green)}
+#mob-toast{background:var(--bg3)!important;color:var(--txt)!important;border-color:var(--amber3)!important}
+#mob-toast-undo{background:var(--amber)!important;color:#14110B!important}
+.mob-stepper{background:var(--bg3)!important;border-color:var(--border2)!important}
+.mob-step-btn{color:var(--txt)!important}
+.mob-step-btn:active{background:var(--bg2)!important}
+.mob-step-val{background:var(--bg2)!important;color:var(--txt)!important}
+.mob-confirm-btn{background:var(--amber)!important;border-color:var(--amber)!important;color:#14110B!important}
+.mob-acc-header{background:var(--bg2)!important}
+</style>
 </head>
 <body>
 
@@ -459,8 +540,9 @@ html:has(#mob-screen[style*="flex"]) body{background:var(--n-50);color:var(--ink
 <div id="login-screen" class="login-bg">
   <div class="login-box">
     <div class="login-logo">
-      <div class="login-logo-icon"><img src="logo-mark.png" alt="Osteria Lagrandissima"></div>
-      <h1>Cantina Manager</h1>
+      <div class="login-logo-icon"><img src="alga.svg" alt=""></div>
+      <img class="brand-wordmark" src="logo.svg" alt="Osteria Lagrandissima">
+      <h1>Cantina</h1>
       <p>Gestione Professionale</p>
     </div>
     <div class="login-card">
@@ -487,8 +569,8 @@ html:has(#mob-screen[style*="flex"]) body{background:var(--n-50);color:var(--ink
   <!-- SIDEBAR -->
   <div id="sidebar">
     <div class="sidebar-logo">
-      <h1><img class="brand-mark" src="logo-mark.png" alt=""> <span class="nav-btn-label">Cantina</span></h1>
-      <p class="nav-btn-label">Osteria Lagrandissima</p>
+      <h1><img class="brand-mark" src="alga.svg" alt=""><img class="brand-wordmark" src="logo.svg" alt="Osteria Lagrandissima"></h1>
+      <p class="nav-btn-label">Cantina</p>
     </div>
     <nav id="sidebar-nav">
       <button class="nav-btn active" data-section="dashboard" data-label="Plancia" onclick="go('dashboard')"><span class="nav-icon"><svg class="ic" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></span><span class="nav-btn-label"> Plancia</span></button>
@@ -570,7 +652,7 @@ html:has(#mob-screen[style*="flex"]) body{background:var(--n-50);color:var(--ink
 <div id="mob-screen">
   <div id="mob-topbar">
     <div id="mob-topbar-row1">
-      <h2><img class="brand-mark" src="logo-mark.png" alt=""> Inventario Rapido</h2>
+      <h2><img class="brand-mark" src="alga.svg" alt=""> Inventario rapido</h2>
       <div style="display:flex;align-items:center;gap:8px">
         <div id="mob-db-status"><span class="db-dot off" id="mob-db-dot"></span><span id="mob-db-label">DB</span></div>
         <button id="mob-exit-btn" onclick="exitMobileMode()"><svg class="ic" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v6H4V6h6"/></svg> Desktop</button>
