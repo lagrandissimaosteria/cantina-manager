@@ -3829,12 +3829,29 @@ function _plSec1Direzione(D){
       ${_plBigCard("Margine teorico medio",fmtN(D.margPct,1)+"%","≈ "+fmt(D.margAbs)+" potenziale","var(--txt)")}
       ${_plBigCard("Referenze",fmtN(D.s.refAttive,0)+" <span style=\"font-size:.7em;color:var(--txt3)\">in giacenza</span>",fmtN(D.s.referenze,0)+" in anagrafica · "+fmtN(D.s.giacenzaTot,0)+" bottiglie","var(--txt)")}
     </div>
+    ${_plRipartizioneTipologie()}
     <div class="pl-h" style="margin-top:4px">Cassa · ultimi 30 giorni</div>
     <div class="pl-mini-grid">
       ${_plBigCard("Costo carichi",fmt(D.costo30),fmtN(D.cQ30,0)+" bt · IVA incl.","var(--txt)")}
       ${_plBigCard("Ricavo scarichi",fmt(D.ricavo30),fmtN(D.sQ30,0)+" bt · a carta","var(--green,#30D158)")}
       ${_plBigCard("Flusso netto",(D.netto30>=0?"+":"")+fmt(D.netto30),"ricavo − costo carichi",D.netto30>=0?"var(--green,#30D158)":"var(--red,#FF453A)")}
     </div>`;
+}
+function _plRipartizioneTipologie(){
+  // Valore al costo per tipologia (spostato qui dall'Export: è una lettura, non un file)
+  const s=getStats(); const tot=s.valoreTot||0;
+  const rows=TIPOLOGIE.filter(t=>wines.some(w=>w.tipologia===t&&(w.giacenza||0)>0)).map(t=>{
+    const tw=wines.filter(w=>w.tipologia===t);
+    const tv=tw.reduce((a,w)=>a+calcValore(w),0), bt=tw.reduce((a,w)=>a+(w.giacenza||0),0), pct=tot?tv/tot*100:0;
+    return {t,tv,bt,pct};
+  }).sort((a,b)=>b.tv-a.tv);
+  if(!rows.length) return "";
+  return `<div class="pl-h" style="margin-top:4px">Valore al costo per tipologia</div>
+    <div class="kpi-card" style="padding:14px 18px;margin-bottom:18px"><div class="pl-rip">${rows.map(r=>`<div class="pl-rip-r">
+      <span class="pl-rip-b">${badge(r.t)}</span>
+      <div class="mini-bar" style="flex:1"><div class="mini-bar-fill" style="width:${r.pct.toFixed(1)}%"></div></div>
+      <span class="pl-rip-n">${fmtN(r.bt,0)} bt</span><span class="pl-rip-v">${fmt(r.tv)}</span><span class="pl-rip-p">${fmtN(r.pct,1)}%</span>
+    </div>`).join("")}</div></div>`;
 }
 
 // §2 · VENDITE & ROTAZIONE (filtri, selettore periodo, KPI, grafici, best sellers)
@@ -7840,58 +7857,27 @@ function salvaImpostazioni(){
 
 function renderExport(){
   const dateStr=new Date().toLocaleDateString("it-IT");
-  const wineMap=Object.fromEntries(wines.map(w=>[w.id,w]));
-  const carichi=movements.filter(_isAcquisto); // inventario di apertura escluso
-  let totImponibileAcq=0,totIvaAcq=0;
-  carichi.forEach(m=>{const w=wineMap[m.wineId];const p=costoCarico(m,w);const imp=p*m.qty;totImponibileAcq+=imp;totIvaAcq+=imp*((parseInt(w?.iva)||22)/100);});
-  let totPerdite=0,totIvaPerd=0;
-  fallate.forEach(f=>{const w=wineMap[f.wineId];const p=parseFloat(w?.prezzoAcq)||0;const vc=p*f.qty;totPerdite+=vc;totIvaPerd+=vc*((parseInt(w?.iva)||22)/100);});
-  const totIvaStock=wines.reduce((s,w)=>s+calcValore(w)*((parseInt(w.iva)||22)/100),0);
-  const s=getStats();
-
-  let html=`<div class="card card-amber" style="margin-bottom:20px">
-    <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px">
-      <div><div style="font-size:12px;letter-spacing:.25em;text-transform:uppercase;color:var(--txt2);margin-bottom:4px">${ic("save")} Bilancio di Magazzino</div><div style="font-family:'Montserrat',sans-serif;font-weight:300;font-size:1.3rem;color:var(--txt)">Situazione al ${dateStr}</div></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
-        <button class="btn-outline btn-sm" onclick="exportBackupJSON()" title="Backup completo di tutti i dati">${ic("save")} Backup JSON</button>
-        <label class="btn-outline btn-sm" style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border:1px solid var(--border);font-size:12px;letter-spacing:.04em" title="Ripristina da file JSON">
-          ${ic("inbox")} Importa Backup
-          <input type="file" accept=".json" onchange="importBackupJSON(event)" style="display:none">
-        </label>
-        <button class="btn-outline btn-sm" onclick="openDuplicatiModal()" style="border-color:rgba(191,95,255,.4);color:#bf5fff" title="Trova e fondi vini duplicati nel database">${ic("search")} Trova Duplicati</button>
-        <button class="btn-primary" onclick="exportBilancioCSV()">↓ Esporta Bilancio Completo</button>
-      </div>
-    </div>
-  </div>
-  <div class="kpi-grid g2">
-    ${[
-      {icon:ic("folder"),tag:"A",title:"Giacenze al "+dateStr,desc:"Inventario fisico con giacenza, prezzo acquisto, IVA, valore costo e potenziale. Totali aggregati in calce.",badge:"background:rgba(var(--amber-rgb,255,159,10),.2);color:var(--amber);border-color:rgba(var(--amber3-rgb,180,83,9),.5)",fn:"exportInventarioCSV()",label:"Esporta Giacenze CSV"},
-      {icon:"",tag:"B",title:"Registro Acquisti",desc:"Ordine cronologico con n° fattura, fornitore, imponibile per riga, IVA assolta. Pronto per la contabilità.",badge:"background:rgba(30,64,175,.4);color:#93c5fd;border-color:rgba(37,99,235,.5)",fn:"exportAcquistiCSV()",label:"Esporta Acquisti CSV"},
-      {icon:"",tag:"C",title:"Registro Perdite / Fallate",desc:"Perdite da scaricare a bilancio: valore costo, IVA su merce persa, totale perdita. Ordine cronologico.",badge:"background:rgba(255,69,58,.2);color:#FF6B6B;border-color:#CC3025",fn:"exportFallateCSV()",label:"Esporta Fallate CSV"},
-      {icon:"",tag:"D",title:"Tutti i Movimenti",desc:"Log completo carico e scarico con valore del movimento, riferimenti fattura e note.",badge:"background:var(--bg3);color:#e7e5e4;border-color:var(--border2)",fn:"exportMovimentiCSV()",label:"Esporta Movimenti CSV"},
-      {icon:"",tag:"E",title:"Report Fornitori (Commercialista)",desc:"Carichi attivi dal 1° gennaio 2026: data, fornitore, ID ordine, bottiglie e totale speso. Testi ripuliti da virgole per Excel.",badge:"background:rgba(0,122,255,.2);color:#93c5fd;border-color:rgba(0,122,255,.5)",fn:"exportFornitoriCSV()",label:"Esporta Fornitori CSV"},
-    ].map(card=>`<div class="export-card"><div class="export-icon">${card.icon}</div><div style="flex:1"><div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span class="export-tag" style="${card.badge}">${card.tag}</span><span style="font-family:'Montserrat',sans-serif;font-size:13px;color:var(--txt)">${card.title}</span></div><p class="export-desc">${card.desc}</p><button class="btn-primary btn-sm" onclick="${card.fn}">↓ ${card.label}</button></div></div>`).join("")}
-  </div>
-  <div style="margin-top:20px;padding:16px 20px;background:var(--bg2);border:1px solid var(--border)">
-    <div class="section-label"><span>${ic("chart")} Ripartizione Valore al Costo per Tipologia</span></div>
-    <div style="display:flex;flex-direction:column;gap:10px">
-      ${TIPOLOGIE.filter(t=>wines.some(w=>w.tipologia===t)).map(t=>{
-        const tw=wines.filter(w=>w.tipologia===t);
-        const tv=tw.reduce((s,w)=>s+calcValore(w),0);
-        const pct=s.valoreTot?(tv/s.valoreTot*100):0;
-        const tvIva=tw.reduce((s2,w)=>s2+calcValore(w)*((parseInt(w.iva)||22)/100),0);
-        return `<div style="display:flex;align-items:center;gap:12px">
-          ${badge(t)}
-          <div class="mini-bar" style="flex:1"><div class="mini-bar-fill" style="width:${pct}%"></div></div>
-          <span style="color:var(--txt3);font-size:12px;width:60px;text-align:right">${tw.reduce((s3,w)=>s3+w.giacenza,0)} bt</span>
-          <span style="color:var(--amber);font-size:12px;width:90px;text-align:right">${fmt(tv)}</span>
-          <span style="color:var(--txt4);font-size:12px;width:100px;text-align:right">IVA ${fmt(tvIva)}</span>
-          <span style="color:var(--txt4);font-size:12px;width:40px;text-align:right">${fmtN(pct,1)}%</span>
-        </div>`;
-      }).join("")}
-    </div>
+  // Una sola lista, raggruppata per uso. Ogni voce: cosa contiene, un bottone.
+  const row=(t,d,fn,lbl)=>`<div class="ex-row"><div class="ex-main"><div class="ex-t">${t}</div><div class="ex-d">${d}</div></div><button class="btn-outline btn-sm ex-btn" onclick="${fn}">${ic("download")} ${lbl||"CSV"}</button></div>`;
+  const grp=(t,rows)=>`<div class="pl-h">${t}</div><div class="ex-list">${rows.join("")}</div>`;
+  return `<div class="ex-wrap">
+    <div class="ex-head">Situazione al ${dateStr}</div>
+    ${grp("Contabilità · per il commercialista",[
+      row("Bilancio completo","Un unico file con sommario, giacenze, acquisti, perdite e ricavi (IVA scorporata).","exportBilancioCSV()"),
+      row("Registro acquisti","Acquisti in ordine di data (solo carichi da ordine, come in Plancia): fattura, fornitore, imponibile, IVA e totale per riga.","exportAcquistiCSV()"),
+      row("Carichi per fornitore","Dal 1° gennaio: data, fornitore, riferimento, bottiglie e totale IVA inclusa. Testi senza virgole, pronti per Excel.","exportFornitoriCSV()"),
+      row("Registro perdite","Bottiglie fallate: valore al costo, IVA sulla merce persa, motivo.","exportFallateCSV()"),
+    ])}
+    ${grp("Magazzino",[
+      row("Giacenze al "+dateStr,"Inventario con prezzi, IVA, margini e valore al costo e a carta per referenza.","exportInventarioCSV()"),
+      row("Tutti i movimenti","Storico completo di carichi, scarichi, trasferimenti e rettifiche.","exportMovimentiCSV()"),
+    ])}
+    ${grp("Dati",[
+      row("Backup completo","Tutti i dati del gestionale in un file JSON, per sicurezza o per ripristino.","exportBackupJSON()","JSON"),
+      `<div class="ex-row"><div class="ex-main"><div class="ex-t">Ripristina da backup</div><div class="ex-d">Carica un file JSON salvato in precedenza.</div></div><label class="btn-outline btn-sm ex-btn" style="cursor:pointer">${ic("list")} Scegli file<input type="file" accept=".json" onchange="importBackupJSON(event)" style="display:none"></label></div>`,
+      `<div class="ex-row"><div class="ex-main"><div class="ex-t">Trova duplicati</div><div class="ex-d">Cerca referenze inserite due volte e permette di fonderle.</div></div><button class="btn-outline btn-sm ex-btn" onclick="openDuplicatiModal()">${ic("search")} Cerca</button></div>`,
+    ])}
   </div>`;
-  return html;
 }
 
 // ─── SCHEDA VINO — SOLA LETTURA ───────────────────────────────────────────────
@@ -8723,7 +8709,7 @@ function exportInventarioCSV(){
 function exportAcquistiCSV(){
   const dateStr=new Date().toLocaleDateString("it-IT");
   const wineMap=Object.fromEntries(wines.map(w=>[w.id,w]));
-  const carichi=[...movements].filter(m=>m.tipo==="carico").sort((a,b)=>(a.data||"").localeCompare(b.data||""));
+  const carichi=[...movements].filter(_isAcquisto).sort((a,b)=>(a.data||"").localeCompare(b.data||""));
   const headers=["Data","N° Fattura","Fornitore/Distributore","Produttore","Nome Vino","Annata","Tipologia","Qtà","P.Acquisto/bt","IVA %","Imponibile","IVA Assolta","Totale Riga","Note"];
   let totQty=0,totImp=0,totIva=0;
   const rows=carichi.map(m=>{const w=wineMap[m.wineId];const p=costoCarico(m,w);const iva=parseInt(w?.iva)||22;const imp=p*m.qty;const iv=imp*(iva/100);totQty+=m.qty;totImp+=imp;totIva+=iv;return [m.data,m.fattura||"—",m.fornitore||w?.distributore||"—",m.produttore||w?.produttore||"",m.wineName,w?.annata||"",w?.tipologia||"",m.qty,fmtN(p),iva+"%",fmtN(imp),fmtN(iv),fmtN(imp+iv),m.note||""];});
@@ -9054,7 +9040,7 @@ function exportFornitoriCSV(){
   const dateStr=new Date().toLocaleDateString("it-IT");
   const wineMap=Object.fromEntries(wines.map(w=>[w.id,w]));
   const EPOCH="2026-01-01";
-  const carichi=movements.filter(m=>!m.deleted&&m.tipo==="carico"&&(m.data||"")>=EPOCH)
+  const carichi=movements.filter(m=>_isAcquisto(m)&&(m.data||"")>=EPOCH)
     .sort((a,b)=>(a.data||"").localeCompare(b.data||""));
   const clean=s=>String(s??"").replace(/[;,\r\n]+/g," ").trim(); // pulizia virgole/pv interne
   const headers=["Data","Fornitore","ID_Ordine","Bottiglie_Totali","Totale_Speso_Euro"];
@@ -10240,7 +10226,7 @@ function saveMovEdit(){
 function exportBilancioCSV(){
   const dateStr=new Date().toLocaleDateString("it-IT");
   const wineMap=Object.fromEntries(wines.map(w=>[w.id,w]));
-  const carichi=[...movements].filter(m=>m.tipo==="carico").sort((a,b)=>(a.data||"").localeCompare(b.data||""));
+  const carichi=[...movements].filter(_isAcquisto).sort((a,b)=>(a.data||"").localeCompare(b.data||""));
   const fallSorted=[...fallate].sort((a,b)=>(a.data||"").localeCompare(b.data||""));
   let totImpAcq=0,totIvaAcq=0;carichi.forEach(m=>{const w=wineMap[m.wineId];const p=costoCarico(m,w);const imp=p*m.qty;totImpAcq+=imp;totIvaAcq+=imp*((parseInt(w?.iva)||22)/100);});
   let totValStock=0,totIvaStock=0;wines.forEach(w=>{const vc=calcValore(w);totValStock+=vc;totIvaStock+=vc*((parseInt(w.iva)||22)/100);});
@@ -10255,7 +10241,7 @@ function exportBilancioCSV(){
   const row=(...cols)=>cols.map(v=>esc(v)).join(";");
   lines.push(row("BILANCIO DI MAGAZZINO — "+dateStr)); lines.push("");
   lines.push(row("A — SOMMARIO","","Imponibile","IVA","Totale IVA inclusa"));
-  lines.push(row("Totale acquisti (carichi)","",fmtN(totImpAcq),fmtN(totIvaAcq),fmtN(totImpAcq+totIvaAcq)));
+  lines.push(row("Totale acquisti (da ordini ricevuti)","",fmtN(totImpAcq),fmtN(totIvaAcq),fmtN(totImpAcq+totIvaAcq)));
   lines.push(row("Perdite / Fallate","",fmtN(totPerdite),fmtN(totIvaPerd),fmtN(totPerdite+totIvaPerd)));
   lines.push(row("Valore giacenza attuale","",fmtN(totValStock),fmtN(totIvaStock),fmtN(totValStock+totIvaStock)));
   lines.push(row("Ricavi vino (scarichi, IVA "+_ivaVino+"%)","",fmtN(_scVino.imp),fmtN(_scVino.iva),fmtN(totRicVinoL)));
@@ -13475,6 +13461,18 @@ td.r,th.r,.kpi-val,.ss-val,.giacenza-big,.mob-giacenza,.calc-val,.meta-val{font-
 @media(max-width:760px){.pl-hero{grid-template-columns:1fr}}
 .kpi-card.kpi-compact{padding:11px 14px}.kpi-compact .kpi-label{margin-bottom:5px}.kpi-compact .kpi-val{font-size:1.25rem}.kpi-compact .kpi-sub{margin-top:3px;font-size:11px}
 .pl-h{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--txt3);font-weight:600;margin:28px 0 10px}
+.pl-rip{display:flex;flex-direction:column;gap:9px}
+.pl-rip-r{display:flex;align-items:center;gap:12px;font-size:12px}
+.pl-rip-b{width:150px;flex-shrink:0}
+.pl-rip-n{width:64px;text-align:right;color:var(--txt3)}.pl-rip-v{width:96px;text-align:right;color:var(--txt);font-weight:600}.pl-rip-p{width:46px;text-align:right;color:var(--txt3)}
+.ex-wrap{max-width:860px}
+.ex-head{font-size:13px;color:var(--txt3);margin-bottom:6px}
+.ex-list{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px}
+.ex-row{display:flex;align-items:center;gap:16px;padding:14px 18px}
+.ex-row+.ex-row{border-top:1px solid var(--border)}
+.ex-main{flex:1;min-width:0}.ex-t{font-size:14px;font-weight:600;color:var(--txt)}.ex-d{font-size:12px;color:var(--txt3);margin-top:2px;line-height:1.45}
+.ex-btn{flex-shrink:0;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+@media(max-width:600px){.pl-rip-b{width:auto}.pl-rip-n{display:none}}
 .kpi-hero .kpi-card{padding:20px 22px;border-color:var(--border2)}
 .kpi-hero .kpi-val{font-size:2.15rem}
 .kpi-hero .kpi-label{color:var(--txt2)}
