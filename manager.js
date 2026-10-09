@@ -6409,6 +6409,16 @@ function _updateRefIvaIncl(refId){
   el.textContent=v?fmtRound(v):"—";
 }
 
+// P.Carta di default per una referenza d'ordine senza prezzo: prima il prezzo già in
+// carta del vino collegato, altrimenti il suggerito dal ricarico. Usato da ordine e ricezione
+// così i due modali mostrano sempre lo stesso valore.
+function _refCartaDefault(r){
+  const pc=parseFloat(r&&r.prezzoCarta)||0; if(pc) return pc;
+  const w=r&&r.wineId?wines.find(x=>x.id===r.wineId):null;
+  const wpc=w?parseFloat(w.prezzoCarta)||0:0; if(wpc) return wpc;
+  return _calcPrezzoCartaSuggerito({prezzoAcq:parseFloat(r&&r.prezzoAcq)||0,iva:parseInt(r&&r.iva)||22,formato:parseFloat(r&&r.formato)||0.75})||"";
+}
+
 function _updateRefCartaSuggerita(refId){
   const r=ordineModalData?.referenze.find(x=>x.id===refId);
   const hint=document.getElementById(`ref-carta-hint-${refId}`);
@@ -6429,9 +6439,11 @@ function _updateRefCartaSuggerita(refId){
   hint.innerHTML=(cur&&cur!==sug&&!auto)?`<button type="button" class="cm-carta-sug" title="Prezzo suggerito (${label})" onclick="_applyCartaSuggerita('${refId}',${sug})">sugg. €${sug}</button>`:"";
   // Pre-compila se vuoto, e continua ad aggiornare finché il valore è ancora quello automatico
   if(inp && (!inp.value || auto)){
-    inp.value=sug;
+    const w=r.wineId?wines.find(x=>x.id===r.wineId):null;
+    const def=(!auto&&w&&parseFloat(w.prezzoCarta))||sug;
+    inp.value=def;
     inp.dataset.auto="1";
-    _refChange(refId,'prezzoCarta',sug);
+    _refChange(refId,'prezzoCarta',def);
   }
 }
 function _applyCartaSuggerita(refId, val){
@@ -6609,7 +6621,7 @@ function apriModalRicezione(ordineId){
     ordineId,
     dataArrivo: ordine.dataArrivo || today(),
     fattura: ordine.numeroFattura || ordine.fattura || "",
-    righe: (ordine.referenze||[]).map(r=>({...r, qtyArr: r.qtyArr ?? r.qty}))
+    righe: (ordine.referenze||[]).map(r=>({...r, qtyArr: r.qtyArr ?? r.qty, prezzoCarta: _refCartaDefault(r)}))
   };
   _renderRicezioneModalBody(ordine, allFornitori, allProduttori, allNomi);
   document.getElementById("ricezione-modal-backdrop").classList.remove("hidden");
@@ -7038,7 +7050,7 @@ function confermaRicezioneGlobale(){
         const newWine={id:uid(),nome:r.nomeVino,produttore:r.produttore||"",distributore:fornitureName,
           annata:r.annata||"",vitigni:r.vitigni||"",tipologia:r.tipologia||"Bianco",regione:r.regione||"",nazione:r.nazione||"Italia",zona:r.zona||"",
           formato:parseFloat(r.formato)||0.75,
-          prezzoAcq:r.prezzoAcq||0,iva:r.iva||22,prezzoCarta:r.prezzoCarta||0,giacenza:0,lots:[],sku:_nextSku()};
+          prezzoAcq:r.prezzoAcq||0,iva:r.iva||22,prezzoCarta:_refCartaDefault(r)||0,giacenza:0,lots:[],sku:_nextSku()};
         wines=[...wines,newWine];
         wine=wines[wines.length-1];
       }
