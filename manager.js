@@ -6297,7 +6297,7 @@ function _refRowHtml(r,i,tipoOpts,ivaOpts,allProduttori,allNomi){
     <td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:12px;min-width:80px;width:100%" value="${r.prezzoAcq||''}" step="0.01" min="0" placeholder="0.00" onchange="_refChange('${r.id}','prezzoAcq',parseFloat(this.value)||0);_updateRefIvaIncl('${r.id}');_updateRefCartaSuggerita('${r.id}')" oninput="_refChange('${r.id}','prezzoAcq',parseFloat(this.value)||0);_updateRefIvaIncl('${r.id}');_updateRefCartaSuggerita('${r.id}');_updateOrdineModalTotale()"></td>
     <td style="padding:5px 6px"><select class="form-input" style="font-size:12px;min-width:52px;width:100%" onchange="_refChange('${r.id}','iva',parseInt(this.value));_updateRefIvaIncl('${r.id}');_updateRefCartaSuggerita('${r.id}');_updateOrdineModalTotale()">${selIva}</select></td>
     <td style="padding:5px 6px;text-align:right;font-size:13px;color:var(--amber);font-weight:600;white-space:nowrap;background:rgba(var(--amber-rgb,255,159,10),.06);border-left:1px solid rgba(var(--amber-rgb,255,159,10),.12)" id="ref-ivaincl-${r.id}">${ivaIncl?fmtRound(ivaIncl):"—"}</td>
-    <td style="padding:5px 6px"><input type="number" id="ref-carta-inp-${r.id}" class="form-input" style="font-size:12px;text-align:right;min-width:72px;width:100%" value="${r.prezzoCarta||''}" step="1" min="0" placeholder="0" onchange="_refChange('${r.id}','prezzoCarta',parseFloat(this.value)||0)"><div id="ref-carta-hint-${r.id}" style="font-size:11px;margin-top:2px;white-space:nowrap"></div></td>
+    <td style="padding:5px 6px"><input type="number" id="ref-carta-inp-${r.id}" class="form-input" style="font-size:12px;text-align:right;min-width:72px;width:100%" value="${r.prezzoCarta||''}" step="1" min="0" placeholder="0" oninput="this.dataset.auto=''" onchange="_refChange('${r.id}','prezzoCarta',parseFloat(this.value)||0)"><div id="ref-carta-hint-${r.id}" style="font-size:11px;margin-top:2px;white-space:nowrap"></div></td>
     <td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:13px;text-align:center;min-width:52px;width:100%" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" value="${r.qty||6}" min="1" step="1" oninput="_refChange('${r.id}','qty',parseInt(this.value)||1);_updateOrdineModalTotale()"></td>
     <td style="padding:3px 4px;background:${scBg};border-left:1px solid rgba(255,69,58,.15)">
       <input type="number" class="form-input" id="ref-sc-${r.id}" style="font-size:12px;text-align:center;min-width:52px;width:100%;background:transparent;border-color:rgba(255,69,58,.2)" min="0" max="100" step="1" value="${scontoRef||''}" placeholder="0"
@@ -6419,22 +6419,27 @@ function _updateRefCartaSuggerita(refId){
   const inp=document.getElementById(`ref-carta-inp-${refId}`);
   if(!r||!hint) return;
   const p=parseFloat(r.prezzoAcq)||0;
-  if(!p){ hint.textContent=""; return; }
-  // Costruisce oggetto temporaneo compatibile con _calcPrezzoCartaSuggerito
+  const auto=!!inp&&inp.dataset.auto==="1";
+  if(!p){
+    hint.textContent="";
+    if(auto){ inp.value=""; _refChange(refId,'prezzoCarta',""); }
+    return;
+  }
   const pseudo={prezzoAcq:p, iva:parseInt(r.iva)||22, formato:parseFloat(r.formato)||0.75};
   const sug=_calcPrezzoCartaSuggerito(pseudo);
   const label=_getMoltLabel(pseudo);
   if(!sug){ hint.textContent=""; return; }
   hint.innerHTML=`<span style="color:var(--txt4)">${label} → </span><button type="button" onclick="_applyCartaSuggerita('${refId}',${sug})" style="background:none;border:none;color:#30D158;font-size:11px;cursor:pointer;padding:0;font-family:inherit;text-decoration:underline;text-underline-offset:2px">applica €${sug}</button>`;
-  // Se il campo P.Carta è ancora vuoto, pre-compila silenziosamente
-  if(inp && !inp.value){
+  // Pre-compila se vuoto, e continua ad aggiornare finché il valore è ancora quello automatico
+  if(inp && (!inp.value || auto)){
     inp.value=sug;
+    inp.dataset.auto="1";
     _refChange(refId,'prezzoCarta',sug);
   }
 }
 function _applyCartaSuggerita(refId, val){
   const inp=document.getElementById(`ref-carta-inp-${refId}`);
-  if(inp){ inp.value=val; inp.focus(); }
+  if(inp){ inp.value=val; inp.dataset.auto=''; inp.focus(); }
   _refChange(refId,'prezzoCarta',val);
   const hint=document.getElementById(`ref-carta-hint-${refId}`);
   if(hint) hint.innerHTML=`<span style="color:#30D158;font-size:11px">${ic("check")} applicato</span>`;
@@ -6633,29 +6638,22 @@ function _renderRicezioneModalBody(ordine, allForn, allProd, allNomi){
       <div><label class="form-label">Numero Fattura <span style="color:var(--txt4)">(opzionale)</span></label>
         <input id="ric-fattura-input" type="text" class="form-input" placeholder="Es. FT-2025-001" value="${h(ricezioneModalData.fattura||'')}" onchange="ricezioneModalData.fattura=this.value.trim()"></div>
     </div>
+    <style>.cm-ric-tbl{min-width:0!important}.cm-ric-tbl td{overflow-wrap:normal!important;word-break:normal!important}.cm-ric-tbl tr.cm-grid-head td{letter-spacing:.03em}.cm-ric-tbl tbody td{height:44px}.cm-ric-tbl .cm-clamp{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.3}.cm-ric-tbl .cm-1l{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.cm-ric-tbl td:nth-child(6)>*{display:inline-block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}</style>
     <div class="cm-grid-wrap">
-      <table class="cm-grid-tbl">
-        <colgroup>
-          <col style="width:10%"><col style="width:13%"><col style="width:4.5%"><col style="width:5.5%">
-          <col style="width:8%"><col style="width:7%"><col style="width:6.5%"><col style="width:7%">
-          <col style="width:5%"><col style="width:5.5%">
-          <col style="width:6%"><col style="width:4.5%"><col style="width:5.5%"><col style="width:5.5%">
-          <col style="width:6%"><col style="width:3.5%">
-        </colgroup>
+      <table class="cm-grid-tbl cm-ric-tbl">
+        <colgroup><col style="width:10.5%"><col style="width:12%"><col style="width:5%"><col style="width:5%"><col style="width:9.5%"><col style="width:9.5%"><col style="width:7%"><col style="width:8.5%"><col style="width:3.5%"><col style="width:6.5%"><col style="width:7%"><col style="width:6.5%"><col style="width:7%"><col style="width:2.5%"></colgroup>
         <thead><tr class="cm-grid-head">
           <td>Produttore</td>
           <td>Nome Vino</td>
           <td style="text-align:center;color:var(--amber)">Annata</td>
-          <td style="text-align:center">Formato</td>
+          <td style="text-align:center">Form.</td>
           <td>Vitigni</td>
           <td>Tipo</td>
           <td>Nazione</td>
           <td>Regione</td>
-          <td style="text-align:center">Ordin.</td>
-          <td style="text-align:center;color:var(--amber)">Arrivato ${ic("edit")}</td>
+          <td style="text-align:center">Ord.</td>
+          <td style="text-align:center;color:var(--amber)">Arr. ${ic("edit")}</td>
           <td>P.Acq ${ic("edit")}</td>
-          <td>IVA ${ic("edit")}</td>
-          <td style="text-align:right">P.Acq+IVA</td>
           <td>P.Carta ${ic("edit")}</td>
           <td style="text-align:right;background:rgba(48,209,88,.04)">Tot. riga</td>
           <td></td>
@@ -6685,18 +6683,17 @@ function _ricRowHtml(r){
   const iva=parseInt(r.iva)||22;
   const ivaIncl=(parseFloat(r.prezzoAcq)||0)*(1+iva/100);
   const tot=ivaIncl*(parseInt(r.qtyArr)||0);
-  const ivaOpts=IVA_OPTIONS.map(v=>`<option value="${v}"${v===iva?" selected":""}>${v}%</option>`).join("");
   const short=(parseInt(r.qtyArr)||0)<(parseInt(r.qty)||0) && !ex;
   return `
     <tr data-ric-id="${r.id}" style="border-top:1px solid var(--border)${ex?";background:rgba(var(--amber-rgb,255,159,10),.05)":""}">
-      <td style="color:var(--txt3)">${h(r.produttore||'—')}</td>
-      <td>${h(r.nomeVino||'—')}${ex?` <span style="font-size:11px;color:var(--amber3);letter-spacing:.1em">NON PREVISTA</span>`:""}</td>
+      <td style="color:var(--txt3)" title="${h(r.produttore||'')}"><div class="cm-clamp">${h(r.produttore||'—')}</div></td>
+      <td title="${h(r.nomeVino||'')}"><div class="cm-clamp">${h(r.nomeVino||'—')}${ex?` <span style="font-size:11px;color:var(--amber3);letter-spacing:.1em">NON PREVISTA</span>`:""}</div></td>
       <td style="color:var(--amber);text-align:center;white-space:nowrap">${r.annata?h(r.annata):'<span style="color:var(--txt4)">N.V.</span>'}</td>
       <td style="color:var(--txt3);text-align:center;white-space:nowrap">${parseFloat(r.formato)||0.75}L</td>
-      <td style="color:var(--txt3)">${h(r.vitigni||'—')}</td>
-      <td>${badge(r.tipologia)}</td>
-      <td style="color:var(--txt3)">${h(r.nazione||'—')}</td>
-      <td style="color:var(--txt3)">${h(r.regione||'—')}</td>
+      <td style="color:var(--txt3)" title="${h(r.vitigni||'')}"><div class="cm-clamp">${h(r.vitigni||'—')}</div></td>
+      <td title="${h(r.tipologia||'')}">${badge(r.tipologia)}</td>
+      <td style="color:var(--txt3)" title="${h(r.nazione||'')}"><div class="cm-1l">${h(r.nazione||'—')}</div></td>
+      <td style="color:var(--txt3)" title="${h(r.regione||'')}"><div class="cm-1l">${h(r.regione||'—')}</div></td>
       <td style="color:var(--txt2);text-align:center">${ex?'<span style="color:var(--txt4)">—</span>':r.qty}</td>
       <td>
         <input type="number" class="form-input${short?" cm-ric-short":""}" style="text-align:center" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" value="${r.qtyArr}" min="0" step="1"
@@ -6706,10 +6703,6 @@ function _ricRowHtml(r){
         <input type="number" class="form-input" style="text-align:right" value="${r.prezzoAcq||''}" step="0.01" min="0" placeholder="0.00"
           oninput="_ricRefChange('${r.id}','prezzoAcq',parseFloat(this.value)||0);_ricRowRecalc('${r.id}')">
       </td>
-      <td>
-        <select class="form-input" onchange="_ricRefChange('${r.id}','iva',parseInt(this.value)||22);_ricRowRecalc('${r.id}')">${ivaOpts}</select>
-      </td>
-      <td id="ric-ivaincl-${r.id}" style="text-align:right;color:var(--amber);font-weight:600;white-space:nowrap;background:rgba(var(--amber-rgb,255,159,10),.06)">${ivaIncl?fmtRound(ivaIncl):"—"}</td>
       <td>
         <input type="number" class="form-input" style="text-align:right" value="${r.prezzoCarta||''}" step="1" min="0" placeholder="0"
           oninput="_ricRefChange('${r.id}','prezzoCarta',parseFloat(this.value)||0)">
