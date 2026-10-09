@@ -12171,6 +12171,7 @@ function _amFiltrate(){
     if(amFiltri.stato==="aperte" && st==="soluto") return false;
     if(amFiltri.stato==="scadute" && st!=="scaduta" && st!=="parziale_scaduta") return false;
     if(amFiltri.stato==="saldate" && st!=="soluto") return false;
+    if(amFiltri.stato==="in60"){ const g=_fattGiorniAScadenza(f); if(st==="soluto"||g===null||g<0||g>60) return false; }
     if(amFiltri.q){
       const q = amFiltri.q.toLowerCase();
       const blob = [f.fornitore,f.numero,f.note].join(" ").toLowerCase();
@@ -12194,6 +12195,8 @@ function renderAmministrazione(){
                         .reduce((s,f)=>s+_fattResiduo(f),0);
   const in30 = aperte.filter(f=>{const g=_fattGiorniAScadenza(f);return g!==null&&g>=0&&g<=30;})
                      .reduce((s,f)=>s+_fattResiduo(f),0);
+  const in60 = aperte.filter(f=>{const g=_fattGiorniAScadenza(f);return g!==null&&g>=0&&g<=60;})
+                     .reduce((s,f)=>s+_fattResiduo(f),0);
   const annoCorr = String(new Date().getFullYear());
   const pagatoAnno = tutte.filter(f=>String(f.dataFattura||"").slice(0,4)===annoCorr)
                           .reduce((s,f)=>s+_fattPagato(f),0);
@@ -12207,6 +12210,7 @@ function renderAmministrazione(){
     ${kpi("Esposizione totale", esposizione, "var(--txt)", aperte.length+" fatture aperte")}
     ${kpi("Scaduto", scaduto, scaduto>0?"var(--red)":"var(--txt3)", "oltre la data di scadenza")}
     ${kpi("In scadenza 30 gg", in30, in30>0?"var(--orange)":"var(--txt3)", "da pagare entro un mese")}
+    ${kpi("In scadenza 60 gg", in60, in60>0?"var(--orange)":"var(--txt3)", "da pagare nei prossimi due mesi")}
     ${kpi("Pagato "+annoCorr, pagatoAnno, "var(--green)", "somma degli acconti e saldi")}
   </div>`;
 
@@ -12230,6 +12234,7 @@ function renderAmministrazione(){
         <select class="form-select" onchange="_amSetFiltro('stato',this.value)">
           <option value="aperte" ${amFiltri.stato==="aperte"?"selected":""}>Da pagare</option>
           <option value="scadute" ${amFiltri.stato==="scadute"?"selected":""}>Solo scadute</option>
+          <option value="in60" ${amFiltri.stato==="in60"?"selected":""}>In scadenza 60 gg</option>
           <option value="saldate" ${amFiltri.stato==="saldate"?"selected":""}>Saldate</option>
           <option value="tutte" ${amFiltri.stato==="tutte"?"selected":""}>Tutte</option>
         </select></div>
