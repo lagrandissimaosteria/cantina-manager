@@ -13208,6 +13208,8 @@ async function _grpFetch(r){
   const sb=r.sb, u=r.cfg.dbUser;
   const { data:sess } = await sb.auth.getSession();
   r.email = sess?.session?.user?.email || "";
+  // Il progetto remoto non concede nulla senza login: senza sessione si chiede l'accesso.
+  if(!r.email){ r.needLogin=true; r.data=null; r.err=null; r.ts=Date.now(); return; }
   const [w,f] = await Promise.all([
     sb.from("cm_wines").select("data").eq("user_id",u),
     sb.from("cm_fatture").select("data").eq("user_id",u)
