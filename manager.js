@@ -6221,14 +6221,15 @@ function _renderOrdineModalBody(allFornitori, allProduttori, allNomi){
     </div>
     <!-- Referenze -->
     <div class="modal-section-label">${ic("bottle")} Referenze dell'ordine</div>
+    <style>.cm-ord-tbl{min-width:900px!important}.cm-ord-tbl td{overflow-wrap:normal!important;word-break:normal!important}.cm-ord-tbl tr.cm-grid-head td{letter-spacing:.03em}.cm-ord-tbl td>div[id^="ref-"]{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.cm-ord-tbl .cm-carta-sug{background:none;border:none;color:#30D158;font-size:11px;cursor:pointer;padding:0;font-family:inherit;text-decoration:underline;text-underline-offset:2px}</style>
     <div class="cm-grid-wrap">
-      <table class="cm-grid-tbl">
+      <table class="cm-grid-tbl cm-ord-tbl">
         <colgroup>
-          <col style="width:10%"><col style="width:12.5%"><col style="width:7%"><col style="width:4.5%">
-          <col style="width:7.5%"><col style="width:6%"><col style="width:6.5%"><col style="width:7%">
+          <col style="width:11%"><col style="width:12%"><col style="width:8.5%"><col style="width:6%">
+          <col style="width:8%"><col style="width:7.5%"><col style="width:7%"><col style="width:7.5%">
           <col style="width:0">
-          <col style="width:6.5%"><col style="width:4.5%"><col style="width:5.5%"><col style="width:6%">
-          <col style="width:4%"><col style="width:4.5%"><col style="width:6.5%"><col style="width:3%">
+          <col style="width:6.5%"><col style="width:6.5%">
+          <col style="width:5%"><col style="width:5%"><col style="width:7%"><col style="width:2.5%">
         </colgroup>
         <thead>
           <tr class="cm-grid-head">
@@ -6241,9 +6242,7 @@ function _renderOrdineModalBody(allFornitori, allProduttori, allNomi){
             <td>Nazione</td>
             <td>Regione</td>
             <td class="cm-col-hidden"></td>
-            <td>P.Acq ex IVA</td>
-            <td>IVA</td>
-            <td>P.Acq+IVA</td>
+            <td>P.Acq</td>
             <td>P.Carta</td>
             <td style="text-align:center">Qty</td>
             <td style="text-align:center;background:rgba(255,69,58,.04)">Sc.%</td>
@@ -6263,7 +6262,6 @@ function _renderOrdineModalBody(allFornitori, allProduttori, allNomi){
 
 function _refRowHtml(r,i,tipoOpts,ivaOpts,allProduttori,allNomi){
   const selTipo=_tipoOptsHtml(r.tipologia);
-  const selIva=IVA_OPTIONS.map(v=>`<option value="${v}"${v===r.iva?" selected":""}>${v}%</option>`).join("");
   const ivaIncl = r.prezzoAcq ? (parseFloat(r.prezzoAcq)*(1+(parseInt(r.iva)||22)/100)) : 0;
   const scontoRef = parseFloat(r.scontoRef)||0;
   const scontoOrd = parseFloat(ordineModalData?.sconto)||0;
@@ -6295,8 +6293,6 @@ function _refRowHtml(r,i,tipoOpts,ivaOpts,allProduttori,allNomi){
     <td style="padding:5px 6px"><input class="form-input" style="font-size:12px;min-width:90px;width:100%" list="omd-reg-dl-${r.id}" autocomplete="off" value="${h(r.regione||'')}" placeholder="es. Piemonte" onchange="_refChange('${r.id}','regione',this.value.trim())"><datalist id="omd-reg-dl-${r.id}">${_ordRegioniPer(r.nazione||'Italia').map(v=>`<option value="${h(v)}">`).join("")}</datalist></td>
     <td style="padding:0;width:0;overflow:hidden;max-width:0"><input class="form-input" style="font-size:12px;width:0;border:none;padding:0;background:none" value="${h(r.zona||'')}" onchange="_refChange('${r.id}','zona',this.value.trim())"></td>
     <td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:12px;min-width:80px;width:100%" value="${r.prezzoAcq||''}" step="0.01" min="0" placeholder="0.00" onchange="_refChange('${r.id}','prezzoAcq',parseFloat(this.value)||0);_updateRefIvaIncl('${r.id}');_updateRefCartaSuggerita('${r.id}')" oninput="_refChange('${r.id}','prezzoAcq',parseFloat(this.value)||0);_updateRefIvaIncl('${r.id}');_updateRefCartaSuggerita('${r.id}');_updateOrdineModalTotale()"></td>
-    <td style="padding:5px 6px"><select class="form-input" style="font-size:12px;min-width:52px;width:100%" onchange="_refChange('${r.id}','iva',parseInt(this.value));_updateRefIvaIncl('${r.id}');_updateRefCartaSuggerita('${r.id}');_updateOrdineModalTotale()">${selIva}</select></td>
-    <td style="padding:5px 6px;text-align:right;font-size:13px;color:var(--amber);font-weight:600;white-space:nowrap;background:rgba(var(--amber-rgb,255,159,10),.06);border-left:1px solid rgba(var(--amber-rgb,255,159,10),.12)" id="ref-ivaincl-${r.id}">${ivaIncl?fmtRound(ivaIncl):"—"}</td>
     <td style="padding:5px 6px"><input type="number" id="ref-carta-inp-${r.id}" class="form-input" style="font-size:12px;text-align:right;min-width:72px;width:100%" value="${r.prezzoCarta||''}" step="1" min="0" placeholder="0" oninput="this.dataset.auto=''" onchange="_refChange('${r.id}','prezzoCarta',parseFloat(this.value)||0)"><div id="ref-carta-hint-${r.id}" style="font-size:11px;margin-top:2px;white-space:nowrap"></div></td>
     <td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:13px;text-align:center;min-width:52px;width:100%" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" value="${r.qty||6}" min="1" step="1" oninput="_refChange('${r.id}','qty',parseInt(this.value)||1);_updateOrdineModalTotale()"></td>
     <td style="padding:3px 4px;background:${scBg};border-left:1px solid rgba(255,69,58,.15)">
@@ -6429,7 +6425,8 @@ function _updateRefCartaSuggerita(refId){
   const sug=_calcPrezzoCartaSuggerito(pseudo);
   const label=_getMoltLabel(pseudo);
   if(!sug){ hint.textContent=""; return; }
-  hint.innerHTML=`<span style="color:var(--txt4)">${label} → </span><button type="button" onclick="_applyCartaSuggerita('${refId}',${sug})" style="background:none;border:none;color:#30D158;font-size:11px;cursor:pointer;padding:0;font-family:inherit;text-decoration:underline;text-underline-offset:2px">applica €${sug}</button>`;
+  const cur=inp?parseFloat(inp.value)||0:0;
+  hint.innerHTML=(cur&&cur!==sug&&!auto)?`<button type="button" class="cm-carta-sug" title="Prezzo suggerito (${label})" onclick="_applyCartaSuggerita('${refId}',${sug})">sugg. €${sug}</button>`:"";
   // Pre-compila se vuoto, e continua ad aggiornare finché il valore è ancora quello automatico
   if(inp && (!inp.value || auto)){
     inp.value=sug;
