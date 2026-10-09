@@ -3509,14 +3509,10 @@ function _plDelta(cur,prev){
 // Estratti da renderPlancia (M1): pura presentazione, nessuno stato locale.
 function _plPf(v){ return parseFloat(v)||0; }
 function _plKpiCard(k){
-  return `<div class="kpi-card"><div class="kpi-label">${k.label}</div><div class="kpi-val ${k.cls}">${k.value}</div><div class="kpi-sub">${k.sub}</div></div>`;
+  return `<div class="kpi-card kpi-compact"><div class="kpi-label">${k.label}</div><div class="kpi-val ${k.cls}">${k.value}</div><div class="kpi-sub">${k.sub}</div></div>`;
 }
 function _plBigCard(label,val,sub,color){
-  return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:18px 20px">
-    <div style="font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:10px">${label}</div>
-    <div class="kpi-val" style="color:${color||'var(--txt)'}">${val}</div>
-    <div style="font-size:12px;color:var(--txt4);margin-top:8px">${sub}</div>
-  </div>`;
+  return `<div class="kpi-card kpi-compact"><div class="kpi-label">${label}</div><div class="kpi-val" style="color:${color||'var(--txt)'}">${val}</div><div class="kpi-sub">${sub}</div></div>`;
 }
 function _plSegBtn(attivo,val,label,fn){
   return `<button onclick="${fn}('${val}')" style="padding:6px 12px;font-size:12px;font-family:inherit;letter-spacing:.04em;cursor:pointer;border:1px solid ${attivo?"rgba(var(--amber3-rgb,180,83,9),.55)":"var(--border)"};background:${attivo?"rgba(var(--amber-rgb,255,159,10),.14)":"transparent"};color:${attivo?"var(--amber)":"var(--txt3)"}">${label}</button>`;
@@ -3826,27 +3822,25 @@ function _plCompute(){
 // ─── PLANCIA · SEZIONI DI RENDER ──────────────────────────────────────────────
 // §1 · DIREZIONE / PATRIMONIO
 function _plSec1Direzione(D){
-  return `<div style="font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4);margin-bottom:10px">Direzione · Stato Patrimoniale</div>
-    <div class="pl-big4 kpi-compact" style="margin-bottom:16px">
-      ${_plBigCard("Capitale Immobilizzato",fmt(D.capImmob),"costo inventario corrente (ex IVA)","var(--amber)")}
-      ${_plBigCard("Valore Potenziale di Realizzo",fmt(D.valRealizzo),"prezzo carta × giacenza","#30D158")}
-      ${_plBigCard("Margine Teorico Medio",fmtN(D.margPct,1)+"%","≈ "+fmt(D.margAbs)+" potenziale","#007AFF")}
-      ${_plBigCard("Volume Fisico Totale",fmtN(D.s.refAttive,0)+" ref.",fmtN(D.s.giacenzaTot,0)+" bottiglie totali","var(--amber3)")}
+  return `<div class="pl-h">Patrimonio cantina · oggi</div>
+    <div class="pl-mini-grid">
+      ${_plBigCard("Capitale immobilizzato",fmt(D.capImmob),"costo inventario (ex IVA)","var(--amber)")}
+      ${_plBigCard("Valore di realizzo",fmt(D.valRealizzo),"prezzo carta × giacenza","var(--txt)")}
+      ${_plBigCard("Margine teorico medio",fmtN(D.margPct,1)+"%","≈ "+fmt(D.margAbs)+" potenziale","var(--txt)")}
+      ${_plBigCard("Referenze",fmtN(D.s.refAttive,0)+" <span style=\"font-size:.7em;color:var(--txt3)\">in giacenza</span>",fmtN(D.s.referenze,0)+" in anagrafica · "+fmtN(D.s.giacenzaTot,0)+" bottiglie","var(--txt)")}
     </div>
-    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px 20px;margin-bottom:22px">
-      <div style="font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--txt4);margin-bottom:12px">Conto Economico · Cassa ultimi 30 giorni</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px">
-        <div><div style="font-size:12px;color:var(--txt4);margin-bottom:4px">Costo Carichi</div><div style="font-family:'Montserrat',sans-serif;font-size:1.3rem;color:var(--txt)">${fmt(D.costo30)}</div><div style="font-size:12px;color:var(--txt4)">${fmtN(D.cQ30,0)} bt · IVA incl. · ultimi 30 gg</div></div>
-        <div><div style="font-size:12px;color:var(--txt4);margin-bottom:4px">Ricavo Scarichi</div><div style="font-family:'Montserrat',sans-serif;font-size:1.3rem;color:#30D158">${fmt(D.ricavo30)}</div><div style="font-size:12px;color:var(--txt4)">${fmtN(D.sQ30,0)} bt · a carta · ultimi 30 gg</div></div>
-        <div><div style="font-size:12px;color:var(--txt4);margin-bottom:4px">Flusso Netto</div><div style="font-family:'Montserrat',sans-serif;font-size:1.3rem;color:${D.netto30>=0?'#30D158':'#FF453A'}">${D.netto30>=0?'+':''}${fmt(D.netto30)}</div><div style="font-size:12px;color:var(--txt4)">ricavo − costo carichi</div></div>
-      </div>
+    <div class="pl-h" style="margin-top:4px">Cassa · ultimi 30 giorni</div>
+    <div class="pl-mini-grid">
+      ${_plBigCard("Costo carichi",fmt(D.costo30),fmtN(D.cQ30,0)+" bt · IVA incl.","var(--txt)")}
+      ${_plBigCard("Ricavo scarichi",fmt(D.ricavo30),fmtN(D.sQ30,0)+" bt · a carta","var(--green,#30D158)")}
+      ${_plBigCard("Flusso netto",(D.netto30>=0?"+":"")+fmt(D.netto30),"ricavo − costo carichi",D.netto30>=0?"var(--green,#30D158)":"var(--red,#FF453A)")}
     </div>`;
 }
 
 // §2 · VENDITE & ROTAZIONE (filtri, selettore periodo, KPI, grafici, best sellers)
 function _plSec2Vendite(D){
   const {R,P}=D;
-  let html=`<div style="font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4);margin:28px 0 10px">Vendite & Rotazione</div>`;
+  let html=`<div class="pl-h" style="margin-top:0">Vendite & Rotazione</div>`;
   // Filtri performance
   html+=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
     <span style="font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4)">Performance</span>
@@ -3884,23 +3878,24 @@ function _plSec2Vendite(D){
     ${h(R.label)} · ${h(R.dLabel)} · ${R.giorni} giorni di calendario · <span style="color:var(--amber3)">${D.serviziPer} servizi di apertura</span>${(()=>{const n=_notaChiusure(R.da,R.a);return n?` · <span style="color:var(--txt4)">${h(n)}</span>`:"";})()}
     &nbsp;·&nbsp; confronto con ${h(_parseD(R.prevDa).toLocaleDateString("it-IT"))} → ${h(_parseD(R.prevA).toLocaleDateString("it-IT"))}
   </div>`;
-  // KPI performance
-  html+=`<div class="kpi-grid g4 kpi-hero" style="margin-bottom:20px">
-    ${[
-      {label:"Ricavo Totale",v:fmt(D.totRicavo),cls:"c-green",sub:_plDelta(D.totRicavo,P.ricavo)+(D.totServizio>0?`<br><span style="color:var(--txt4)">vino ${fmt(D.totRicavoVino)} + servizio ${fmt(D.totServizio)}</span>`:"")},
-      {label:"Bottiglie Vendute",v:D.totQty,cls:"c-amber",sub:_plDelta(D.totQty,P.qty)+`<br><span style="color:var(--txt4)">${fmtN(D.btPerServizio,1)} per servizio</span>`},
-      {label:"Costo Merce",v:`${fmtN(D.foodCostPct,1)}%`,cls:D.foodCostPct<=35?"c-blue":"c-red",sub:`${fmt(D.totCosto)} sul venduto<div class="kpi-meter"><i style="width:${Math.min(100,D.foodCostPct/50*100).toFixed(1)}%" class="${D.foodCostPct<=35?"ok":"ko"}"></i><b style="left:70%"></b></div><span style="color:var(--txt4)">obiettivo ≤ 35%</span>`},
-      {label:"Margine Realizzato",v:fmt(D.totMargine),cls:D.totMargine>=0?"c-blue":"c-red",sub:_plDelta(D.totMargine,P.margine)+`<br><span style="color:var(--txt4)">${D.totRicavo?fmtN(D.totMargine/D.totRicavo*100,1)+"% del ricavo":"—"}</span>`},
-    ].map(k=>`<div class="kpi-card"><div class="kpi-label">${k.label}</div><div class="kpi-val ${k.cls}">${k.v}</div><div class="kpi-sub">${k.sub}</div></div>`).join("")}
+  // Fila principale: le tre letture che decidono il periodo
+  const fc=D.foodCostPct, fcOk=fc<=35, fcCol=fcOk?"var(--green,#30D158)":"var(--red,#FF453A)";
+  html+=`<div class="pl-hero">
+    <div class="kpi-card"><div class="kpi-label">Ricavo del periodo</div><div class="kpi-val">${fmt(D.totRicavo)}</div><div class="kpi-sub">${_plDelta(D.totRicavo,P.ricavo)}${D.totServizio>0?`<br><span style="color:var(--txt4)">vino ${fmt(D.totRicavoVino)} + servizio ${fmt(D.totServizio)}</span>`:""}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Margine realizzato</div><div class="kpi-val" style="color:${D.totMargine>=0?"var(--txt)":"var(--red,#FF453A)"}">${fmt(D.totMargine)}</div><div class="kpi-sub">${_plDelta(D.totMargine,P.margine)}<br><span style="color:var(--txt4)">${D.totRicavo?fmtN(D.totMargine/D.totRicavo*100,1)+"% del ricavo":"—"}</span></div></div>
+    <div class="kpi-card"><div class="kpi-label">Costo merce</div><div class="kpi-val" style="color:${fcCol}">${fmtN(fc,1)}%</div>
+      <div class="pl-gauge" title="obiettivo ≤ 35%"><i style="width:${Math.min(100,fc/60*100)}%;background:${fcCol}"></i><b style="left:${35/60*100}%"></b></div>
+      <div class="kpi-sub">${fmt(D.totCosto)} sul venduto · <span style="color:var(--txt3)">obiettivo ≤ 35%</span></div></div>
   </div>`;
-  // KPI operativi: la lettura "per servizio" è quella che conta in un wine bar
-  html+=`<div class="kpi-grid g4 kpi-compact" style="margin-bottom:20px">
+  // Il resto, compatto
+  html+=`<div class="pl-mini-grid">
     ${[
-      {label:"Ricavo per Servizio",v:fmt(D.ricavoPerServizio),cls:"c-green",sub:_plDelta(D.ricavoPerServizio,P.ricavo/D.serviziPrev)},
-      {label:"Ricavo Medio/Bottiglia",v:fmt(D.ricavoPerBt),cls:"c-amber",sub:`<span style="color:var(--txt4)">servizio incluso</span>`},
-      ...((parseFloat(CONFIG.servizioBottiglia)||D.totServizio)?[{label:"Peso del Servizio",v:`${fmtN(D.totRicavo?D.totServizio/D.totRicavo*100:0,1)}%`,cls:"c-orange",sub:`${fmt(D.totServizio)} sull'incasso<br><span style="color:var(--txt4)">margine 100%</span>`}]:[]), // solo dove il servizio al banco esiste
-      {label:"Servizi nel Periodo",v:D.serviziPer,cls:"c-blue",sub:`<span style="color:var(--txt4)">${R.giorni} giorni di calendario</span>`},
-    ].map(k=>`<div class="kpi-card"><div class="kpi-label">${k.label}</div><div class="kpi-val ${k.cls}">${k.v}</div><div class="kpi-sub">${k.sub}</div></div>`).join("")}
+      {label:"Bottiglie vendute",value:D.totQty,cls:"",sub:_plDelta(D.totQty,P.qty)+` · ${fmtN(D.btPerServizio,1)}/servizio`},
+      {label:"Ricavo per servizio",value:fmt(D.ricavoPerServizio),cls:"",sub:_plDelta(D.ricavoPerServizio,P.ricavo/D.serviziPrev)},
+      {label:"Ricavo medio/bottiglia",value:fmt(D.ricavoPerBt),cls:"",sub:"servizio incluso"},
+      ...((parseFloat(CONFIG.servizioBottiglia)||D.totServizio)?[{label:"Peso del servizio",value:`${fmtN(D.totRicavo?D.totServizio/D.totRicavo*100:0,1)}%`,cls:"",sub:`${fmt(D.totServizio)} · margine 100%`}]:[]), // solo dove il servizio al banco esiste
+      {label:"Servizi nel periodo",value:D.serviziPer,cls:"",sub:`${R.giorni} giorni di calendario`},
+    ].map(_plKpiCard).join("")}
   </div>`;
   // Trend | Top 10 margine
   html+=`<div class="kpi-grid g2" style="margin-bottom:20px">
@@ -3949,10 +3944,10 @@ function _plSec3Fornitori(D){
   let html=`<style>@media(max-width:640px){.pl-forn-grid{grid-template-columns:1fr!important}}</style>
   <div style="font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--txt4);margin:28px 0 8px">Approvvigionamento & Fornitori · da gen 2026</div>
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:14px">
-    ${_plBigCard("Totale Speso",fmt(D.fTot),"carichi IVA incl. · da gen 2026","#30D158")}
-    ${_plBigCard("Bottiglie Comprate",fmtN(D.fBt,0),"volume acquistato · da gen 2026","var(--amber)")}
-    ${_plBigCard("Ordini Effettuati",fmtN(D.nOrdiniPeriodo,0),"ordini dal 2026","#007AFF")}
-    ${_plBigCard("Costo Medio / bt",fmt(D.fCostoMedio),"IVA incl. per bottiglia","var(--amber3)")}
+    ${_plBigCard("Totale Speso",fmt(D.fTot),"carichi IVA incl. · da gen 2026","var(--txt)")}
+    ${_plBigCard("Bottiglie Comprate",fmtN(D.fBt,0),"volume acquistato · da gen 2026","var(--txt)")}
+    ${_plBigCard("Ordini Effettuati",fmtN(D.nOrdiniPeriodo,0),"ordini dal 2026","var(--txt)")}
+    ${_plBigCard("Costo Medio / bt",fmt(D.fCostoMedio),"IVA incl. per bottiglia","var(--txt)")}
   </div>
   <div class="pl-forn-grid" style="display:grid;grid-template-columns:3fr 2fr;gap:14px;margin-bottom:24px">
     <div class="card" style="padding:0">
@@ -4190,8 +4185,8 @@ function _plPublishChartState(D){
 function renderPlancia(){
   const D=_plCompute();
   _plPublishChartState(D);
-  return _plSec1Direzione(D)
-    + _plSec2Vendite(D)
+  return _plSec2Vendite(D)
+    + _plSec1Direzione(D)
     + _plSec3Fornitori(D)
     + _plSec4Cantina(D)
     + _plSec5Carta(D);
@@ -13470,6 +13465,16 @@ td.r,th.r,.kpi-val,.ss-val,.giacenza-big,.mob-giacenza,.calc-val,.meta-val{font-
 .kpi-label,.section-label,.form-label,.modal-section-label,.meta-label,.calc-label{letter-spacing:.06em}
 .kpi-sub{line-height:1.45}
 /* Plancia: gerarchia */
+/* plancia: una fila principale, il resto compatto */
+.pl-hero{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:12px}
+.pl-hero .kpi-card{padding:20px 22px}.pl-hero .kpi-val{font-size:2.3rem}
+.pl-gauge{position:relative;height:6px;border-radius:3px;background:var(--bg3);margin-top:12px;overflow:visible}
+.pl-gauge>i{position:absolute;left:0;top:0;bottom:0;border-radius:3px}
+.pl-gauge>b{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--txt);border-radius:1px}
+.pl-mini-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;margin-bottom:18px}
+@media(max-width:760px){.pl-hero{grid-template-columns:1fr}}
+.kpi-card.kpi-compact{padding:11px 14px}.kpi-compact .kpi-label{margin-bottom:5px}.kpi-compact .kpi-val{font-size:1.25rem}.kpi-compact .kpi-sub{margin-top:3px;font-size:11px}
+.pl-h{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--txt3);font-weight:600;margin:28px 0 10px}
 .kpi-hero .kpi-card{padding:20px 22px;border-color:var(--border2)}
 .kpi-hero .kpi-val{font-size:2.15rem}
 .kpi-hero .kpi-label{color:var(--txt2)}
