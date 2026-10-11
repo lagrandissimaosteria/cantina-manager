@@ -107,6 +107,27 @@ function _tipoOptsHtml(selected){
     + TIPOLOGIE.map(t=>`<option value="${h(t)}"${t===sel?" selected":""}>${h(t)}</option>`).join("")
     + `<option value="__new__">+ Nuova tipologia…</option>`;
 }
+// ── SPIRITS & AMARI: ordini tracciati solo come acquisti (niente magazzino/carta)
+const SPIRITS_TIPI=["Distillato","Liquore","Amaro","Fortificato","Idromele / Altro"];
+const _isSpirits=o=>!!o&&o.categoria==="spirits";
+function _spTipoOptsHtml(selected){
+  const sel=String(selected||"");
+  const fuori=sel&&!SPIRITS_TIPI.includes(sel);
+  return (fuori?`<option value="${h(sel)}" selected>${h(sel)}</option>`:"")
+    + SPIRITS_TIPI.map(t=>`<option value="${h(t)}"${t===sel?" selected":""}>${h(t)}</option>`).join("");
+}
+const _spBadge=o=>_isSpirits(o)?` <span title="Ordine Spirits &amp; Amari: tracciato solo come acquisto, non entra in magazzino né in carta" style="display:inline-block;margin-left:6px;padding:1px 6px;font-size:.68rem;font-weight:600;letter-spacing:.04em;border:1px solid rgba(191,95,255,.4);color:#bf5fff;border-radius:4px;vertical-align:middle">SPIRITS</span>`:"";
+function _setOrdineCategoria(v){
+  if(!ordineModalData) return;
+  ordineModalData.fornitore=(document.getElementById("omd-fornitore")?.value||"").trim();
+  ordineModalData.dataOrdine=document.getElementById("omd-data")?.value||ordineModalData.dataOrdine;
+  ordineModalData.note=(document.getElementById("omd-note")?.value||"").trim();
+  ordineModalData.categoria=v==="spirits"?"spirits":"";
+  if(ordineModalData.categoria) ordineModalData.referenze.forEach(r=>{ if(!SPIRITS_TIPI.includes(r.tipologia)) r.tipologia="Distillato"; r.wineId=""; });
+  const allForn=[...new Set([...wines.map(w=>w.distributore),...orders.map(o=>o.fornitore)].filter(Boolean))].sort();
+  const allProd=[...new Set([...wines.map(w=>w.produttore),...orders.flatMap(o=>(o.referenze||[]).map(r=>r.produttore))].filter(Boolean))].sort();
+  _renderOrdineModalBody(allForn, allProd, [...new Set(wines.map(w=>w.nome).filter(Boolean))].sort());
+}
 function _addTipologiaInline(sel, onNewTipo){
   if(sel.value !== "__new__") return;
   const nuova = (prompt("Nome nuova tipologia:") || "").trim();
@@ -2274,7 +2295,7 @@ async function loadData(){
 }
 
 // storico ordini filtri (in-memory, no persist)
-var storicoQ="", storicoForn="", storicoDataDa="", storicoDataA="";
+var storicoQ="", storicoForn="", storicoDataDa="", storicoDataA="", storicoCat="";
 
 
 function renderBulkBar(mode, allIds){
@@ -5539,7 +5560,7 @@ function renderOrdini(){
       ${selMode==='ordini'?`<td class="cb-col"><input type="checkbox" class="cb-sel" data-id="${o.id}" onchange="toggleSel('${o.id}');_updateBulkBar()"></td>`:''}
       <td><input type="checkbox" class="ord-check" data-id="${o.id}" ${isPending?'checked':''} onchange="toggleOrdineArrivato('${o.id}',this.checked)" style="width:18px;height:18px;cursor:pointer"></td>
       <td>${h(_fmtDataIT(o.dataOrdine))}</td>
-      <td style="font-weight:500">${h(o.fornitore||'—')}</td>
+      <td style="font-weight:500">${h(o.fornitore||'—')}${_spBadge(o)}</td>
       <td style="color:var(--txt3);font-size:12px">${ref.length} ref.</td>
       <td style="color:var(--amber)">${totQty} bt</td>
       <td style="color:var(--txt2)">${valCell}</td>
@@ -5566,6 +5587,8 @@ function renderOrdini(){
     const testo=[o.fornitore,...(o.referenze||[]).map(r=>r.nomeVino+r.produttore)].join(" ").toLowerCase();
     if(q&&!testo.includes(q)) return false;
     if(storicoForn&&o.fornitore!==storicoForn) return false;
+    if(storicoCat==='spirits'&&!_isSpirits(o)) return false;
+    if(storicoCat==='vini'&&_isSpirits(o)) return false;
     if(storicoDataDa&&(o.dataArrivo||o.dataOrdine||"")<storicoDataDa) return false;
     if(storicoDataA&&(o.dataArrivo||o.dataOrdine||"")>storicoDataA) return false;
     return true;
@@ -5585,7 +5608,7 @@ function renderOrdini(){
     return _divider+`<tr>
       <td style="padding:6px 8px;text-align:center"><input type="checkbox" class="cb-sel evaso-check" data-id="${o.id}" style="width:13px;height:13px;accent-color:var(--amber);cursor:pointer"></td>
       <td style="color:var(--txt3);font-size:.8rem">${h(_fmtDataIT(o.dataOrdine))}</td>
-      <td style="font-weight:500">${h(o.fornitore||'—')}</td>
+      <td style="font-weight:500">${h(o.fornitore||'—')}${_spBadge(o)}</td>
       <td style="color:var(--txt3)">${ref.length} referenze</td>
       <td style="color:var(--txt2)">${totQty} bt</td>
       <td style="color:var(--txt3);font-size:.8rem">${h(_fmtDataIT(o.dataArrivo))||"—"}</td>
@@ -5725,6 +5748,11 @@ function renderOrdini(){
     </div>
     <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end">
       <div class="search-wrap" style="flex:1;min-width:160px"><span class="search-icon">${ic("search")}</span><input id="storico-search" class="form-input" style="padding-left:28px;font-size:12px" placeholder="Cerca vino, fornitore…" value="${h(storicoQ)}" oninput="storicoQ=this.value;renderOrdiniOnly()"></div>
+      <div style="min-width:120px"><select class="form-select" style="font-size:12px" onchange="storicoCat=this.value;render()">
+        <option value="" ${!storicoCat?"selected":""}>Tutti i tipi</option>
+        <option value="vini" ${storicoCat==="vini"?"selected":""}>Solo vini</option>
+        <option value="spirits" ${storicoCat==="spirits"?"selected":""}>Spirits &amp; Amari</option>
+      </select></div>
       <div style="min-width:140px"><select class="form-select" style="font-size:12px" onchange="storicoForn=this.value;render()">
         <option value="">Tutti i fornitori</option>
         ${fornEvasi.map(f=>`<option value="${h(f)}" ${storicoForn===f?"selected":""}>${h(f)}</option>`).join("")}
@@ -5734,7 +5762,7 @@ function renderOrdini(){
         <span style="color:var(--txt4);font-size:12px">→</span>
         <input type="date" class="form-input" style="font-size:12px;width:130px" value="${storicoDataA}" onchange="storicoDataA=this.value;render()">
       </div>
-      ${(storicoQ||storicoForn||storicoDataDa||storicoDataA)?`<button class="btn-outline btn-sm" onclick="storicoQ='';storicoForn='';storicoDataDa='';storicoDataA='';render()" style="color:var(--txt4)">${ic("x")} Reset</button>`:""}
+      ${(storicoQ||storicoForn||storicoDataDa||storicoDataA||storicoCat)?`<button class="btn-outline btn-sm" onclick="storicoQ='';storicoForn='';storicoDataDa='';storicoDataA='';storicoCat='';render()" style="color:var(--txt4)">${ic("x")} Reset</button>`:""}
     </div>
     <div style="overflow-x:auto">
       <table class="wine-table" style="opacity:.85">
@@ -5795,6 +5823,7 @@ function duplicaOrdine(id){
     fornitore:src.fornitore||src.distributore||"",
     note:src.note||"",
     sconto:parseFloat(src.sconto)||0,
+    categoria:_isSpirits(src)?"spirits":"",
     referenze:srcRefs.map(r=>{ const {qtyArr,id:_,...rest}=r; return {...rest,id:uid(),scontoRef:parseFloat(r.scontoRef)||0}; })
   };
   if(!ordineModalData.referenze.length) ordineModalData.referenze.push(_newRef());
@@ -5857,6 +5886,7 @@ function _setQuickCarta(wineId){
 }
 
 function _rollbackOrdine(ordine){
+  if(_isSpirits(ordine)) return;
   // Find and remove movements created from this order
   const notePattern="Da ordine "+ordine.dataOrdine;
   const movsDaRimuovere=movements.filter(m=>m.note===notePattern&&m.tipo==="carico"&&m.fornitore===ordine.fornitore);
@@ -6069,6 +6099,7 @@ function _riparaReferenzeOrdini(list){
   const anag = (typeof wines!=="undefined" ? wines : []) || [];
   let fix = 0;
   src.forEach(o=>{
+    if(_isSpirits(o)) return;
     (o && o.referenze || []).forEach(r=>{
       const w = anag.find(x=>x && x.id===r.wineId);
       if(!w) return;
@@ -6183,6 +6214,7 @@ function apriOrdineModal(idOrNull){
     fornitore: ordine?.fornitore||"",
     note: ordine?.note||"",
     sconto: parseFloat(ordine?.sconto)||0,
+    categoria: _isSpirits(ordine)?"spirits":"",
     referenze: ordine?.referenze ? ordine.referenze.map(r=>({...r})) : []
   };
   if(ordineModalData.referenze.length===0) ordineModalData.referenze.push(_newRef());
@@ -6210,7 +6242,14 @@ function _renderOrdineModalBody(allFornitori, allProduttori, allNomi){
     <datalist id="omd-reg-dl">${allRegioni.map(v=>`<option value="${h(v)}">`).join("")}</datalist>
     <datalist id="omd-naz-dl">${_ordNazioni().map(v=>`<option value="${h(v)}">`).join("")}</datalist>
     <!-- Header ordine -->
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 2fr;gap:12px;margin-bottom:20px">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 2fr;gap:12px;margin-bottom:20px">
+      <div>
+        <label class="form-label">Tipo ordine</label>
+        <select id="omd-categoria" class="form-input" onchange="_setOrdineCategoria(this.value)">
+          <option value="" ${_isSpirits(ordineModalData)?"":"selected"}>Vini</option>
+          <option value="spirits" ${_isSpirits(ordineModalData)?"selected":""}>Spirits &amp; Amari</option>
+        </select>
+      </div>
       <div>
         <label class="form-label">Data Ordine</label>
         <input id="omd-data" type="date" class="form-input" value="${h(ordineModalData.dataOrdine)}">
@@ -6231,6 +6270,7 @@ function _renderOrdineModalBody(allFornitori, allProduttori, allNomi){
         <input id="omd-note" class="form-input" value="${h(ordineModalData.note)}" placeholder="es. Ordine per settembre">
       </div>
     </div>
+    ${_isSpirits(ordineModalData)?`<div style="margin:-8px 0 16px;padding:8px 12px;font-size:12px;border:1px solid rgba(191,95,255,.35);color:var(--txt2)">Ordine <b>Spirits &amp; Amari</b>: viene registrato solo come acquisto (storico ordini, fatture, spesa fornitore). Alla ricezione non crea schede in magazzino e non compare in carta.</div>`:""}
     <!-- Referenze -->
     <div class="modal-section-label">${ic("bottle")} Referenze dell'ordine</div>
     <style>.cm-ord-tbl{min-width:900px!important}.cm-ord-tbl td{overflow-wrap:normal!important;word-break:normal!important}.cm-ord-tbl tr.cm-grid-head td{letter-spacing:.03em}.cm-ord-tbl td>div[id^="ref-"]{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.cm-ord-tbl .cm-carta-sug{background:none;border:none;color:#30D158;font-size:11px;cursor:pointer;padding:0;font-family:inherit;text-decoration:underline;text-underline-offset:2px}</style>
@@ -6273,7 +6313,7 @@ function _renderOrdineModalBody(allFornitori, allProduttori, allNomi){
 }
 
 function _refRowHtml(r,i,tipoOpts,ivaOpts,allProduttori,allNomi){
-  const selTipo=_tipoOptsHtml(r.tipologia);
+  const selTipo=_isSpirits(ordineModalData)?_spTipoOptsHtml(r.tipologia):_tipoOptsHtml(r.tipologia);
   const ivaIncl = r.prezzoAcq ? (parseFloat(r.prezzoAcq)*(1+(parseInt(r.iva)||22)/100)) : 0;
   const scontoRef = parseFloat(r.scontoRef)||0;
   const scontoOrd = parseFloat(ordineModalData?.sconto)||0;
@@ -6557,7 +6597,7 @@ function salvaOrdine(){
     if(!nomeVino){ok=false;return;}
     // FIX FORMATO: il wineId assegnato per nome deve rispettare anche il formato
     const _fmt=String(parseFloat(r.formato)||0.75);
-    const wineId=r.wineId||(wines.find(w=>w.nome.toLowerCase()===nomeVino.toLowerCase()&&String(parseFloat(w.formato)||0.75)===_fmt)?.id||"");
+    const wineId=_isSpirits(ordineModalData)?"":(r.wineId||(wines.find(w=>w.nome.toLowerCase()===nomeVino.toLowerCase()&&String(parseFloat(w.formato)||0.75)===_fmt)?.id||""));
     refs.push({
       id:r.id||uid(), wineId,
       produttore:(r.produttore||"").trim(),
@@ -6578,22 +6618,23 @@ function salvaOrdine(){
   });
   if(!ok){notify("Inserisci il nome vino per tutte le referenze","err");return;}
   if(!refs.length){notify("Aggiungi almeno una referenza","err");return;}
+  const categoria=_isSpirits(ordineModalData)?"spirits":"";
 
   const _bozzaId = _bozzeSb.some(b=>b.id===ordineModalData.id) ? ordineModalData.id : null;
   if(ordineModalData.id){
     // Update existing
     const idx=orders.findIndex(o=>o.id===ordineModalData.id);
     if(idx>=0){
-      orders[idx]={...orders[idx],fornitore,dataOrdine,note,sconto:parseFloat(document.getElementById("omd-sconto")?.value)||ordineModalData.sconto||0,referenze:refs};
+      orders[idx]={...orders[idx],categoria,fornitore,dataOrdine,note,sconto:parseFloat(document.getElementById("omd-sconto")?.value)||ordineModalData.sconto||0,referenze:refs};
     } else {
       // Bozza remota (_bozzeSb): promuovi a ordine normale in orders.
       // _sbTestataId mantiene il dedup in renderOrdini (riga ~2884) finché la
       // bozza Supabase non è cancellata; _bozzeSb viene ripulito subito.
-      orders.push({id:ordineModalData.id,_sbTestataId:ordineModalData.id,fornitore,dataOrdine,note,sconto:parseFloat(document.getElementById("omd-sconto")?.value)||ordineModalData.sconto||0,referenze:refs,stato:"attesa"});
+      orders.push({id:ordineModalData.id,_sbTestataId:ordineModalData.id,categoria,fornitore,dataOrdine,note,sconto:parseFloat(document.getElementById("omd-sconto")?.value)||ordineModalData.sconto||0,referenze:refs,stato:"attesa"});
       _bozzeSb=_bozzeSb.filter(b=>b.id!==ordineModalData.id);
     }
   } else {
-    orders.push({id:uid(),fornitore,dataOrdine,note,sconto:parseFloat(document.getElementById("omd-sconto")?.value)||ordineModalData.sconto||0,referenze:refs,stato:"attesa"});
+    orders.push({id:uid(),categoria,fornitore,dataOrdine,note,sconto:parseFloat(document.getElementById("omd-sconto")?.value)||ordineModalData.sconto||0,referenze:refs,stato:"attesa"});
   }
   scheduleSave();
   // PATCH: flush immediato per ordini — non aspettare il debounce da 400ms.
@@ -6649,7 +6690,7 @@ function _renderRicezioneModalBody(ordine, allForn, allProd, allNomi){
     <datalist id="ric-prod-dl">${allProd.map(v=>`<option value="${h(v)}">`).join("")}</datalist>
     <datalist id="ric-wine-dl">${allNomi.map(v=>`<option value="${h(v)}">`).join("")}</datalist>
     <div style="background:rgba(var(--amber-rgb,255,159,10),.08);border:1px solid rgba(var(--amber3-rgb,180,83,9),.3);padding:10px 14px;margin-bottom:16px;font-size:12px">
-      <span style="color:var(--amber3);font-weight:600">Fornitore:</span> <span style="color:var(--txt2)">${h(ordine.fornitore)}</span>
+      <span style="color:var(--amber3);font-weight:600">Fornitore:</span> <span style="color:var(--txt2)">${h(ordine.fornitore)}</span>${_spBadge(ordine)}${_isSpirits(ordine)?` <span style="color:var(--txt4)">— registrazione arrivo, nessun carico a magazzino</span>`:""}
       &nbsp;·&nbsp;<span style="color:var(--amber3);font-weight:600">Ordine del:</span> <span style="color:var(--txt2)">${h(ordine.dataOrdine)}</span>
       ${ordine.note?`&nbsp;·&nbsp;<span style="color:var(--txt4)">${h(ordine.note)}</span>`:""}
     </div>
@@ -6886,6 +6927,23 @@ function confermaRicezioneOrdine(){
   const daProcessare=ricezioneModalData.righe.filter(r=>(parseInt(r.qtyArr)||0)>0);
   if(!daProcessare.length){notify("Nessuna bottiglia da caricare","err");return;}
 
+  // Spirits & Amari: si registra l'arrivo sull'ordine, nessun movimento/scheda.
+  const _ordSp=orders.find(o=>o.id===ricezioneModalData.ordineId);
+  if(_isSpirits(_ordSp)){
+    ricezioneModalData.righe.forEach(r=>{
+      const ref=(_ordSp.referenze||[]).find(x=>x.id===r.id);
+      if(ref) ref.qtyArr=parseInt(r.qtyArr)||0;
+      else if(r._extra&&(parseInt(r.qtyArr)||0)>0) _ordSp.referenze.push({...r});
+    });
+    _ordSp.stato="caricato"; _ordSp.dataArrivo=dataArrivo; _ordSp.dataCarico=today();
+    if(fattura) _ordSp.numeroFattura=fattura;
+    scheduleSave(); clearTimeout(saveTimer); _flushSave();
+    chiudiRicezioneModal();
+    notify(`Ordine spirits registrato (${daProcessare.length} referenze, fuori magazzino)`);
+    render();
+    return;
+  }
+
   // Eccedenze: il fornitore manda spesso qualche bottiglia in piu' per compensare
   // referenze mancanti. NON e' un errore bloccante — si carica quel che e'
   // arrivato davvero e si avvisa, cosi' la differenza resta visibile.
@@ -7035,6 +7093,9 @@ function confermaRicezioneGlobale(){
   let totRef=0;
   const newMovsGlob=[];
   selezionati.forEach(ordine=>{
+    if(_isSpirits(ordine)){
+      (ordine.referenze||[]).forEach(r=>{ if(r.qtyArr==null) r.qtyArr=parseInt(r.qty)||0; });
+    } else
     (ordine.referenze||[]).forEach(r=>{
       const qty=parseInt(r.qty)||0;
       if(!qty) return;
@@ -11766,7 +11827,7 @@ function inviaOrdineAdAltroLocale(id){
     v:ORDER_MANIFEST_V, type:"cantina-order", mode:"ordine", transferId:uid(),
     from:NOME_LOCALE, fromDbUser:_effectiveDbUser(), dest, data:today(),
     ordine:{ dataOrdine:src.dataOrdine||today(), fornitore:src.fornitore||src.distributore||"",
-             note:src.note||"", sconto:parseFloat(src.sconto)||0, referenze:refs },
+             note:src.note||"", sconto:parseFloat(src.sconto)||0, categoria:_isSpirits(src)?"spirits":"", referenze:refs },
     // riepilogo per l'anteprima/modale, stesso formato dei manifesti referenza
     lines:refs.map(r=>({nome:r.nomeVino,produttore:r.produttore,annata:r.annata,qty:r.qty}))
   };
@@ -11791,7 +11852,7 @@ function _ordImportaManifesto(man){
   orders.push({ id:uid(), fornitore:o.fornitore||"", dataOrdine:o.dataOrdine||today(),
     note:[o.note,`importato da ${man.from||"altro locale"}`].filter(Boolean).join(" · "),
     sconto:parseFloat(o.sconto)||0, referenze:refs, stato:"attesa",
-    _importId:man.transferId, _importFrom:man.from||"" });
+    _importId:man.transferId, _importFrom:man.from||"", categoria:_isSpirits(o)?"spirits":"" });
   scheduleSave();
   try{ clearTimeout(saveTimer); _flushSave(); }catch{}
   const ta=document.getElementById("tf-ricev"); if(ta) ta.value="";
