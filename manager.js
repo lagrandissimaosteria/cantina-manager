@@ -113,11 +113,31 @@ const ORD_CAT={
   spirits:{label:"Spirits & Amari", short:"SPIRITS", color:"#bf5fff", rgb:"191,95,255",
     tipi:["Distillato","Liquore","Amaro","Fortificato","Idromele / Altro"]},
   birre:{label:"Birre", short:"BIRRE", color:"#FF9F0A", rgb:"255,159,10",
-    tipi:["Birra chiara","Birra ambrata","Birra scura","IPA / Luppolata","Sour / Acida","Birra analcolica","Sidro","Fusto"]},
+    tipi:["Birra chiara","Birra ambrata","Birra scura","IPA / Luppolata","Sour / Acida","Birra analcolica","Sidro"]},
   sodati:{label:"Sodati & Analcolici", short:"SODATI", color:"#5AC8FA", rgb:"90,200,250",
     tipi:["Tonica","Soda / Gassosa","Ginger beer / ale","Cola / Chinotto","Acqua","Succo","Sciroppo","Altro analcolico"]}
 };
 const _ordCat=o=>(o&&ORD_CAT[o.categoria])?o.categoria:"";
+// Scheda ordine per categoria: formati e colonne descrittive [campo, etichetta, larghezza %, placeholder]
+const ORD_FMT={
+  spirits:[[0.05,"5cl Mignon"],[0.2,"20cl"],[0.35,"35cl"],[0.5,"50cl"],[0.7,"70cl"],[1,"1L"],[1.5,"1.5L Magnum"],[3,"3L"]],
+  birre:[[0.25,"25cl"],[0.33,"33cl"],[0.375,"37.5cl"],[0.5,"50cl"],[0.66,"66cl"],[0.75,"75cl"],[1.5,"1.5L"]] ,
+  sodati:[[0.1,"10cl"],[0.15,"15cl"],[0.2,"20cl"],[0.25,"25cl"],[0.275,"27.5cl"],[0.33,"33cl"],[0.5,"50cl"],[0.75,"75cl"],[1,"1L"],[1.5,"1.5L"],[2,"2L"],[5,"Bag-in-box 5L"],[10,"Bag-in-box 10L"]]
+};
+const ORD_FMT_DEF={spirits:0.7,birre:0.33,sodati:0.2};
+const ORD_COLS={
+  spirits:[["produttore","Produttore / Distilleria",12,"es. Nonino"],["nomeVino","Prodotto",15,"es. Grappa Monovitigno"],["tipologia","Tipologia",9],["eta","Età / Affin.",7,"es. 12 anni"],["gradazione","% vol",5,"40"],["formato","Formato",6],["nazione","Nazione",6,"es. Italia"]],
+  birre:[["produttore","Birrificio",13,"es. Baladin"],["nomeVino","Birra",16,"es. Nora"],["tipologia","Stile",11],["gradazione","% vol",6,"5"],["formato","Formato",8],["nazione","Nazione",6,"es. Italia"]],
+  sodati:[["produttore","Marca",16,"es. Fever-Tree"],["nomeVino","Prodotto",22,"es. Indian Tonic"],["tipologia","Tipologia",12],["formato","Formato",10]]
+};
+const _ordFmtLabel=(cat,f)=>{ const v=parseFloat(f)||0, x=(ORD_FMT[cat]||[]).find(a=>a[0]===v); return x?x[1]:(v?(v<1?Math.round(v*1000)/10+"cl":v+"L"):"—"); };
+function _ordFmtOptsHtml(cat,sel){
+  const v=parseFloat(sel)||ORD_FMT_DEF[cat], L=ORD_FMT[cat]||[];
+  return (L.some(a=>a[0]===v)?"":`<option value="${v}" selected>${h(_ordFmtLabel(cat,v))}</option>`)
+    + L.map(([f,l])=>`<option value="${f}"${f===v?" selected":""}>${h(l)}</option>`).join("");
+}
+// Dettaglio prodotto bar in una riga (testi ordine, stampa, ricezione)
+const _ordBarDett=(r,cat)=>[r.vitigni, r.annata, r.eta, r.gradazione?String(r.gradazione).replace(".",",")+"% vol":"", _ordFmtLabel(cat,r.formato)].filter(Boolean).join(" · ");
 const _isSpirits=o=>!!_ordCat(o);
 const SPIRITS_TIPI=ORD_CAT.spirits.tipi;
 function _spTipoOptsHtml(selected){
@@ -172,7 +192,13 @@ function _setOrdineCategoria(v){
   ordineModalData.note=(document.getElementById("omd-note")?.value||"").trim();
   ordineModalData.categoria=ORD_CAT[v]?v:"";
   const _c=ORD_CAT[ordineModalData.categoria];
-  if(_c) ordineModalData.referenze.forEach(r=>{ if(!_c.tipi.includes(r.tipologia)) r.tipologia=_c.tipi[0]; r.wineId=""; });
+  const _k=ordineModalData.categoria;
+  ordineModalData.referenze.forEach(r=>{
+    if(_c){ if(!_c.tipi.includes(r.tipologia)) r.tipologia=_c.tipi[0]; r.wineId="";
+      if(!ORD_FMT[_k].some(a=>a[0]===parseFloat(r.formato))) r.formato=ORD_FMT_DEF[_k]; }
+    else { if(!TIPOLOGIE.includes(r.tipologia)) r.tipologia="Rosso";
+      if(!FORMATI_BOTTIGLIA.some(x=>parseFloat(x.v)===parseFloat(r.formato))) r.formato=0.75; }
+  });
   const allForn=[...new Set([...wines.map(w=>w.distributore),...orders.map(o=>o.fornitore)].filter(Boolean))].sort();
   const allProd=[...new Set([...wines.map(w=>w.produttore),...orders.flatMap(o=>(o.referenze||[]).map(r=>r.produttore))].filter(Boolean))].sort();
   _renderOrdineModalBody(allForn, allProd, [...new Set(wines.map(w=>w.nome).filter(Boolean))].sort());
@@ -6295,6 +6321,7 @@ function _renderOrdineModalBody(allFornitori, allProduttori, allNomi){
     <datalist id="omd-wine-dl">${allNomi.map(v=>`<option value="${h(v)}">`).join("")}</datalist>
     <datalist id="omd-reg-dl">${allRegioni.map(v=>`<option value="${h(v)}">`).join("")}</datalist>
     <datalist id="omd-naz-dl">${_ordNazioni().map(v=>`<option value="${h(v)}">`).join("")}</datalist>
+    ${_ordBarDatalists(_ordCat(ordineModalData))}
     <!-- Header ordine -->
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 2fr;gap:12px;margin-bottom:20px">
       <div>
@@ -6330,7 +6357,21 @@ function _renderOrdineModalBody(allFornitori, allProduttori, allNomi){
     <style>.cm-ord-tbl{min-width:900px!important}.cm-ord-tbl td{overflow-wrap:normal!important;word-break:normal!important}.cm-ord-tbl tr.cm-grid-head td{letter-spacing:.03em}.cm-ord-tbl td>div[id^="ref-"]{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.cm-ord-tbl .cm-carta-sug{background:none;border:none;color:#30D158;font-size:11px;cursor:pointer;padding:0;font-family:inherit;text-decoration:underline;text-underline-offset:2px}</style>
     <div class="cm-grid-wrap">
       <table class="cm-grid-tbl cm-ord-tbl">
-        <colgroup>
+${_ordGridHead(_ordCat(ordineModalData))}
+        <tbody id="omd-refs-body">${refsHtml}</tbody>
+      </table>
+    </div>
+    <button class="btn-outline btn-sm" style="margin-top:10px" onclick="_addRefRow()">+ Aggiungi referenza</button>
+    <div id="omd-totale" style="margin-top:12px;text-align:right;font-size:12px;color:var(--txt2)"></div>`;
+  _updateOrdineModalTotale();
+  // Inizializza suggerimenti P.Carta per righe con prezzoAcq già valorizzato (es. ordine in modifica)
+  if(!_isSpirits(ordineModalData)) ordineModalData.referenze.forEach(r=>{ if(r.prezzoAcq) _updateRefCartaSuggerita(r.id); });
+}
+
+
+// Intestazione griglia ordine: vino (storica) o colonne della categoria bar
+function _ordGridHead(cat){
+  if(!cat) return `        <colgroup>
           <col style="width:11%"><col style="width:12%"><col style="width:8.5%"><col style="width:6%">
           <col style="width:8%"><col style="width:7.5%"><col style="width:7%"><col style="width:7.5%">
           <col style="width:0">
@@ -6355,19 +6396,85 @@ function _renderOrdineModalBody(allFornitori, allProduttori, allNomi){
             <td style="text-align:right;background:rgba(48,209,88,.04)">Tot. riga</td>
             <td></td>
           </tr>
-        </thead>
-        <tbody id="omd-refs-body">${refsHtml}</tbody>
-      </table>
-    </div>
-    <button class="btn-outline btn-sm" style="margin-top:10px" onclick="_addRefRow()">+ Aggiungi referenza</button>
-    <div id="omd-totale" style="margin-top:12px;text-align:right;font-size:12px;color:var(--txt2)"></div>`;
-  _updateOrdineModalTotale();
-  // Inizializza suggerimenti P.Carta per righe con prezzoAcq già valorizzato (es. ordine in modifica)
-  ordineModalData.referenze.forEach(r=>{ if(r.prezzoAcq) _updateRefCartaSuggerita(r.id); });
+        </thead>`;
+  const C=ORD_COLS[cat], tail=[["P.Acq ex IVA",9],["Qty",6,"text-align:center"],["Sc.%",6,"text-align:center;background:rgba(255,69,58,.04)"],["Tot. riga",8,"text-align:right;background:rgba(48,209,88,.04)"],["",3]];
+  return `<colgroup>${[...C.map(c=>c[2]),...tail.map(t=>t[1])].map(w=>`<col style="width:${w}%">`).join("")}</colgroup>
+        <thead><tr class="cm-grid-head">${C.map(c=>`<td>${h(c[1])}</td>`).join("")}${tail.map(t=>`<td${t[2]?` style="${t[2]}"`:""}>${t[0]}</td>`).join("")}</tr></thead>
+`;
+}
+// Datalist prodotti/produttori già ordinati nella categoria bar
+function _ordBarDatalists(cat){
+  const P=new Set(), N=new Set();
+  if(cat) (orders||[]).forEach(o=>{ if(_ordCat(o)===cat) (o.referenze||[]).forEach(r=>{ if(r.produttore) P.add(r.produttore); if(r.nomeVino) N.add(r.nomeVino); }); });
+  const dl=(id,S)=>`<datalist id="${id}">${[...S].sort((x,y)=>x.localeCompare(y,"it")).map(v=>`<option value="${h(v)}">`).join("")}</datalist>`;
+  return dl("omd-barprod-dl",P)+dl("omd-barnome-dl",N);
 }
 
+
+// Celle prezzo/quantità/sconto/totale della riga bar (layout Osteria, senza P.Carta)
+function _refTailHtml(r){
+  const scontoRef = parseFloat(r.scontoRef)||0, scontoOrd = parseFloat(ordineModalData?.sconto)||0;
+  const ivaIncl = r.prezzoAcq ? (parseFloat(r.prezzoAcq)*(1+(parseInt(r.iva)||22)/100)) : 0;
+  const totRiga = ivaIncl*(parseInt(r.qty)||0), totRigaNetto = totRiga*(1-scontoRef/100)*(1-scontoOrd/100);
+  const totRigaHtml = totRiga
+    ? (scontoRef>=100 ? `<span style="color:#30D158;font-weight:600;font-size:12px">${ic("gift")} OMAGGIO</span>`
+      : (scontoRef>0||scontoOrd>0) ? `<span style="color:var(--txt4);text-decoration:line-through;font-size:12px">${fmtRound(totRiga)}</span><br><span style="color:#30D158">${fmtRound(totRigaNetto)}</span>`
+      : `<span style="color:var(--txt2)">${fmtRound(totRiga)}</span>`) : "—";
+  const scBg = scontoRef>=100 ? "rgba(48,209,88,.12)" : scontoRef>0 ? "rgba(255,69,58,.06)" : "transparent";
+  return `<td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:12px;min-width:80px;width:100%" value="${r.prezzoAcq||''}" step="0.01" min="0" placeholder="0.00" onchange="_refChange('${r.id}','prezzoAcq',parseFloat(this.value)||0)" oninput="_refChange('${r.id}','prezzoAcq',parseFloat(this.value)||0);_updateOrdineModalTotale()"></td>
+    <td style="padding:5px 6px"><input type="number" class="form-input" style="font-size:13px;text-align:center;min-width:52px;width:100%" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" value="${r.qty||6}" min="1" step="1" oninput="_refChange('${r.id}','qty',parseInt(this.value)||1);_updateOrdineModalTotale()"></td>
+    <td style="padding:3px 4px;background:${scBg};border-left:1px solid rgba(255,69,58,.15)">
+      <input type="number" class="form-input" id="ref-sc-${r.id}" style="font-size:12px;text-align:center;min-width:52px;width:100%;background:transparent;border-color:rgba(255,69,58,.2)" min="0" max="100" step="1" value="${scontoRef||''}" placeholder="0" oninput="_refChange('${r.id}','scontoRef',parseFloat(this.value)||0)" title="Sconto referenza % (100 = omaggio)">
+      ${scontoRef>=100?`<div style="font-size:10px;color:#30D158;text-align:center;margin-top:1px">${ic("gift")}</div>`:scontoRef>0?`<div style="font-size:10px;color:#FF453A;text-align:center;margin-top:1px">−${scontoRef}%</div>`:''}
+    </td>
+    <td id="ref-tot-${r.id}" style="padding:5px 8px;text-align:right;font-size:12px;white-space:nowrap;background:rgba(48,209,88,.04);border-left:1px solid rgba(48,209,88,.12)">${totRigaHtml}</td>
+    <td style="padding:5px 6px;text-align:right"><button onclick="_removeRefRow('${r.id}')" style="color:var(--txt4);font-size:13px;background:none;border:none;cursor:pointer" title="Rimuovi">${ic("x")}</button></td>`;
+}
+// Riga ordine Spirits / Birre / Sodati: solo i campi che servono alla categoria
+function _refRowBarHtml(r,cat){
+  const td=x=>`<td style="padding:5px 6px">${x}</td>`, st="font-size:12px;width:100%";
+  const inp=(f,ph,extra="")=>`<input class="form-input" style="${st}" autocomplete="off" value="${h(r[f]??"")}" placeholder="${h(ph||"")}" ${extra} onchange="_refChange('${r.id}','${f}',this.value.trim())">`;
+  const cells=ORD_COLS[cat].map(([f,,,ph])=>{
+    if(f==="produttore") return td(`<input class="form-input" style="${st}" list="omd-barprod-dl" autocomplete="off" value="${h(r.produttore||"")}" placeholder="${h(ph)}" onchange="_refChange('${r.id}','produttore',this.value.trim());_refAutofillBar('${r.id}')">`);
+    if(f==="nomeVino") return td(`<input class="form-input" style="${st}" list="omd-barnome-dl" autocomplete="off" value="${h(r.nomeVino||"")}" placeholder="${h(ph)}" onchange="_refChange('${r.id}','nomeVino',this.value.trim());_refAutofillBar('${r.id}')">`);
+    if(f==="tipologia") return td(`<select class="form-input" style="${st}" onchange="_refChange('${r.id}','tipologia',this.value)">${_spTipoOptsHtml(r.tipologia)}</select>`);
+    if(f==="formato") return td(`<select class="form-input" style="${st}" onchange="_refChange('${r.id}','formato',parseFloat(this.value)||${ORD_FMT_DEF[cat]})">${_ordFmtOptsHtml(cat,r.formato)}</select>`);
+    if(f==="gradazione") return td(`<input type="number" class="form-input" style="${st};text-align:center" min="0" max="100" step="0.1" value="${r.gradazione||""}" placeholder="${ph}" onchange="_refChange('${r.id}','gradazione',parseFloat(String(this.value).replace(',','.'))||'')">`);
+    if(f==="nazione") return td(inp("nazione",ph,`list="omd-naz-dl"`));
+    return td(inp(f,ph));
+  }).join("");
+  return `<tr data-ref-id="${r.id}" style="border-top:1px solid var(--border)">${cells}
+    ${_refTailHtml(r)}
+  </tr>`;
+}
+// Autofill bar: riprende i campi vuoti dall'ultimo ordine della stessa categoria con lo stesso prodotto
+function _refAutofillBar(refId){
+  const cat=_ordCat(ordineModalData), r=ordineModalData?.referenze?.find(x=>x.id===refId);
+  if(!cat||!r||!r.nomeVino) return;
+  const lc=x=>String(x||"").toLowerCase().trim();
+  let src=null, dt="";
+  (orders||[]).forEach(o=>{ if(_ordCat(o)!==cat||o.id===ordineModalData.id) return;
+    (o.referenze||[]).forEach(x=>{ if(lc(x.nomeVino)===lc(r.nomeVino) && (!lc(r.produttore)||lc(x.produttore)===lc(r.produttore)) && (o.dataOrdine||"")>=dt){ src=x; dt=o.dataOrdine||""; } }); });
+  if(!src) return;
+  const vuoto=v=>v===undefined||v===null||String(v).trim()==="", t=_refTouched(refId), fatti=[];
+  ["produttore","eta","gradazione","nazione","prezzoAcq"].forEach(k=>{ if(vuoto(r[k])&&!vuoto(src[k])){ r[k]=src[k]; fatti.push(k); } });
+  if(!t.has("tipologia")&&src.tipologia&&r.tipologia!==src.tipologia){ r.tipologia=src.tipologia; fatti.push("tipologia"); }
+  if(!t.has("formato")&&src.formato&&parseFloat(r.formato)!==parseFloat(src.formato)){ r.formato=parseFloat(src.formato); fatti.push("formato"); }
+  if(!t.has("iva")&&src.iva&&parseInt(r.iva)!==parseInt(src.iva)){ r.iva=parseInt(src.iva); fatti.push("IVA"); }
+  if(!fatti.length) return;
+  const tr=document.querySelector(`tr[data-ref-id="${refId}"]`);
+  if(tr){ const campi=[...tr.querySelectorAll("input,select")], fi=campi.indexOf(document.activeElement);
+    tr.outerHTML=_refRowBarHtml(r,cat);
+    if(fi>=0){ const el=document.querySelector(`tr[data-ref-id="${refId}"]`)?.querySelectorAll("input,select")[fi]; if(el) el.focus(); } }
+  _updateOrdineModalTotale();
+  notify(`Dall'ultimo ordine: ${fatti.join(", ")}`,"info");
+}
+
+
 function _refRowHtml(r,i,tipoOpts,ivaOpts,allProduttori,allNomi){
-  const selTipo=_isSpirits(ordineModalData)?_spTipoOptsHtml(r.tipologia):_tipoOptsHtml(r.tipologia);
+  const _cat=_ordCat(ordineModalData);
+  if(_cat) return _refRowBarHtml(r,_cat);
+  const selTipo=_tipoOptsHtml(r.tipologia);
   const ivaIncl = r.prezzoAcq ? (parseFloat(r.prezzoAcq)*(1+(parseInt(r.iva)||22)/100)) : 0;
   const scontoRef = parseFloat(r.scontoRef)||0;
   const scontoOrd = parseFloat(ordineModalData?.sconto)||0;
@@ -6483,7 +6590,9 @@ function _refAutofillSafe(refId){
 }
 
 function _addRefRow(){
-  ordineModalData.referenze.push(_newRef());
+  const _rc=_ordCat(ordineModalData), _nr=_newRef();
+  if(_rc){ _nr.tipologia=ORD_CAT[_rc].tipi[0]; _nr.formato=ORD_FMT_DEF[_rc]; _nr.nazione=ORD_COLS[_rc].some(c=>c[0]==="nazione")?"Italia":""; }
+  ordineModalData.referenze.push(_nr);
   const allProd=[...new Set([...wines.map(w=>w.produttore),...orders.flatMap(o=>(o.referenze||[]).map(r=>r.produttore))].filter(Boolean))].sort();
   const allNomi=[...new Set(wines.map(w=>w.nome).filter(Boolean))].sort();
   const tbody=document.getElementById("omd-refs-body");
@@ -6633,7 +6742,7 @@ function _updateOrdineModalTotale(){
   const scontoHtml=hasAnyDiscount
     ? ` <span style="color:#FF453A;margin:0 6px">− ${fmt(importoSconto)}</span><span style="color:var(--txt4)">→</span> <strong style="color:#30D158;font-size:13px;margin-left:6px">${fmt(totNetto)}</strong> netto`
     : '';
-  el.innerHTML=`Lordo IVA incl.: <span style="color:var(--amber)">${fmt(totLordo)}</span>${scontoHtml} · <span style="color:var(--txt2)">${totQty} bottiglie</span>`;
+  el.innerHTML=`Lordo IVA incl.: <span style="color:var(--amber)">${fmt(totLordo)}</span>${scontoHtml} · <span style="color:var(--txt2)">${totQty} ${_isSpirits(ordineModalData)?"pezzi":"bottiglie"}</span>`;
 }
 
 function salvaOrdine(){
@@ -6662,15 +6771,16 @@ function salvaOrdine(){
       formato:parseFloat(r.formato)||0.75,
       regione:(r.regione||"").trim(),
       zona:(r.zona||"").trim(),
-      nazione:(r.nazione||"Italia").trim(),
+      nazione:(r.nazione||(_isSpirits(ordineModalData)?"":"Italia")).trim(),
       prezzoAcq:parseFloat(r.prezzoAcq)||0,
       iva:parseInt(r.iva)||22,
       prezzoCarta:parseFloat(r.prezzoCarta)||0,
       qty:parseInt(r.qty)||1,
-      scontoRef:parseFloat(r.scontoRef)||0
+      scontoRef:parseFloat(r.scontoRef)||0,
+      ...(_isSpirits(ordineModalData)?{eta:(r.eta||"").trim(), gradazione:parseFloat(r.gradazione)||""}:{})
     });
   });
-  if(!ok){notify("Inserisci il nome vino per tutte le referenze","err");return;}
+  if(!ok){notify(_isSpirits(ordineModalData)?"Inserisci il nome prodotto per tutte le referenze":"Inserisci il nome vino per tutte le referenze","err");return;}
   if(!refs.length){notify("Aggiungi almeno una referenza","err");return;}
   const categoria=_ordCat(ordineModalData);
 
@@ -6759,18 +6869,25 @@ function _renderRicezioneModalBody(ordine, allForn, allProd, allNomi){
       <table class="cm-grid-tbl cm-ric-tbl">
         <colgroup><col style="width:10.5%"><col style="width:12%"><col style="width:5%"><col style="width:5%"><col style="width:9.5%"><col style="width:9.5%"><col style="width:7%"><col style="width:8.5%"><col style="width:3.5%"><col style="width:6.5%"><col style="width:7%"><col style="width:6.5%"><col style="width:7%"><col style="width:2.5%"></colgroup>
         <thead><tr class="cm-grid-head">
-          <td>Produttore</td>
+          ${_isSpirits(ordine)?`<td>${h(ORD_COLS[_ordCat(ordine)][0][1])}</td>
+          <td>${h(ORD_COLS[_ordCat(ordine)][1][1])}</td>
+          <td style="text-align:center">% vol</td>
+          <td style="text-align:center">Form.</td>
+          <td>Età / Affin.</td>
+          <td>Tipo</td>
+          <td>Nazione</td>
+          <td></td>`:`<td>Produttore</td>
           <td>Nome Vino</td>
           <td style="text-align:center;color:var(--amber)">Annata</td>
           <td style="text-align:center">Form.</td>
           <td>Vitigni</td>
           <td>Tipo</td>
           <td>Nazione</td>
-          <td>Regione</td>
+          <td>Regione</td>`}
           <td style="text-align:center">Ord.</td>
           <td style="text-align:center;color:var(--amber)">Arr. ${ic("edit")}</td>
           <td>P.Acq ${ic("edit")}</td>
-          <td>P.Carta ${ic("edit")}</td>
+          <td>${_isSpirits(ordine)?"":`P.Carta ${ic("edit")}`}</td>
           <td style="text-align:right;background:rgba(48,209,88,.04)">Tot. riga</td>
           <td></td>
         </tr></thead>
@@ -6787,7 +6904,7 @@ function _aggiornaRicTotale(){
   if(!el||!ricezioneModalData) return;
   const totQty=ricezioneModalData.righe.reduce((s,r)=>s+(parseInt(r.qtyArr)||0),0);
   const totVal=ricezioneModalData.righe.reduce((s,r)=>s+(parseFloat(r.prezzoAcq)||0)*(1+(parseInt(r.iva)||22)/100)*(parseInt(r.qtyArr)||0),0);
-  el.innerHTML=`Totale arrivo: <span style="color:var(--amber)">${fmt(totVal)}</span> IVA incl. · <span style="color:var(--txt2)">${totQty} bottiglie</span>`;
+  el.innerHTML=`Totale arrivo: <span style="color:var(--amber)">${fmt(totVal)}</span> IVA incl. · <span style="color:var(--txt2)">${totQty} ${_isSpirits(orders.find(o=>o.id===ricezioneModalData.ordineId))?"pezzi":"bottiglie"}</span>`;
 }
 
 // Una sola fonte di verità per la riga di ricezione: le referenze non previste
@@ -6800,16 +6917,22 @@ function _ricRowHtml(r){
   const ivaIncl=(parseFloat(r.prezzoAcq)||0)*(1+iva/100);
   const tot=ivaIncl*(parseInt(r.qtyArr)||0);
   const short=(parseInt(r.qtyArr)||0)<(parseInt(r.qty)||0) && !ex;
+  const _rc=_ordCat(orders.find(o=>o.id===ricezioneModalData?.ordineId));
   return `
     <tr data-ric-id="${r.id}" style="border-top:1px solid var(--border)${ex?";background:rgba(var(--amber-rgb,255,159,10),.05)":""}">
       <td style="color:var(--txt3)" title="${h(r.produttore||'')}"><div class="cm-clamp">${h(r.produttore||'—')}</div></td>
       <td title="${h(r.nomeVino||'')}"><div class="cm-clamp">${h(r.nomeVino||'—')}${ex?` <span style="font-size:11px;color:var(--amber3);letter-spacing:.1em">NON PREVISTA</span>`:""}</div></td>
-      <td style="color:var(--amber);text-align:center;white-space:nowrap">${r.annata?h(r.annata):'<span style="color:var(--txt4)">N.V.</span>'}</td>
+      ${_rc?`<td style="color:var(--txt3);text-align:center">${r.gradazione?h(String(r.gradazione).replace(".",","))+"%":"—"}</td>
+      <td style="color:var(--txt3);text-align:center;white-space:nowrap">${h(_ordFmtLabel(_rc,r.formato))}</td>
+      <td style="color:var(--txt3)">${h(r.eta||'—')}</td>
+      <td style="color:var(--txt3)">${h(r.tipologia||'—')}</td>
+      <td style="color:var(--txt3)">${h(r.nazione||'—')}</td>
+      <td></td>`:`<td style="color:var(--amber);text-align:center;white-space:nowrap">${r.annata?h(r.annata):'<span style="color:var(--txt4)">N.V.</span>'}</td>
       <td style="color:var(--txt3);text-align:center;white-space:nowrap">${parseFloat(r.formato)||0.75}L</td>
       <td style="color:var(--txt3)" title="${h(r.vitigni||'')}"><div class="cm-clamp">${h(r.vitigni||'—')}</div></td>
       <td title="${h(r.tipologia||'')}">${badge(r.tipologia)}</td>
       <td style="color:var(--txt3)" title="${h(r.nazione||'')}"><div class="cm-1l">${h(r.nazione||'—')}</div></td>
-      <td style="color:var(--txt3)" title="${h(r.regione||'')}"><div class="cm-1l">${h(r.regione||'—')}</div></td>
+      <td style="color:var(--txt3)" title="${h(r.regione||'')}"><div class="cm-1l">${h(r.regione||'—')}</div></td>`}
       <td style="color:var(--txt2);text-align:center">${ex?'<span style="color:var(--txt4)">—</span>':r.qty}</td>
       <td>
         <input type="number" class="form-input${short?" cm-ric-short":""}" style="text-align:center" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" value="${r.qtyArr}" min="0" step="1"
@@ -6819,9 +6942,9 @@ function _ricRowHtml(r){
         <input type="number" class="form-input" style="text-align:right" value="${r.prezzoAcq||''}" step="0.01" min="0" placeholder="0.00"
           oninput="_ricRefChange('${r.id}','prezzoAcq',parseFloat(this.value)||0);_ricRowRecalc('${r.id}')">
       </td>
-      <td>
+      <td>${_rc?"":`
         <input type="number" class="form-input" style="text-align:right" value="${r.prezzoCarta||''}" step="1" min="0" placeholder="0"
-          oninput="_ricRefChange('${r.id}','prezzoCarta',parseFloat(this.value)||0)">
+          oninput="_ricRefChange('${r.id}','prezzoCarta',parseFloat(this.value)||0)">`}
       </td>
       <td id="ric-tot-${r.id}" style="text-align:right;white-space:nowrap;background:rgba(48,209,88,.04)">${tot?fmtRound(tot):"—"}</td>
       <td style="text-align:right;white-space:nowrap">${ex?`<button class="btn-outline btn-sm" style="padding:2px 5px;font-size:12px" onclick="_addRicezioneRow('${r.id}')" title="Modifica scheda">${ic("edit")}</button> <button style="color:var(--txt4);font-size:13px;background:none;border:none;cursor:pointer" onclick="_ricRemoveRow('${r.id}')" title="Rimuovi">${ic("x")}</button>`:""}</td>
@@ -7482,6 +7605,7 @@ function stampaOrdine(id) {
   const o = _getOrdineById(id);
   if(!o){ notify("Salva prima l'ordine per stamparlo","err"); return; }
   const ref = o.referenze || [];
+  const _pc = _ordCat(o), _u = _pc ? "pz" : "bt";
   const scontoOrd = parseFloat(o.sconto)||0;
   const totQty = ref.reduce((s,r) => s+(parseInt(r.qty)||0), 0);
 
@@ -7513,10 +7637,13 @@ function stampaOrdine(id) {
     return `<tr>
       <td>${h(r.produttore||'—')}</td>
       <td>${h(r.nomeVino)}</td>
-      <td>${h(r.vitigni||'—')}</td>
+      ${_pc?`<td>${h(r.eta||'—')}</td>
+      <td style="text-align:center">${r.gradazione?h(String(r.gradazione).replace(".",","))+'%':'—'}</td>
+      <td>${h(r.tipologia||'—')}</td>
+      <td>${h(_ordFmtLabel(_pc,r.formato))}</td>`:`<td>${h(r.vitigni||'—')}</td>
       <td style="text-align:center">${h(r.annata||'—')}</td>
       <td>${h(r.tipologia||'—')}</td>
-      <td>${h(r.regione||'—')}</td>
+      <td>${h(r.regione||'—')}</td>`}
       <td>${h(r.nazione||'—')}</td>
       <td style="text-align:right">${r.prezzoAcq ? '€ '+parseFloat(r.prezzoAcq).toFixed(2) : '—'}</td>
       <td style="text-align:center">${r.iva||22}%</td>
@@ -7532,12 +7659,12 @@ function stampaOrdine(id) {
   const scontoTfootRows = hasAnyDiscount ? `
     <tr style="background:#fff8e1">
       <td colspan="${colspan-2}" style="text-align:right;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#888">Sconti totali (righe + ordine)</td>
-      <td style="text-align:center;color:#c0392b">${totQty} bt</td>
+      <td style="text-align:center;color:#c0392b">${totQty} ${_u}</td>
       <td style="text-align:right;color:#c0392b">− € ${importoScontoTot.toFixed(2)}</td>
     </tr>
     <tr>
       <td colspan="${colspan-2}" style="text-align:right;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#666;font-weight:700">TOTALE NETTO</td>
-      <td style="text-align:center;font-weight:700">${totQty} bt</td>
+      <td style="text-align:center;font-weight:700">${totQty} ${_u}</td>
       <td style="text-align:right;font-weight:700">€ ${totNetto.toFixed(2)}</td>
     </tr>` : '';
 
@@ -7591,8 +7718,9 @@ function stampaOrdine(id) {
   </div>
   <table>
     <thead><tr>
-      <th>Produttore</th><th>Nome Vino</th><th>Vitigni</th>
-      <th class="c">Annata</th><th>Tipologia</th><th>Regione</th><th>Nazione</th>
+      ${_pc?`<th>${h(ORD_COLS[_pc][0][1])}</th><th>${h(ORD_COLS[_pc][1][1])}</th><th>Età</th>
+      <th class="c">% vol</th><th>${_pc==="birre"?"Stile":"Tipologia"}</th><th>Formato</th><th>Nazione</th>`:`<th>Produttore</th><th>Nome Vino</th><th>Vitigni</th>
+      <th class="c">Annata</th><th>Tipologia</th><th>Regione</th><th>Nazione</th>`}
       <th class="r">P.Acq excl.</th><th class="c">IVA</th><th class="r">P.Acq+IVA</th>
       <th class="c">Qty</th><th class="r">Totale lordo</th>${scontoColHead}
     </tr></thead>
@@ -7600,7 +7728,7 @@ function stampaOrdine(id) {
     <tfoot>
       <tr>
         <td colspan="${colspan-2}" style="text-align:right;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#666">Totale lordo IVA incl.</td>
-        <td style="text-align:center">${totQty} bt</td>
+        <td style="text-align:center">${totQty} ${_u}</td>
         <td style="text-align:right">€ ${totLordo.toFixed(2)}</td>
       </tr>
       ${scontoTfootRows}
@@ -7610,7 +7738,7 @@ function stampaOrdine(id) {
     <div class="total-label">${scontoOrd>0||hasAnyDiscount?'Totale Netto':'Totale IVA inclusa'}</div>
     <div class="total-val">€ ${(hasAnyDiscount?totNetto:totLordo).toFixed(2)}</div>
     ${hasAnyDiscount?`<div style="font-size:9px;color:#c0392b;margin-top:2px">Sconti${scontoOrd>0?` (ordine ${scontoOrd}%)`:''} (− € ${importoScontoTot.toFixed(2)})</div>`:''}
-    <div style="font-size:9px;color:#888;margin-top:4px">${totQty} bottiglie · ${ref.length} referenze</div>
+    <div style="font-size:9px;color:#888;margin-top:4px">${totQty} ${_pc?'pezzi':'bottiglie'} · ${ref.length} referenze</div>
   </div>
   <div class="note">
     ${o.note ? `<strong>Note:</strong> ${h(o.note)}<br>` : ''}
@@ -7657,6 +7785,7 @@ async function emailOrdine(id) {
   const o = _getOrdineById(id);
   if(!o){ notify("Salva prima l'ordine per inviarlo","err"); return; }
   const ref = o.referenze || [];
+  const _pc = _ordCat(o);
   const scontoOrd = parseFloat(o.sconto)||0;
   const totQty = ref.reduce((s,r) => s+(parseInt(r.qty)||0), 0);
   let totLordo=0, totNetto=0;
@@ -7671,11 +7800,12 @@ async function emailOrdine(id) {
     const totRigaNetto = totRiga*fattore;
     const isOmaggio=scontoRef>=100;
     return `${i+1}. ${r.produttore||'—'} — ${r.nomeVino}${r.annata?' ('+r.annata+')':''}`
-      + `\n   Tipologia: ${r.tipologia||'—'} | Regione: ${r.regione||'—'} | Nazione: ${r.nazione||'—'}`
-      + `\n   P.Acq: € ${parseFloat(r.prezzoAcq||0).toFixed(2)} + IVA ${r.iva||22}% = € ${pIva.toFixed(2)}/bt`
+      + (_pc ? `\n   ${r.tipologia||'—'} | ${_ordBarDett(r,_pc)}${r.nazione?' | '+r.nazione:''}`
+             : `\n   Tipologia: ${r.tipologia||'—'} | Regione: ${r.regione||'—'} | Nazione: ${r.nazione||'—'}`)
+      + `\n   P.Acq: € ${parseFloat(r.prezzoAcq||0).toFixed(2)} + IVA ${r.iva||22}% = € ${pIva.toFixed(2)}/${_pc?'pz':'bt'}`
       + (isOmaggio
-          ? `\n   Quantità: ${r.qty||0} bottiglie — OMAGGIO (100%)`
-          : `\n   Quantità: ${r.qty||0} bottiglie — Lordo: € ${totRiga.toFixed(2)}`
+          ? `\n   Quantità: ${r.qty||0} ${_pc?'pezzi':'bottiglie'} — OMAGGIO (100%)`
+          : `\n   Quantità: ${r.qty||0} ${_pc?'pezzi':'bottiglie'} — Lordo: € ${totRiga.toFixed(2)}`
             + (scontoRef>0||scontoOrd>0 ? ` → Netto: € ${totRigaNetto.toFixed(2)}`+(scontoRef>0?` (sc.ref ${scontoRef}%`+(scontoOrd>0?`+ord ${scontoOrd}%`:'')+')':'') : ''))
       + (r.note ? `\n   Note: ${r.note}` : '');
   }).join('\n\n');
@@ -7693,7 +7823,7 @@ async function emailOrdine(id) {
     `══════════════════════════════════\n\n` +
     righeText +
     `\n\n──────────────────────────────────\n` +
-    `RIEPILOGO: ${ref.length} referenze · ${totQty} bottiglie\n` +
+    `RIEPILOGO: ${ref.length} referenze · ${totQty} ${_pc?'pezzi':'bottiglie'}\n` +
     (hasDiscount ? `Totale lordo IVA incl.: € ${totLordo.toFixed(2)}\n` : '') +
     scontoBlock +
     `──────────────────────────────────\n` +
@@ -7728,7 +7858,7 @@ async function emailOrdine(id) {
   const testoCompatto =
     `Gentili ${o.fornitore||'Fornitori'},\n\nordine del ${o.dataOrdine} — ${NOME_LOCALE}\n\n`+
     righeCompatte+
-    `\n\n${ref.length} referenze · ${totQty} bottiglie · totale € ${(hasDiscount?totNetto:totLordo).toFixed(2)}`+
+    `\n\n${ref.length} referenze · ${totQty} ${_pc?'pezzi':'bottiglie'} · totale € ${(hasDiscount?totNetto:totLordo).toFixed(2)}`+
     (o.note?`\nNote: ${o.note}`:'')+
     `\n\nCordiali saluti,\n${loc.nome||NOME_LOCALE}`;
 
@@ -7740,7 +7870,7 @@ async function emailOrdine(id) {
     _mailto = build(testoCompatto);
     troncato = true;
     if(_mailto.length > MAX_URL){
-      _mailto = build(`Gentili ${o.fornitore||'Fornitori'},\n\nin allegato l'ordine del ${o.dataOrdine} (${ref.length} referenze, ${totQty} bottiglie).\nIl dettaglio è negli appunti: incollatelo qui sotto.\n\n${loc.nome||NOME_LOCALE}`);
+      _mailto = build(`Gentili ${o.fornitore||'Fornitori'},\n\nin allegato l'ordine del ${o.dataOrdine} (${ref.length} referenze, ${totQty} ${_pc?'pezzi':'bottiglie'}).\nIl dettaglio è negli appunti: incollatelo qui sotto.\n\n${loc.nome||NOME_LOCALE}`);
     }
   }
 
@@ -7767,6 +7897,7 @@ function whatsappOrdine(id) {
 
   const tel = _getFornTelefono(o.fornitore||"");
   const ref = o.referenze || [];
+  const _pc = _ordCat(o);
   const scontoOrd = parseFloat(o.sconto)||0;
   const totQty = ref.reduce((s,r) => s+(parseInt(r.qty)||0), 0);
   let totLordo=0, totNetto=0;
@@ -7778,14 +7909,14 @@ function whatsappOrdine(id) {
     const scontoRef=parseFloat(r.scontoRef)||0;
     const isOmaggio=scontoRef>=100;
     const scTag=isOmaggio?' OMAGGIO':scontoRef>0?` (−${scontoRef}%)`:'';
-    return `${i+1}. *${r.produttore||'—'} — ${r.nomeVino}*${r.annata?' ('+r.annata+')':''} × ${r.qty||0} bt${scTag}`;
+    return `${i+1}. *${r.produttore||'—'} — ${r.nomeVino}*${_pc?' ('+_ordBarDett(r,_pc)+')':(r.annata?' ('+r.annata+')':'')} × ${r.qty||0} ${_pc?'pz':'bt'}${scTag}`;
   }).join('\n');
 
   const mittente = [loc.nome||NOME_LOCALE, loc.telefono?'Tel: '+loc.telefono:''].filter(Boolean).join(' · ');
   const consegna = (()=>{const c=_addrConsegna(loc);const b=[c,loc.noteConsegna].filter(Boolean).join(' — ');return b?'\n\n*Consegna:* '+b:'';})();
   const totaleWa = hasAnyDiscount
-    ? `*Lordo: ${fmt(totLordo)}* — sconti applicati → *Netto: ${fmt(totNetto)}* · ${totQty} bottiglie`
-    : `*Totale: ${totQty} bottiglie*`;
+    ? `*Lordo: ${fmt(totLordo)}* — sconti applicati → *Netto: ${fmt(totNetto)}* · ${totQty} ${_pc?'pezzi':'bottiglie'}`
+    : `*Totale: ${totQty} ${_pc?'pezzi':'bottiglie'}*`;
 
   const testo =
     `Gentili ${o.fornitore||'Fornitori'},\n\n` +

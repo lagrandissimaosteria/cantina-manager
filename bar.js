@@ -13,7 +13,20 @@
 var bar = [], _barBase = [], _barTableOk = true;
 var barUi = { tab:"riepilogo", per:"mese", da:"", a:"", cat:"tutte", q:"", contaData:"" };
 const BAR_CAUSALI = ["Staff","Omaggio cliente","Cucina","Rottura / perdita","Degustazione","Altro"];
+// Opzioni per locale da window.CM_CONFIG: barFusti (false = niente spina/fusti), barPrezzi ({cat: € IVA incl.} prezzo di vendita di default)
+const _barCfg = k => (typeof CONFIG!=="undefined" && CONFIG && CONFIG[k]!==undefined) ? CONFIG[k] : undefined;
+const _barFusti = () => _barCfg("barFusti")!==false;
+const _barPrezzoDef = cat => parseFloat((_barCfg("barPrezzi")||{})[cat])||0;
 const BAR_UNITA = { dose:"Dose", bicchiere:"Bicchiere", bottiglia:"Bottiglia", pezzo:"Pezzo" };
+// Scheda prodotto per categoria: come si vende e come si conta
+const BAR_SCHEDA = {
+  spirits:{ prezzoLbl:"Prezzo dose", hint:"Imposta la dose servita in cl: le dosi per bottiglia si calcolano dal formato. Prezzo per dose, IVA incl.", contaStep:0.25, contaHint:"bottiglie aperte a frazione (0,25 · 0,5 · 0,75)" },
+  birre:{ prezzoLbl:"Prezzo", hint:"Spina: vendita a bicchiere, imposta i cl del bicchiere (le spillate per fusto si calcolano). Bottiglia/lattina: vendita a pezzo.", contaStep:0.25, contaHint:"bottiglie e lattine intere, fusti aperti a frazione" },
+  kegcocktail:{ prezzoLbl:"Prezzo bicchiere", hint:"Cocktail alla spina: imposta i cl serviti per bicchiere, i bicchieri per fusto si calcolano dal formato.", contaStep:0.25, contaHint:"fusti a frazione (0,25 · 0,5 · 0,75)" },
+  kegvino:{ prezzoLbl:"Prezzo calice", hint:"Vino sfuso alla spina: imposta i cl del calice, i calici per fusto si calcolano dal formato.", contaStep:0.25, contaHint:"fusti a frazione (0,25 · 0,5 · 0,75)" },
+  sodati:{ prezzoLbl:"Prezzo pezzo", hint:"Vendita: prezzo al pezzo. Mixer: usato nei cocktail, conta solo come costo (nessun prezzo richiesto).", contaStep:1, contaHint:"pezzi interi" }
+};
+const _barDett = p => [p.tipo, p.eta, p.gradazione? String(p.gradazione).replace(".",",")+"% vol":"", p.formato? (typeof _ordFmtLabel==="function"? _ordFmtLabel(p.cat,p.formato) : fmtN(parseFloat(p.formato),2)+" L"):""].filter(Boolean).join(" · ");
 
 // ─── Persistenza (stesso pattern di cm_fatture) ──────────────────────────────
 async function _barRead(){
@@ -56,8 +69,10 @@ const _barNorm = s => String(s||"").toLowerCase().normalize("NFD").replace(/[̀-
 const _barKey = (prod,nome,formato) => `${_barNorm(prod)}|${_barNorm(nome)}|${parseFloat(formato)||0}`;
 function _barDefaults(cat, tipo, formato){
   const f = parseFloat(formato)||0;
-  if(cat==="spirits") return { unita:"dose", dosi: f? Math.round(f/0.04*10)/10 : 17.5 };
-  if(tipo==="Fusto" || (cat==="birre" && f>=5)) return { unita:"bicchiere", dosi: f? Math.round(f/0.4*10)/10 : 50 };
+  if(cat==="kegvino") return { unita:"bicchiere", dosecl:15, dosi: f? Math.round(f/0.15*10)/10 : 133.3 };
+  if(cat==="kegcocktail") return { unita:"bicchiere", dosecl:12, dosi: f? Math.round(f/0.12*10)/10 : 166.7 };
+  if(cat==="spirits") return { unita:"dose", dosecl:4, dosi: f? Math.round(f/0.04*10)/10 : 17.5 };
+  if(_barFusti() && (tipo==="Fusto" || (cat==="birre" && f>=5))) return { unita:"bicchiere", dosecl:40, dosi: f? Math.round(f/0.4*10)/10 : 50 };
   if(cat==="birre") return { unita:"bottiglia", dosi:1 };
   return { unita:"pezzo", dosi:1 };
 }
@@ -94,7 +109,10 @@ function _barProdotti(){
       id: p?.id || "auto:"+key, saved: !!p, key, cat, tipo, formato,
       nome: p?.nome || ref.nomeVino || "", produttore: p?.produttore ?? ref.produttore ?? "",
       fornitore: p?.fornitore || (a? [...a.fornitori].join(", ") : ""),
-      unita: p?.unita || d.unita, dosi: parseFloat(p?.dosi) || d.dosi, prezzo: parseFloat(p?.prezzo)||0,
+      unita: p?.unita || d.unita, dosi: parseFloat(p?.dosi) || d.dosi,
+      prezzoProprio: parseFloat(p?.prezzo)||0, prezzo: parseFloat(p?.prezzo) || _barPrezzoDef(cat),
+      dosecl: parseFloat(p?.dosecl) || d.dosecl || 0, uso: p?.uso || "vendita",
+      eta: p?.eta ?? ref.eta ?? "", gradazione: p?.gradazione ?? ref.gradazione ?? "",
       costo: parseFloat(p?.costo) || (a&&a.pezzi? a.costo/a.pezzi : 0), // costo medio ponderato a pezzo, IVA incl.
       attivo: p ? p.attivo!==false : true
     };
@@ -107,7 +125,7 @@ function _barProdotti(){
 function _barEnsure(p){
   if(p.saved) return p.id;
   const rec = { id:uid(), t:"p", key:p.key, cat:p.cat, nome:p.nome, produttore:p.produttore, formato:p.formato,
-    tipo:p.tipo, unita:p.unita, dosi:p.dosi, prezzo:p.prezzo, costo:0, attivo:true };
+    tipo:p.tipo, unita:p.unita, dosi:p.dosi, dosecl:p.dosecl||0, uso:p.uso||"vendita", eta:p.eta||"", gradazione:p.gradazione||"", prezzo:p.prezzoProprio||0, costo:0, attivo:true };
   bar.push(rec); return rec.id;
 }
 
@@ -171,7 +189,7 @@ function renderBar(){
   const catSel = `<div><label class="form-label">Categoria</label><select class="form-select" onchange="barSet('cat',this.value)">
     <option value="tutte">Tutte</option>${Object.entries(ORD_CAT).map(([k,c])=>`<option value="${k}" ${barUi.cat===k?"selected":""}>${h(c.label)}</option>`).join("")}</select></div>`;
   if(barUi.tab==="riepilogo") html += _barRiepilogo(catSel);
-  else if(barUi.tab==="registra") html += _barRegistra();
+  else if(barUi.tab==="registra"){ html += _barRegistra(); setTimeout(_barUnHint,0); }
   else if(barUi.tab==="conta") html += _barConta(catSel);
   else html += _barProdottiUi(catSel);
   return html;
@@ -218,12 +236,12 @@ function _barRiepilogo(catSel){
   html += `<div class="card" style="overflow-x:auto"><div class="card-header"><span>${ic("bottle")} Per prodotto</span><span style="font-size:11px;color:var(--txt4)">quantità in pezzi (bottiglie / fusti / lattine)</span></div>
     <table style="width:100%;border-collapse:collapse;font-size:12.5px;min-width:900px"><thead><tr>${th("Prodotto","left")}${th("Giac. iniz.")}${th("Carichi")}${th("Giac. fin.")}${th("Consumo")}${th("Autocons.")}${th("Vend. reg.")}${th("Non reg.")}${th("Costo consumo")}${th("Autocons. €")}${th("Ricavo stim.")}</tr></thead><tbody>
     ${rows.length? rows.sort((x,y)=>y.cConsumo-x.cConsumo).map(r=>`<tr style="border-top:1px solid var(--border)">
-      <td style="padding:6px 8px">${_barCatDot(r.p.cat)}${h(r.p.nome)}${r.p.produttore?` <span style="color:var(--txt4)">· ${h(r.p.produttore)}</span>`:""}${r.contaFin?"":` <span style="color:var(--orange);font-size:10px">teorica</span>`}${!r.p.prezzo?` <span style="color:var(--red);font-size:10px">senza prezzo</span>`:""}</td>
+      <td style="padding:6px 8px">${_barCatDot(r.p.cat)}${h(r.p.nome)}${r.p.produttore?` <span style="color:var(--txt4)">· ${h(r.p.produttore)}</span>`:""}${r.contaFin?"":` <span style="color:var(--orange);font-size:10px">teorica</span>`}${!r.p.prezzo&&r.p.uso!=="mixer"?` <span style="color:var(--red);font-size:10px">senza prezzo</span>`:""}${r.p.uso==="mixer"?` <span style="color:var(--txt4);font-size:10px">mixer</span>`:""}</td>
       <td style="text-align:right;padding:6px 8px">${_barPz(r.gi)}</td><td style="text-align:right;padding:6px 8px">${_barPz(r.car)}</td><td style="text-align:right;padding:6px 8px">${_barPz(r.gf)}</td>
       <td style="text-align:right;padding:6px 8px">${_barPz(r.consumo)}</td><td style="text-align:right;padding:6px 8px">${_barPz(r.auto)}</td><td style="text-align:right;padding:6px 8px">${_barPz(r.vend)}</td>
       <td style="text-align:right;padding:6px 8px;color:${r.nonReg<-0.01?"var(--red)":"var(--txt2)"}">${_barPz(r.nonReg)}</td>
       <td style="text-align:right;padding:6px 8px">${fmt(r.cConsumo)}</td><td style="text-align:right;padding:6px 8px">${fmt(r.cAuto)}</td><td style="text-align:right;padding:6px 8px">${fmt(r.ricavo)}</td></tr>`).join("")
-      : `<tr><td colspan="11" style="padding:20px;text-align:center;color:var(--txt4)">Nessun movimento nel periodo. I prodotti compaiono quando un ordine Spirits, Birre o Sodati viene caricato.</td></tr>`}
+      : `<tr><td colspan="11" style="padding:20px;text-align:center;color:var(--txt4)">Nessun movimento nel periodo. I prodotti compaiono quando un ordine bar (Spirits, Birre, Sodati, Polykeg) viene caricato.</td></tr>`}
     </tbody></table></div>`;
   return html;
 }
@@ -236,11 +254,11 @@ function _barRegistra(){
   return `<div class="card" style="margin-bottom:16px"><div class="card-header"><span>${ic("plus")} Registra uscita</span><span style="font-size:11px;color:var(--txt4)">quantità in unità di vendita (dosi, bicchieri, bottiglie)</span></div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;align-items:end">
       <div><label class="form-label">Data</label><input type="date" id="bar-m-data" class="form-input" value="${today()}"></div>
-      <div style="grid-column:span 2"><label class="form-label">Prodotto</label><select id="bar-m-pid" class="form-select">${opts||`<option value="">Nessun prodotto</option>`}</select></div>
+      <div style="grid-column:span 2"><label class="form-label">Prodotto</label><select id="bar-m-pid" class="form-select" onchange="_barUnHint()">${opts||`<option value="">Nessun prodotto</option>`}</select></div>
       <div><label class="form-label">Tipo</label><select id="bar-m-tipo" class="form-select" onchange="document.getElementById('bar-m-caus-w').style.display=this.value==='auto'?'':'none'">
         <option value="auto">Autoconsumo</option><option value="vend">Vendita (da cassa)</option></select></div>
       <div id="bar-m-caus-w"><label class="form-label">Causale</label><select id="bar-m-caus" class="form-select">${BAR_CAUSALI.map(c=>`<option>${h(c)}</option>`).join("")}</select></div>
-      <div><label class="form-label">Quantità</label><input type="number" id="bar-m-qty" class="form-input" min="0" step="0.5" value="1"></div>
+      <div><label class="form-label">Quantità <span id="bar-m-un" style="color:var(--txt4)"></span></label><input type="number" id="bar-m-qty" class="form-input" min="0" step="0.5" value="1"></div>
       <div><label class="form-label">Note</label><input id="bar-m-note" class="form-input"></div>
       <div><button class="btn-primary" onclick="barAddMov()">Registra</button></div>
     </div></div>
@@ -254,6 +272,10 @@ function _barRegistra(){
       <td style="padding:6px 8px;text-align:right"><button class="btn-outline btn-sm" onclick="barDel('${m.id}')">${ic("trash")}</button></td></tr>`; }).join("")
       : `<tr><td style="padding:20px;text-align:center;color:var(--txt4)">Nessuna registrazione.</td></tr>`}
     </tbody></table></div>`;
+}
+function _barUnHint(){
+  const el=document.getElementById("bar-m-un"), id=document.getElementById("bar-m-pid")?.value;
+  const p=_barProdotti().find(x=>x.id===id); if(el) el.textContent=p?`(${(BAR_UNITA[p.unita]||p.unita).toLowerCase()})`:"";
 }
 async function barAddMov(){
   const sel = document.getElementById("bar-m-pid").value, qty = parseFloat(document.getElementById("bar-m-qty").value)||0;
@@ -279,12 +301,12 @@ function _barConta(catSel){
   return `<div class="card" style="margin-bottom:16px"><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;align-items:end">
       <div><label class="form-label">Data conta (fine giornata)</label><input type="date" class="form-input" value="${D}" onchange="barSet('contaData',this.value)"></div>${catSel}
       <div><button class="btn-primary" onclick="barSalvaConta()">Salva conta</button></div></div>
-    <div style="font-size:12px;color:var(--txt4);margin-top:10px">Conta i pezzi fisici: bottiglie aperte a frazione (0,25 · 0,5 · 0,75). Lascia vuoto ciò che non hai contato. Il valore grigio è la giacenza teorica.</div></div>
+    <div style="font-size:12px;color:var(--txt4);margin-top:10px">Conta i pezzi fisici: ${BAR_SCHEDA[barUi.cat]? BAR_SCHEDA[barUi.cat].contaHint : "spirits a frazione di bottiglia, birre e sodati a pezzi interi, fusti a frazione"}. Lascia vuoto ciò che non hai contato. Il valore grigio è la giacenza teorica.</div></div>
     <div class="card" style="overflow-x:auto;margin-bottom:16px"><table style="width:100%;border-collapse:collapse;font-size:13px"><tbody>
     ${prods.length? prods.map(p=>{ const i=ix.get(p.id), teo=_barGiac(i,D).g, c=esist.get(p.saved?p.id:"");
-      return `<tr style="border-top:1px solid var(--border)"><td style="padding:6px 8px">${_barCatDot(p.cat)}${h(p.nome)}${p.produttore?` <span style="color:var(--txt4)">· ${h(p.produttore)}</span>`:""}${p.formato?` <span style="color:var(--txt4)">${fmtN(parseFloat(p.formato),2)} L</span>`:""}</td>
+      return `<tr style="border-top:1px solid var(--border)"><td style="padding:6px 8px">${_barCatDot(p.cat)}${h(p.nome)}${p.produttore?` <span style="color:var(--txt4)">· ${h(p.produttore)}</span>`:""}${_barDett(p)?` <span style="color:var(--txt4)">· ${h(_barDett(p))}</span>`:""}</td>
       <td style="padding:6px 8px;text-align:right;color:var(--txt4);white-space:nowrap">teorica ${_barPz(teo)}</td>
-      <td style="padding:6px 8px;width:110px"><input type="number" class="form-input bar-conta" data-pid="${h(p.id)}" min="0" step="0.25" value="${c?c.pezzi:""}" placeholder="${_barPz(Math.max(0,teo))}"></td></tr>`; }).join("")
+      <td style="padding:6px 8px;width:110px"><input type="number" class="form-input bar-conta" data-pid="${h(p.id)}" min="0" step="${p.cat==="sodati"||(p.cat==="birre"&&p.unita!=="bicchiere")?1:0.25}" value="${c?c.pezzi:""}" placeholder="${_barPz(Math.max(0,teo))}"></td></tr>`; }).join("")
       : `<tr><td style="padding:20px;text-align:center;color:var(--txt4)">Nessun prodotto.</td></tr>`}
     </tbody></table></div>
     ${storico.length?`<div class="card"><div class="card-header"><span>${ic("calendar")} Conte salvate</span></div><div style="display:flex;flex-wrap:wrap;gap:8px">
@@ -312,41 +334,64 @@ async function barDelConta(d){
 
 function _barProdottiUi(catSel){
   const prods = _barProdotti().filter(p=>(barUi.cat==="tutte"||p.cat===barUi.cat) && (!barUi.q || _barNorm(p.nome+" "+p.produttore+" "+p.fornitore).includes(_barNorm(barUi.q))));
-  const ix = _barIndex(prods), t = today();
+  const ix = _barIndex(prods), t = today(), cat = barUi.cat, S = BAR_SCHEDA[cat];
   const th = (l,al) => `<th style="padding:8px;text-align:${al||"left"};font-size:11px;color:var(--txt4);font-weight:500;text-transform:uppercase;letter-spacing:.04em">${l}</th>`;
-  const inp = (p,f,v,step,w) => `<input type="number" class="form-input" style="width:${w||80}px;padding:4px 6px" min="0" step="${step}" value="${v||""}" onchange="barSetProd('${h(p.id)}','${f}',this.value)">`;
+  const td = (x,st) => `<td style="padding:6px 8px;${st||""}">${x}</td>`;
+  const inp = (p,f,v,step,w,ph) => `<input type="number" class="form-input" style="width:${w||80}px;padding:4px 6px" min="0" step="${step}" value="${v||""}"${ph?` placeholder="${ph}"`:""} onchange="barSetProd('${h(p.id)}','${f}',this.value)">`;
+  const sel = (p,f,opts,cur,w) => `<select class="form-select" style="width:${w||120}px;padding:4px 6px" onchange="barSetProd('${h(p.id)}','${f}',this.value)">${opts.map(([k,l])=>`<option value="${k}" ${cur===k?"selected":""}>${l}</option>`).join("")}</select>`;
+  const aDose = p => p.unita==="dose"||p.unita==="bicchiere";
+  // Colonne: [intestazione, allineamento, cella(p, cu, mg)]
+  const C = {
+    prod:  ["Prodotto","left", p=>td(`${_barCatDot(p.cat)}${h(p.nome)}${p.produttore?` <span style="color:var(--txt4)">· ${h(p.produttore)}</span>`:""}<div style="font-size:11px;color:var(--txt4)">${h(_barDett(p))}</div>`)],
+    forn:  ["Fornitore","left", p=>td(h(p.fornitore||"—"),"color:var(--txt3)")],
+    unita: ["Unità vendita","left", p=>td(sel(p,"unita",Object.entries(BAR_UNITA),p.unita))],
+    dosi:  ["Unità/pezzo","left", p=>td(inp(p,"dosi",p.dosi,"0.5",70))],
+    servizio:["Servizio","left", p=>td(sel(p,"unita",[["bicchiere","Spina"],["bottiglia","Bottiglia / lattina"]],p.unita==="bicchiere"?"bicchiere":"bottiglia",140))],
+    dosecl:["Dose cl","left", p=>td(aDose(p)? inp(p,"dosecl",p.dosecl||"","0.5",64) : `<span style="color:var(--txt4)">—</span>`)],
+    resa:  [cat==="kegvino"?"Calici/fusto":(cat==="birre"||cat==="kegcocktail")?"Bicchieri/fusto":"Dosi/bottiglia","right", p=>td(aDose(p)? _barPz(p.dosi) : "1","text-align:right")],
+    uso:   ["Uso","left", p=>td(sel(p,"uso",[["vendita","Vendita"],["mixer","Mixer"]],p.uso,110))],
+    prezzo:[S?S.prezzoLbl:"Prezzo unità","left", p=>td(cat==="sodati"&&p.uso==="mixer"? `<span style="color:var(--txt4)">—</span>` : inp(p,"prezzo",p.prezzoProprio,"0.5",80,_barPrezzoDef(p.cat)||""))],
+    costo: ["Costo pezzo","left", p=>td(`${inp(p,"costo",p.saved&&bar.find(x=>x.id===p.id)?.costo||"","0.01",80)}<div style="font-size:10px;color:var(--txt4)">${fmt(p.costo)}</div>`)],
+    cu:    [cat==="spirits"?"Costo dose":cat==="birre"?"Costo unità":"Costo unità","right", (p,cu)=>td(fmt(cu),"text-align:right")],
+    mg:    ["Margine","right", (p,cu,mg)=>td(mg===null?"—":fmtN(mg,0)+"%",`text-align:right;color:${mg===null?"var(--txt4)":mg<65?"var(--orange)":"var(--green)"}`)],
+    giac:  [cat==="birre"?"Giacenza pz":cat.startsWith("keg")?"Giacenza fusti":"Giacenza","right", p=>td(_barPz(_barGiac(ix.get(p.id),t).g),"text-align:right")],
+    att:   ["","right", p=>td(`<button class="btn-outline btn-sm" title="${p.attivo?"Nascondi dalle liste":"Riattiva"}" onclick="barSetProd('${h(p.id)}','attivo',${!p.attivo})">${p.attivo?ic("eye"):ic("refresh")}</button>`,"text-align:right")]
+  };
+  const cols = {
+    spirits:["prod","forn","dosecl","resa","prezzo","costo","cu","mg","giac","att"],
+    birre:  _barFusti()? ["prod","forn","servizio","dosecl","resa","prezzo","costo","cu","mg","giac","att"] : ["prod","forn","prezzo","costo","mg","giac","att"],
+    sodati: ["prod","forn","uso","prezzo","costo","mg","giac","att"],
+    kegcocktail:["prod","forn","dosecl","resa","prezzo","costo","cu","mg","giac","att"],
+    kegvino:["prod","forn","dosecl","resa","prezzo","costo","cu","mg","giac","att"]
+  }[cat] || ["prod","forn","unita","dosi","prezzo","costo","cu","mg","giac","att"];
   return `<div class="card" style="margin-bottom:16px"><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;align-items:end">
       ${catSel}<div><label class="form-label">Cerca</label><input class="form-input" value="${h(barUi.q)}" onchange="barSet('q',this.value)" placeholder="nome, produttore, fornitore"></div>
       <div><button class="btn-outline btn-sm" onclick="barNuovoProd()">+ Prodotto non ordinato</button></div></div>
-    <div style="font-size:12px;color:var(--txt4);margin-top:10px">I prodotti arrivano dagli ordini caricati. Imposta unità di vendita, quante unità escono da un pezzo e il prezzo di vendita (IVA incl.). Il costo è la media ponderata degli acquisti; scrivilo solo per sovrascriverlo.</div></div>
-    <div class="card" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px;min-width:980px"><thead><tr>
-      ${th("Prodotto")}${th("Fornitore")}${th("Unità vendita")}${th("Unità/pezzo")}${th("Prezzo unità")}${th("Costo pezzo")}${th("Costo unità","right")}${th("Margine","right")}${th("Giacenza","right")}${th("")}</tr></thead><tbody>
-    ${prods.map(p=>{ const cu = p.dosi? p.costo/p.dosi : 0, mg = p.prezzo? (1-cu/p.prezzo)*100 : null;
-      return `<tr style="border-top:1px solid var(--border);${p.attivo?"":"opacity:.45"}">
-      <td style="padding:6px 8px">${_barCatDot(p.cat)}${h(p.nome)}${p.produttore?` <span style="color:var(--txt4)">· ${h(p.produttore)}</span>`:""}<div style="font-size:11px;color:var(--txt4)">${h(p.tipo||"")}${p.formato?` · ${fmtN(parseFloat(p.formato),2)} L`:""}</div></td>
-      <td style="padding:6px 8px;color:var(--txt3)">${h(p.fornitore||"—")}</td>
-      <td style="padding:6px 8px"><select class="form-select" style="width:120px;padding:4px 6px" onchange="barSetProd('${h(p.id)}','unita',this.value)">${Object.entries(BAR_UNITA).map(([k,l])=>`<option value="${k}" ${p.unita===k?"selected":""}>${l}</option>`).join("")}</select></td>
-      <td style="padding:6px 8px">${inp(p,"dosi",p.dosi,"0.5",70)}</td><td style="padding:6px 8px">${inp(p,"prezzo",p.prezzo,"0.5",80)}</td>
-      <td style="padding:6px 8px">${inp(p,"costo",p.saved&&bar.find(x=>x.id===p.id)?.costo||"","0.01",80)}<div style="font-size:10px;color:var(--txt4)">${fmt(p.costo)}</div></td>
-      <td style="padding:6px 8px;text-align:right">${fmt(cu)}</td>
-      <td style="padding:6px 8px;text-align:right;color:${mg===null?"var(--txt4)":mg<65?"var(--orange)":"var(--green)"}">${mg===null?"—":fmtN(mg,0)+"%"}</td>
-      <td style="padding:6px 8px;text-align:right">${_barPz(_barGiac(ix.get(p.id),t).g)}</td>
-      <td style="padding:6px 8px;text-align:right"><button class="btn-outline btn-sm" title="${p.attivo?"Nascondi dalle liste":"Riattiva"}" onclick="barSetProd('${h(p.id)}','attivo',${!p.attivo})">${p.attivo?ic("eye"):ic("refresh")}</button></td></tr>`; }).join("")
-      || `<tr><td colspan="10" style="padding:20px;text-align:center;color:var(--txt4)">Nessun prodotto. Carica un ordine Spirits, Birre o Sodati oppure aggiungilo a mano.</td></tr>`}
+    <div style="font-size:12px;color:var(--txt4);margin-top:10px">I prodotti arrivano dagli ordini caricati. ${S? (cat==="birre"&&!_barFusti()? "Vendita a bottiglia/lattina: prezzo al pezzo." : S.hint) : "Scegli una categoria per la scheda dedicata (dose spirits, spina/bottiglia birre, vendita/mixer sodati, calice/bicchiere polykeg)."} ${S&&_barPrezzoDef(cat)? `Prezzo di vendita del locale: ${fmt(_barPrezzoDef(cat))}, vale per tutti i prodotti senza un prezzo proprio. `:""}Il costo è la media ponderata degli acquisti; scrivilo solo per sovrascriverlo.</div></div>
+    <div class="card" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px;min-width:${cols.length*95}px"><thead><tr>
+      ${cols.map(k=>th(C[k][0],C[k][1])).join("")}</tr></thead><tbody>
+    ${prods.map(p=>{ const cu = p.dosi? p.costo/p.dosi : 0, mg = p.prezzo&&!(p.cat==="sodati"&&p.uso==="mixer")? (1-cu/p.prezzo)*100 : null;
+      return `<tr style="border-top:1px solid var(--border);${p.attivo?"":"opacity:.45"}">${cols.map(k=>C[k][2](p,cu,mg)).join("")}</tr>`; }).join("")
+      || `<tr><td colspan="${cols.length}" style="padding:20px;text-align:center;color:var(--txt4)">Nessun prodotto. Carica un ordine bar (Spirits, Birre, Sodati, Polykeg) oppure aggiungilo a mano.</td></tr>`}
     </tbody></table></div>`;
 }
 async function barSetProd(id, f, v){
   let p = _barProdotti().find(x=>x.id===id); if(!p) return;
   const wasSaved = p.saved, pid = _barEnsure(p), rec = bar.find(x=>x.id===pid);
-  if(f==="unita"){ rec.unita = v; const d=_barDefaults(rec.cat, rec.tipo, rec.formato); if(v===d.unita) rec.dosi=d.dosi; else if(v==="bottiglia"||v==="pezzo") rec.dosi=1; }
+  const fL = parseFloat(rec.formato)||0;
+  if(f==="unita"){ rec.unita = v; const d=_barDefaults(rec.cat, rec.tipo, rec.formato);
+    if(v==="bottiglia"||v==="pezzo") rec.dosi=1;
+    else { rec.dosecl = parseFloat(rec.dosecl) || (v==="bicchiere"?40:4); rec.dosi = fL? Math.round(fL*100/rec.dosecl*10)/10 : (v===d.unita? d.dosi : 1); } }
+  else if(f==="dosecl"){ const cl=Math.max(0,parseFloat(v)||0); rec.dosecl=cl; if(cl&&fL) rec.dosi=Math.round(fL*100/cl*10)/10; }
+  else if(f==="uso") rec.uso = v==="mixer"?"mixer":"vendita";
   else if(f==="attivo") rec.attivo = !!v;
   else rec[f] = Math.max(0, parseFloat(v)||0);
   // Campi numerici su prodotto già salvato: niente re-render (non si perde il fuoco col Tab)
-  if(!wasSaved || f==="unita" || f==="attivo") render();
+  if(!wasSaved || ["unita","attivo","dosecl","uso"].includes(f)) render();
   await _barSave();
 }
 async function barNuovoProd(){
-  const cat = (prompt("Categoria: spirits, birre o sodati","spirits")||"").trim().toLowerCase();
+  const cat = (prompt("Categoria: "+Object.keys(ORD_CAT).join(", "), ORD_CAT[barUi.cat]? barUi.cat : "spirits")||"").trim().toLowerCase();
   if(!ORD_CAT[cat]){ if(cat) notify("Categoria non valida","err"); return; }
   const nome = (prompt("Nome prodotto")||"").trim(); if(!nome) return;
   const produttore = (prompt("Produttore (facoltativo)")||"").trim();
@@ -354,6 +399,6 @@ async function barNuovoProd(){
   const tipo = ORD_CAT[cat].tipi[0], d = _barDefaults(cat, tipo, formato);
   const key = _barKey(produttore, nome, formato);
   if(bar.some(x=>x.t==="p"&&x.key===key) || _barCarichi().some(c=>c.key===key)){ notify("Prodotto già presente","err"); return; }
-  bar.push({ id:uid(), t:"p", key, cat, nome, produttore, formato, tipo, unita:d.unita, dosi:d.dosi, prezzo:0, costo:0, attivo:true });
+  bar.push({ id:uid(), t:"p", key, cat, nome, produttore, formato, tipo, unita:d.unita, dosi:d.dosi, dosecl:d.dosecl||0, uso:"vendita", prezzo:0, costo:0, attivo:true });
   render(); await _barSave();
 }

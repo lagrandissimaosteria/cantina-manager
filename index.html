@@ -746,6 +746,10 @@ input,select,textarea,button{font-family:var(--font-sans)}
     authEmail:           true,
     authAdmins:          ["rossguidi90@gmail.com"],
 
+    // Bar: niente spina/fusti (birre e cocktail solo da bottiglia); birre vendute tutte a 8 € IVA incl.
+    barFusti:            false,
+    barPrezzi:           { birre: 8 },
+
     // Vista "Gruppo" (solo admin, sola lettura): affianca i dati degli altri
     // locali della stessa ragione sociale. La chiave e' quella pubblica del
     // progetto Portland; se la sua RLS richiede login, la sezione lo chiede.
@@ -756,8 +760,8 @@ input,select,textarea,button{font-family:var(--font-sans)}
     ]
   };
 </script>
-<script src="manager.js?v=20261012bar"></script>
-<script src="bar.js?v=20261012bar"></script>
+<script src="manager.js?v=20261012cat"></script>
+<script src="bar.js?v=20261012cat"></script>
 <script src="cm-update.js" defer></script>
 
 <!-- NOTE VELOCE MODAL -->
