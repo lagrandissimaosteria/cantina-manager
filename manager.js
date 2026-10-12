@@ -11598,6 +11598,13 @@ function _tfResults(){
   const q=_tfNorm(_tfQ).trim();
   if(q.length<1) return [];
   const toks=q.split(/\s+/).filter(Boolean);
+  if(_tfMeta.mode==="bar"){
+    // Schede bar (bar.js): anagrafica prodotti, nessuna giacenza in viaggio
+    const ps=(typeof _barTfProdotti==="function"?_barTfProdotti():[]).map(_tfBarItem)
+      .filter(w=>{ const hay=_tfNorm([w.nome,w.produttore,w._bar.tipo,w._bar.fornitore,w.regione].join(" ")); return toks.every(t=>hay.includes(t)); });
+    ps.sort((a,b)=>_tfNorm(a.nome).localeCompare(_tfNorm(b.nome)));
+    return ps.slice(0,80);
+  }
   const out=wines.filter(w=>{
     if(_tfMeta.mode!=="scheda" && (parseInt(w.giacenza)||0)<=0) return false;
     const hay=_tfNorm([w.nome,w.produttore,w.annata,w.vitigni,w.tipologia,w.regione,w.nazione,w.zona,w.sku,w.distributore].join(" "));
@@ -11609,6 +11616,11 @@ function _tfResults(){
     return as!==bs ? as-bs : an.localeCompare(bn);
   });
   return out.slice(0,80);
+}
+function _tfBarItem(p){ return {id:p.tfId,nome:p.nome,produttore:p.produttore||"",annata:"",regione:_barCatLbl(p.cat),sku:"",giacenza:0,_bar:p}; }
+function _tfItem(id){
+  if(_tfMeta.mode==="bar"){ const p=(typeof _barTfProdotti==="function"?_barTfProdotti():[]).find(x=>x.tfId===id); return p?_tfBarItem(p):null; }
+  return wines.find(x=>x.id===id);
 }
 function _tfSetQ(v){ _tfQ=v; _tfRenderResults(); }
 function _tfToggleSel(id){ if(_tfSel.has(id)) _tfSel.delete(id); else _tfSel.add(id); _tfRenderResults(); }
@@ -11622,10 +11634,10 @@ function _tfAddSelected(){
 function _tfAddIds(ids){
   // In modalità "solo scheda" la giacenza è irrilevante (si clona la referenza,
   // nessuna bottiglia si muove): il guard su g<=0 vale solo per le bottiglie.
-  const scheda=_tfMeta.mode==="scheda";
+  const scheda=_tfMeta.mode!=="bottiglie";
   let added=0, skipped=0;
   ids.forEach(id=>{
-    const w=wines.find(x=>x.id===id); if(!w) return;
+    const w=_tfItem(id); if(!w) return;
     const g=parseInt(w.giacenza)||0;
     if(!scheda && g<=0){ skipped++; return; }
     const ex=_tfCart.find(l=>l.wineId===id);
@@ -11652,7 +11664,7 @@ function _tfClearCart(){ if(!_tfCart.length) return; _tfCart=[]; _tfRenderCart()
 // Si aggiorna il solo stato del pulsante Genera.
 function _tfMetaSet(k,v){ _tfMeta[k]=v; if(k==="dest") _tfSyncGenBtn(); }
 function _tfReady(){
-  const scheda=_tfMeta.mode==="scheda";
+  const scheda=_tfMeta.mode!=="bottiglie";
   if(!(_tfMeta.dest||"").trim() || !_tfCart.length) return false;
   if(scheda) return true;
   let tot=0;
@@ -11753,7 +11765,7 @@ function renderTrasferimenti(){
 }
 
 function _tfResultsHtml(){
-  const schedaMode=_tfMeta.mode==="scheda";
+  const schedaMode=_tfMeta.mode!=="bottiglie";
   if(!_tfQ.trim()) return `<div style="font-size:12px;color:var(--txt4);padding:6px 0">Scrivi almeno una parola per cercare ${schedaMode?"tra tutte le referenze in anagrafica (anche esaurite)":"tra le referenze con giacenza disponibile"}.</div>`;
   const res=_tfResults();
   if(!res.length) return `<div style="font-size:12px;color:#fb923c;padding:6px 0">Nessuna referenza ${schedaMode?"in anagrafica":"disponibile"} per «${h(_tfQ)}».</div>`;
@@ -11768,7 +11780,7 @@ function _tfResultsHtml(){
         <div style="font-size:13px;color:var(--txt);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(w.nome)}${w.annata?` <span style="color:var(--amber)">${h(w.annata)}</span>`:""}</div>
         <div style="font-size:12px;color:var(--txt3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(w.produttore||"—")}${w.regione?" · "+h(w.regione):""}${w.sku?" · "+h(w.sku):""}</div>
       </div>
-      <div style="font-size:12px;color:var(--txt2);white-space:nowrap">${g}bt${inCart?` <span style="color:#5AC8FA">· ${inCart.qty} in invio</span>`:""}</div>
+      <div style="font-size:12px;color:var(--txt2);white-space:nowrap">${_tfMeta.mode==="bar"?"":g+"bt"}${inCart?` <span style="color:#5AC8FA">· ${_tfMeta.mode==="bar"?"":inCart.qty+" "}in invio</span>`:""}</div>
       <button class="btn-outline btn-sm" style="padding:3px 9px" onclick="_tfAddOne('${w.id}')">＋</button>
     </div>`;
   }).join("");
@@ -11799,7 +11811,10 @@ function _tfSchedaCreate(line){
     sku:_nextSku(),giacenza:0,lots:[]};
 }
 function _tfSetMode(m){
-  _tfMeta.mode=(m==="scheda"?"scheda":"bottiglie");
+  const prev=_tfMeta.mode;
+  _tfMeta.mode=(m==="scheda"||m==="bar")?m:"bottiglie";
+  // vini e prodotti bar hanno id diversi: cambiando famiglia l'invio riparte vuoto
+  if((prev==="bar")!==(_tfMeta.mode==="bar")){ _tfCart=[]; _tfSel.clear(); }
   if(_tfMeta.mode==="bottiglie"){ // tornando alle bottiglie riporta le righe a una qty sensata
     _tfCart.forEach(l=>{ const g=parseInt(wines.find(x=>x.id===l.wineId)?.giacenza)||0; l.qty=Math.min(g,Math.max(1,parseInt(l.qty)||0)); });
   }
@@ -11807,19 +11822,20 @@ function _tfSetMode(m){
 }
 function _tfCartHtml(){
   const dl=_tfDestKnown();
-  const scheda=_tfMeta.mode==="scheda";
-  const modeSw=`<div style="display:flex;gap:6px;margin-bottom:12px"><button class="btn-outline btn-sm" style="${!scheda?"border-color:#5AC8FA;color:#5AC8FA":""}" onclick="_tfSetMode('bottiglie')">${ic("box")} Bottiglie</button><button class="btn-outline btn-sm" style="${scheda?"border-color:#5AC8FA;color:#5AC8FA":""}" onclick="_tfSetMode('scheda')">${ic("file")} Solo scheda</button></div>`;
+  const scheda=_tfMeta.mode!=="bottiglie";
+  const _mb=(k,icn,l)=>`<button class="btn-outline btn-sm" style="${_tfMeta.mode===k?"border-color:#5AC8FA;color:#5AC8FA":""}" onclick="_tfSetMode('${k}')">${ic(icn)} ${l}</button>`;
+  const modeSw=`<div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">${_mb("bottiglie","box","Bottiglie")}${_mb("scheda","file","Solo scheda")}${typeof _barTfProdotti==="function"?_mb("bar","file","Schede bar"):""}</div>`;
   const head=`<div style="font-size:12px;letter-spacing:.25em;text-transform:uppercase;color:var(--txt2);margin-bottom:8px">${ic("box")} Invio in preparazione</div>`+modeSw;
   if(!_tfCart.length) return head+`<div style="font-size:12px;color:var(--txt4)">Nessuna referenza nell'invio. Cerca qui sopra e aggiungi con ＋ o in blocco.</div>`;
   let tot=0, err=false;
   const rows=_tfCart.map(l=>{
-    const w=wines.find(x=>x.id===l.wineId);
+    const w=_tfItem(l.wineId);
     const g=parseInt(w?.giacenza)||0, q=parseInt(l.qty)||0;
     if(!scheda){ tot+=q; if(q<=0||q>g) err=true; }
     const qtyCell=scheda?`<span style="font-size:12px;padding:2px 8px;border:1px solid #3a86a8;color:#5AC8FA;white-space:nowrap">${ic("file")} scheda</span>`:`<button class="btn-outline btn-sm" style="padding:2px 7px" onclick="_tfStepQty('${l.wineId}',-1)">−</button><input class="form-input" type="number" min="1" max="${g}" step="1" value="${q}" onfocus="this.select()" oninput="_tfSetQtySoft('${l.wineId}',this.value)" onchange="_tfSetQty('${l.wineId}',this.value)" style="width:64px;display:inline-block;text-align:center;margin:0 4px"><button class="btn-outline btn-sm" style="padding:2px 7px" onclick="_tfStepQty('${l.wineId}',1)">＋</button>`;
     return `<tr>
       <td style="padding:6px 8px">${h(w?.nome||"?")}${w?.annata?` <span style="color:var(--amber)">${h(w.annata)}</span>`:""}<div style="font-size:12px;color:var(--txt3)">${h(w?.produttore||"")}</div></td>
-      <td class="r" style="padding:6px 8px;color:var(--txt3);white-space:nowrap">${g}bt</td>
+      <td class="r" style="padding:6px 8px;color:var(--txt3);white-space:nowrap">${_tfMeta.mode==="bar"?h(w?.regione||""):g+"bt"}</td>
       <td class="r" style="padding:6px 8px;white-space:nowrap">${qtyCell}</td>
       <td class="c" style="padding:6px 8px"><button class="btn-outline btn-sm" style="padding:2px 8px;border-color:rgba(255,69,58,.4);color:#FF6B6B" onclick="_tfRemove('${l.wineId}')">${ic("x")}</button></td>
     </tr>`;
@@ -11885,6 +11901,19 @@ function _tfGenera(){
   if(!_tfCart.length){ notify("Nessuna referenza nell'invio","err"); return; }
   const data=_tfMeta.data||today();
   const note=(_tfMeta.note||"").trim();
+  if(_tfMeta.mode==="bar"){
+    const lines=[];
+    for(const l of _tfCart){
+      const w=_tfItem(l.wineId);
+      if(!w){ notify("Prodotto non trovato, rimuovilo dall'invio","err"); return; }
+      lines.push(_barSchedaLine(w._bar));
+    }
+    const manifest={v:TRANSFER_MANIFEST_V,type:"cantina-transfer",mode:"bar",transferId:uid(),
+      from:NOME_LOCALE,fromDbUser:_effectiveDbUser(),dest,data,note,lines};
+    _tfCart=[]; _tfMeta={dest:"",data:today(),note:"",mode:"bar"}; _tfSel.clear(); _tfQ="";
+    notify(`${lines.length} schede bar pronte per ${dest}`);
+    render(); _tfShowManifesto(manifest); return;
+  }
   if(_tfMeta.mode==="scheda"){
     const lines=[];
     for(const l of _tfCart){
@@ -11949,7 +11978,7 @@ function _tfShowManifesto(manifest){
   const json=JSON.stringify(manifest,null,2);
   const b64=_b64EncodeUtf8(json);
   const tot=manifest.lines.reduce((s,l)=>s+(parseInt(l.qty)||0),0);
-  const isScheda=manifest.mode==="scheda";
+  const isScheda=manifest.mode==="scheda"||manifest.mode==="bar";
   const isOrdine=manifest.type==="cantina-order";
   const fname=`trasferimento_${(NOME_LOCALE||"cantina").replace(/[^a-z0-9]+/gi,"-").toLowerCase()}_${String(manifest.transferId).slice(0,8)}.json`;
   document.getElementById("man-backdrop")?.remove();
@@ -12087,6 +12116,22 @@ function _tfRicevPreview(){
       ${self?`<div style="margin-top:10px;color:#FF453A">${ic("alert")} Manifesto generato da questa stessa cantina</div>`:""}`;
     enable(!dup && !self); return;
   }
+  if(man.mode==="bar"){
+    const self=man.fromDbUser && man.fromDbUser===_effectiveDbUser();
+    const ok=typeof _barImportaSchede==="function";
+    const keys=new Set(ok?_barProdotti().map(p=>p.key):[]);
+    const rows=man.lines.map(l=>{
+      const known=keys.has(_barKey(l.produttore,l.nome,l.formato));
+      return `<div style="padding:4px 0;border-bottom:1px solid var(--border)">${ok?_barCatDot(l.cat):""}<b>${h(l.nome)}</b> — ${h(l.produttore||"")}${l.formato?" · "+h(String(l.formato))+" L":""} <span style="color:${known?"var(--txt4)":"#30D158"};font-size:12px">${known?"· già presente":"· nuova scheda bar"}</span></div>`;
+    }).join("");
+    if(el) el.innerHTML=`
+      <div style="margin-bottom:8px">${ic("file")} Schede bar · da <b>${h(man.from||"?")}</b> · ${h(_fmtDataIT(man.data||""))} · ${man.lines.length} prodotti · nessuna giacenza${man.note?" · "+h(man.note):""}</div>
+      ${rows}
+      <div style="margin-top:8px;font-size:12px;color:var(--txt4)">Prezzi di vendita e costi restano quelli di questo locale: arrivano solo le schede.</div>
+      ${ok?"":`<div style="margin-top:10px;color:#FF453A">${ic("alert")} Modulo Bar non disponibile su questo locale</div>`}
+      ${self?`<div style="margin-top:10px;color:#FF453A">${ic("alert")} Manifesto generato da questa stessa cantina</div>`:""}`;
+    enable(ok && !self); return;
+  }
   if(man.mode==="scheda"){
     const self=man.fromDbUser && man.fromDbUser===_effectiveDbUser();
     const rows=man.lines.map(l=>{
@@ -12121,6 +12166,16 @@ function _tfConfermaRicevi(){
   if(!man){ notify("Manifesto non valido","err"); return; }
   if(man.fromDbUser && man.fromDbUser===_effectiveDbUser()){ notify("Manifesto emesso da questa stessa cantina","err"); return; }
   if(man.type==="cantina-order"){ _ordImportaManifesto(man); return; }
+  if(man.mode==="bar"){
+    if(typeof _barImportaSchede!=="function"){ notify("Modulo Bar non disponibile","err"); return; }
+    _barImportaSchede(man.lines).then(r=>{
+      const ta=document.getElementById("tf-ricev"); if(ta) ta.value="";
+      const coda=(r.presenti?` · ${r.presenti} già presenti`:"")+(r.completate?` · ${r.completate} completate`:"");
+      notify(r.nuove||r.completate? `${r.nuove} schede bar create${coda}` : `Nessuna scheda nuova: ${r.presenti} già presenti`);
+      render();
+    });
+    return;
+  }
   if(movements.some(m=>m.tipo==="trasferimento-entrata"&&m.transferId===man.transferId)){
     notify("Trasferimento già ricevuto","err"); return;
   }
