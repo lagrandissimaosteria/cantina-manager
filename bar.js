@@ -689,6 +689,40 @@ async function barNuovoProd(){
   render(); await _barSave();
 }
 
+// ─── Trasferimenti: schede prodotto bar tra locali ───────────────────────────
+// Viaggia SOLO l'anagrafica (categoria, nome, produttore, formato, tipologia, età, % vol, uso, fornitore).
+// Niente giacenza, costi o prezzi di vendita: ogni locale ha i propri (CONFIG barPrezzi, ordini).
+const _barTfId = key => { let x=5381; for(const ch of String(key)) x=((x<<5)+x+ch.charCodeAt(0))>>>0; return "b"+x.toString(36); };
+function _barTfProdotti(){ return _barProdotti().map(p=>({...p, tfId:_barTfId(p.key)})); }
+function _barSchedaLine(p){
+  return { cat:p.cat, nome:p.nome, produttore:p.produttore||"", formato:parseFloat(p.formato)||0, tipo:p.tipo||"",
+    eta:p.eta||"", gradazione:p.gradazione||"", uso:_barCock(p)?"cocktail":"vendita", fornitore:p.fornitore||"", qty:0 };
+}
+async function _barImportaSchede(lines){
+  let nuove=0, presenti=0, completate=0;
+  const vuoto = v => v===undefined || v===null || String(v).trim()==="";
+  const auto = new Set(_barProdotti().map(p=>p.key));
+  (lines||[]).forEach(l=>{
+    if(!l || !l.nome || !ORD_CAT[l.cat]) return;
+    const formato = parseFloat(l.formato)||0, key = _barKey(l.produttore, l.nome, formato);
+    const rec = bar.find(x=>x.t==="p" && x.key===key);
+    if(rec){   // già in anagrafica: si completano solo i campi vuoti, mai sovrascrivere
+      if(!rec.eliminato){ let ch=false;
+        ["tipo","eta","gradazione","fornitore"].forEach(k=>{ if(vuoto(rec[k]) && !vuoto(l[k])){ rec[k]=l[k]; ch=true; } });
+        if(ch) completate++; }
+      presenti++; return;
+    }
+    if(auto.has(key)){ presenti++; return; }   // già noto dagli ordini di questo locale
+    const tipo = l.tipo || ORD_CAT[l.cat].tipi[0], d = _barDefaults(l.cat, tipo, formato);
+    bar.push({ id:uid(), t:"p", key, cat:l.cat, nome:String(l.nome).trim(), produttore:String(l.produttore||"").trim(), formato, tipo,
+      unita:d.unita, dosi:d.dosi, dosecl:d.dosecl||0, uso:l.uso==="cocktail"?"cocktail":"vendita",
+      eta:l.eta||"", gradazione:l.gradazione||"", fornitore:l.fornitore||"", prezzo:0, attivo:true });
+    auto.add(key); nuove++;
+  });
+  if(nuove || completate) await _barSave();
+  return { nuove, presenti, completate };
+}
+
 // ─── Ricezione ordini bar: referenza non prevista (scheda breve, non quella vino) ─
 function _ricAddBarRow(editId){
   if(!ricezioneModalData) return;
