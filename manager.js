@@ -108,22 +108,71 @@ function _tipoOptsHtml(selected){
     + `<option value="__new__">+ Nuova tipologia…</option>`;
 }
 // ── SPIRITS & AMARI: ordini tracciati solo come acquisti (niente magazzino/carta)
-const SPIRITS_TIPI=["Distillato","Liquore","Amaro","Fortificato","Idromele / Altro"];
-const _isSpirits=o=>!!o&&o.categoria==="spirits";
+// Categorie beverage non-vino: ordini tracciati solo come acquisti (niente magazzino/carta)
+const ORD_CAT={
+  spirits:{label:"Spirits & Amari", short:"SPIRITS", color:"#bf5fff", rgb:"191,95,255",
+    tipi:["Distillato","Liquore","Amaro","Fortificato","Idromele / Altro"]},
+  birre:{label:"Birre", short:"BIRRE", color:"#FF9F0A", rgb:"255,159,10",
+    tipi:["Birra chiara","Birra ambrata","Birra scura","IPA / Luppolata","Sour / Acida","Birra analcolica","Sidro","Fusto"]},
+  sodati:{label:"Sodati & Analcolici", short:"SODATI", color:"#5AC8FA", rgb:"90,200,250",
+    tipi:["Tonica","Soda / Gassosa","Ginger beer / ale","Cola / Chinotto","Acqua","Succo","Sciroppo","Altro analcolico"]}
+};
+const _ordCat=o=>(o&&ORD_CAT[o.categoria])?o.categoria:"";
+const _isSpirits=o=>!!_ordCat(o);
+const SPIRITS_TIPI=ORD_CAT.spirits.tipi;
 function _spTipoOptsHtml(selected){
+  const tipi=(ORD_CAT[_ordCat(ordineModalData)]||ORD_CAT.spirits).tipi;
   const sel=String(selected||"");
-  const fuori=sel&&!SPIRITS_TIPI.includes(sel);
+  const fuori=sel&&!tipi.includes(sel);
   return (fuori?`<option value="${h(sel)}" selected>${h(sel)}</option>`:"")
-    + SPIRITS_TIPI.map(t=>`<option value="${h(t)}"${t===sel?" selected":""}>${h(t)}</option>`).join("");
+    + tipi.map(t=>`<option value="${h(t)}"${t===sel?" selected":""}>${h(t)}</option>`).join("");
 }
-const _spBadge=o=>_isSpirits(o)?` <span title="Ordine Spirits &amp; Amari: tracciato solo come acquisto, non entra in magazzino né in carta" style="display:inline-block;margin-left:6px;padding:1px 6px;font-size:.68rem;font-weight:600;letter-spacing:.04em;border:1px solid rgba(191,95,255,.4);color:#bf5fff;border-radius:4px;vertical-align:middle">SPIRITS</span>`:"";
+const _spBadge=o=>{ const c=ORD_CAT[_ordCat(o)]; return c?` <span title="Ordine ${h(c.label)}: tracciato solo come acquisto, non entra in magazzino né in carta" style="display:inline-block;margin-left:6px;padding:1px 6px;font-size:.68rem;font-weight:600;letter-spacing:.04em;border:1px solid rgba(${c.rgb},.4);color:${c.color};border-radius:4px;vertical-align:middle">${c.short}</span>`:""; };
+// Spesa beverage per categoria (IVA inclusa, al netto degli sconti; bozze escluse)
+function _ordTotNetto(o){
+  const sc=parseFloat(o.sconto)||0;
+  return (o.referenze||[]).reduce((s,r)=>{
+    const q=parseInt(r.qtyArr ?? r.qty)||0, sr=parseFloat(r.scontoRef)||0;
+    return s+(parseFloat(r.prezzoAcq)||0)*(1+(parseInt(r.iva)||22)/100)*q*(1-sr/100);
+  },0)*(1-sc/100);
+}
+function _renderSpesaBeverage(){
+  const now=today(), ym=now.slice(0,7), y=now.slice(0,4);
+  const d=new Date(now+"T00:00:00"); d.setDate(1); d.setMonth(d.getMonth()-1);
+  const ymPrev=d.toISOString().slice(0,7);
+  const cats=[["","Vini","var(--amber)"],...Object.entries(ORD_CAT).map(([k,c])=>[k,c.label,c.color])];
+  const tot={}; cats.forEach(([k])=>tot[k]={m:0,p:0,y:0});
+  (orders||[]).forEach(o=>{
+    const k=_ordCat(o), dt=(o.dataOrdine||o.dataArrivo||"");
+    if(!dt) return; const v=_ordTotNetto(o);
+    if(dt.slice(0,7)===ym) tot[k].m+=v;
+    if(dt.slice(0,7)===ymPrev) tot[k].p+=v;
+    if(dt.slice(0,4)===y) tot[k].y+=v;
+  });
+  const T={m:0,p:0,y:0}; cats.forEach(([k])=>{T.m+=tot[k].m;T.p+=tot[k].p;T.y+=tot[k].y;});
+  if(!T.y&&!T.p) return "";
+  const pct=(v,t)=>t?` <span style="color:var(--txt4);font-size:11px">${Math.round(v/t*100)}%</span>`:"";
+  const row=([k,l,c])=>`<tr><td style="padding:6px 14px"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${c};margin-right:8px"></span>${h(l)}</td>
+    <td style="text-align:right;padding:6px 14px">${fmt(tot[k].m)}</td><td style="text-align:right;padding:6px 14px;color:var(--txt3)">${fmt(tot[k].p)}</td>
+    <td style="text-align:right;padding:6px 14px">${fmt(tot[k].y)}${pct(tot[k].y,T.y)}</td></tr>`;
+  return `<div class="card" style="margin-top:20px">
+    <div class="card-header"><span>${ic("euro")} Spesa beverage per categoria</span><span style="font-size:11px;color:var(--txt4)">ordini per data ordine · IVA incl. · al netto sconti</span></div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="color:var(--txt4);font-size:11px;text-transform:uppercase;letter-spacing:.06em">
+        <td style="padding:8px 14px">Categoria</td><td style="text-align:right;padding:8px 14px">Mese corrente</td><td style="text-align:right;padding:8px 14px">Mese scorso</td><td style="text-align:right;padding:8px 14px">Anno ${y}</td></tr></thead>
+      <tbody>${cats.map(row).join("")}
+        <tr style="border-top:1px solid var(--border);font-weight:600"><td style="padding:8px 14px">Totale beverage</td>
+        <td style="text-align:right;padding:8px 14px">${fmt(T.m)}</td><td style="text-align:right;padding:8px 14px;color:var(--txt3)">${fmt(T.p)}</td><td style="text-align:right;padding:8px 14px">${fmt(T.y)}</td></tr>
+      </tbody></table></div>`;
+}
 function _setOrdineCategoria(v){
   if(!ordineModalData) return;
   ordineModalData.fornitore=(document.getElementById("omd-fornitore")?.value||"").trim();
   ordineModalData.dataOrdine=document.getElementById("omd-data")?.value||ordineModalData.dataOrdine;
   ordineModalData.note=(document.getElementById("omd-note")?.value||"").trim();
-  ordineModalData.categoria=v==="spirits"?"spirits":"";
-  if(ordineModalData.categoria) ordineModalData.referenze.forEach(r=>{ if(!SPIRITS_TIPI.includes(r.tipologia)) r.tipologia="Distillato"; r.wineId=""; });
+  ordineModalData.categoria=ORD_CAT[v]?v:"";
+  const _c=ORD_CAT[ordineModalData.categoria];
+  if(_c) ordineModalData.referenze.forEach(r=>{ if(!_c.tipi.includes(r.tipologia)) r.tipologia=_c.tipi[0]; r.wineId=""; });
   const allForn=[...new Set([...wines.map(w=>w.distributore),...orders.map(o=>o.fornitore)].filter(Boolean))].sort();
   const allProd=[...new Set([...wines.map(w=>w.produttore),...orders.flatMap(o=>(o.referenze||[]).map(r=>r.produttore))].filter(Boolean))].sort();
   _renderOrdineModalBody(allForn, allProd, [...new Set(wines.map(w=>w.nome).filter(Boolean))].sort());
@@ -5587,8 +5636,8 @@ function renderOrdini(){
     const testo=[o.fornitore,...(o.referenze||[]).map(r=>r.nomeVino+r.produttore)].join(" ").toLowerCase();
     if(q&&!testo.includes(q)) return false;
     if(storicoForn&&o.fornitore!==storicoForn) return false;
-    if(storicoCat==='spirits'&&!_isSpirits(o)) return false;
     if(storicoCat==='vini'&&_isSpirits(o)) return false;
+    if(storicoCat&&storicoCat!=='vini'&&_ordCat(o)!==storicoCat) return false;
     if(storicoDataDa&&(o.dataArrivo||o.dataOrdine||"")<storicoDataDa) return false;
     if(storicoDataA&&(o.dataArrivo||o.dataOrdine||"")>storicoDataA) return false;
     return true;
@@ -5737,6 +5786,8 @@ function renderOrdini(){
     </div>
   </div>
 
+  ${_renderSpesaBeverage()}
+
   ${evasi.length ? `
   <div class="card" style="margin-top:20px;border-color:rgba(68,64,60,.4)">
     <div class="card-header" style="background:rgba(41,37,36,.5);flex-wrap:wrap;gap:8px">
@@ -5751,7 +5802,7 @@ function renderOrdini(){
       <div style="min-width:120px"><select class="form-select" style="font-size:12px" onchange="storicoCat=this.value;render()">
         <option value="" ${!storicoCat?"selected":""}>Tutti i tipi</option>
         <option value="vini" ${storicoCat==="vini"?"selected":""}>Solo vini</option>
-        <option value="spirits" ${storicoCat==="spirits"?"selected":""}>Spirits &amp; Amari</option>
+        ${Object.entries(ORD_CAT).map(([k,c])=>`<option value="${k}" ${storicoCat===k?"selected":""}>${h(c.label)}</option>`).join("")}
       </select></div>
       <div style="min-width:140px"><select class="form-select" style="font-size:12px" onchange="storicoForn=this.value;render()">
         <option value="">Tutti i fornitori</option>
@@ -5823,7 +5874,7 @@ function duplicaOrdine(id){
     fornitore:src.fornitore||src.distributore||"",
     note:src.note||"",
     sconto:parseFloat(src.sconto)||0,
-    categoria:_isSpirits(src)?"spirits":"",
+    categoria:_ordCat(src),
     referenze:srcRefs.map(r=>{ const {qtyArr,id:_,...rest}=r; return {...rest,id:uid(),scontoRef:parseFloat(r.scontoRef)||0}; })
   };
   if(!ordineModalData.referenze.length) ordineModalData.referenze.push(_newRef());
@@ -6214,7 +6265,7 @@ function apriOrdineModal(idOrNull){
     fornitore: ordine?.fornitore||"",
     note: ordine?.note||"",
     sconto: parseFloat(ordine?.sconto)||0,
-    categoria: _isSpirits(ordine)?"spirits":"",
+    categoria: _ordCat(ordine),
     referenze: ordine?.referenze ? ordine.referenze.map(r=>({...r})) : []
   };
   if(ordineModalData.referenze.length===0) ordineModalData.referenze.push(_newRef());
@@ -6247,7 +6298,7 @@ function _renderOrdineModalBody(allFornitori, allProduttori, allNomi){
         <label class="form-label">Tipo ordine</label>
         <select id="omd-categoria" class="form-input" onchange="_setOrdineCategoria(this.value)">
           <option value="" ${_isSpirits(ordineModalData)?"":"selected"}>Vini</option>
-          <option value="spirits" ${_isSpirits(ordineModalData)?"selected":""}>Spirits &amp; Amari</option>
+          ${Object.entries(ORD_CAT).map(([k,c])=>`<option value="${k}" ${_ordCat(ordineModalData)===k?"selected":""}>${h(c.label)}</option>`).join("")}
         </select>
       </div>
       <div>
@@ -6270,7 +6321,7 @@ function _renderOrdineModalBody(allFornitori, allProduttori, allNomi){
         <input id="omd-note" class="form-input" value="${h(ordineModalData.note)}" placeholder="es. Ordine per settembre">
       </div>
     </div>
-    ${_isSpirits(ordineModalData)?`<div style="margin:-8px 0 16px;padding:8px 12px;font-size:12px;border:1px solid rgba(191,95,255,.35);color:var(--txt2)">Ordine <b>Spirits &amp; Amari</b>: viene registrato solo come acquisto (storico ordini, fatture, spesa fornitore). Alla ricezione non crea schede in magazzino e non compare in carta.</div>`:""}
+    ${_isSpirits(ordineModalData)?`<div style="margin:-8px 0 16px;padding:8px 12px;font-size:12px;border:1px solid rgba(${ORD_CAT[_ordCat(ordineModalData)].rgb},.35);color:var(--txt2)">Ordine <b>${h(ORD_CAT[_ordCat(ordineModalData)].label)}</b>: viene registrato solo come acquisto (storico ordini, fatture, spesa fornitore). Alla ricezione non crea schede in magazzino e non compare in carta.</div>`:""}
     <!-- Referenze -->
     <div class="modal-section-label">${ic("bottle")} Referenze dell'ordine</div>
     <style>.cm-ord-tbl{min-width:900px!important}.cm-ord-tbl td{overflow-wrap:normal!important;word-break:normal!important}.cm-ord-tbl tr.cm-grid-head td{letter-spacing:.03em}.cm-ord-tbl td>div[id^="ref-"]{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.cm-ord-tbl .cm-carta-sug{background:none;border:none;color:#30D158;font-size:11px;cursor:pointer;padding:0;font-family:inherit;text-decoration:underline;text-underline-offset:2px}</style>
@@ -6618,7 +6669,7 @@ function salvaOrdine(){
   });
   if(!ok){notify("Inserisci il nome vino per tutte le referenze","err");return;}
   if(!refs.length){notify("Aggiungi almeno una referenza","err");return;}
-  const categoria=_isSpirits(ordineModalData)?"spirits":"";
+  const categoria=_ordCat(ordineModalData);
 
   const _bozzaId = _bozzeSb.some(b=>b.id===ordineModalData.id) ? ordineModalData.id : null;
   if(ordineModalData.id){
@@ -6939,7 +6990,7 @@ function confermaRicezioneOrdine(){
     if(fattura) _ordSp.numeroFattura=fattura;
     scheduleSave(); clearTimeout(saveTimer); _flushSave();
     chiudiRicezioneModal();
-    notify(`Ordine spirits registrato (${daProcessare.length} referenze, fuori magazzino)`);
+    notify(`Ordine ${ORD_CAT[_ordCat(_ordSp)].label} registrato (${daProcessare.length} referenze, fuori magazzino)`);
     render();
     return;
   }
@@ -11827,7 +11878,7 @@ function inviaOrdineAdAltroLocale(id){
     v:ORDER_MANIFEST_V, type:"cantina-order", mode:"ordine", transferId:uid(),
     from:NOME_LOCALE, fromDbUser:_effectiveDbUser(), dest, data:today(),
     ordine:{ dataOrdine:src.dataOrdine||today(), fornitore:src.fornitore||src.distributore||"",
-             note:src.note||"", sconto:parseFloat(src.sconto)||0, categoria:_isSpirits(src)?"spirits":"", referenze:refs },
+             note:src.note||"", sconto:parseFloat(src.sconto)||0, categoria:_ordCat(src), referenze:refs },
     // riepilogo per l'anteprima/modale, stesso formato dei manifesti referenza
     lines:refs.map(r=>({nome:r.nomeVino,produttore:r.produttore,annata:r.annata,qty:r.qty}))
   };
@@ -11852,7 +11903,7 @@ function _ordImportaManifesto(man){
   orders.push({ id:uid(), fornitore:o.fornitore||"", dataOrdine:o.dataOrdine||today(),
     note:[o.note,`importato da ${man.from||"altro locale"}`].filter(Boolean).join(" · "),
     sconto:parseFloat(o.sconto)||0, referenze:refs, stato:"attesa",
-    _importId:man.transferId, _importFrom:man.from||"", categoria:_isSpirits(o)?"spirits":"" });
+    _importId:man.transferId, _importFrom:man.from||"", categoria:_ordCat(o) });
   scheduleSave();
   try{ clearTimeout(saveTimer); _flushSave(); }catch{}
   const ta=document.getElementById("tf-ricev"); if(ta) ta.value="";
