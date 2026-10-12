@@ -17,6 +17,12 @@ const BAR_CAUSALI = ["Staff","Omaggio cliente","Cucina","Rottura / perdita","Deg
 const _barCfg = k => (typeof CONFIG!=="undefined" && CONFIG && CONFIG[k]!==undefined) ? CONFIG[k] : undefined;
 const _barFusti = () => _barCfg("barFusti")!==false;
 const _barPrezzoDef = cat => parseFloat((_barCfg("barPrezzi")||{})[cat])||0;
+// barSpina: { piccola:{cl,prezzo}, media:{cl,prezzo} } — birre alla spina vendute in due misure; l'unità base è la media
+const _barSpina = () => { const s=_barCfg("barSpina"); return s&&s.media&&s.piccola? s : null; };
+const _barTaglie = p => !!(_barSpina() && p && p.cat==="birre" && p.unita==="bicchiere");
+// Uscita in unità base (una "piccola" vale cl piccola / cl media) e ricavo effettivo della registrazione
+const _barMovU = (m,p) => (parseFloat(m.qty)||0) * (m.taglia==="piccola" && p && p.dosecl ? (_barSpina()?.piccola.cl||0)/p.dosecl : 1);
+const _barMovRic = (m,p) => p ? (parseFloat(m.qty)||0) * (m.taglia==="piccola" ? p.prezzoPiccola : p.prezzo) : 0;
 const BAR_UNITA = { dose:"Dose", bicchiere:"Bicchiere", bottiglia:"Bottiglia", pezzo:"Pezzo" };
 // Scheda prodotto per categoria: come si vende e come si conta
 const BAR_SCHEDA = {
@@ -72,7 +78,7 @@ function _barDefaults(cat, tipo, formato){
   if(cat==="kegvino") return { unita:"bicchiere", dosecl:15, dosi: f? Math.round(f/0.15*10)/10 : 133.3 };
   if(cat==="kegcocktail") return { unita:"bicchiere", dosecl:12, dosi: f? Math.round(f/0.12*10)/10 : 166.7 };
   if(cat==="spirits") return { unita:"dose", dosecl:4, dosi: f? Math.round(f/0.04*10)/10 : 17.5 };
-  if(_barFusti() && (tipo==="Fusto" || (cat==="birre" && f>=5))) return { unita:"bicchiere", dosecl:40, dosi: f? Math.round(f/0.4*10)/10 : 50 };
+  if(_barFusti() && (tipo==="Fusto" || (cat==="birre" && f>=5))){ const cl=_barSpina()?.media.cl||40; return { unita:"bicchiere", dosecl:cl, dosi: f? Math.round(f*100/cl*10)/10 : 50 }; }
   if(cat==="birre") return { unita:"bottiglia", dosi:1 };
   return { unita:"pezzo", dosi:1 };
 }
@@ -100,6 +106,16 @@ function _barProdotti(){
     if(c.data>=a.ultimo){ a.ultimo=c.data; a.ref=c.ref; a.cat=c.cat; }
     agg.set(c.key, a);
   });
+  // Ordini bar non ancora ricevuti: il prodotto compare subito ("in arrivo", giacenza 0, costo stimato dall'ordine)
+  (orders||[]).forEach(o=>{
+    const cat = _ordCat(o); if(!cat || o.stato!=="attesa") return;
+    const sc = parseFloat(o.sconto)||0;
+    (o.referenze||[]).forEach(r=>{
+      const key = _barKey(r.produttore,r.nomeVino,r.formato); if(agg.has(key) && !agg.get(key).pend) return;
+      const unit = (parseFloat(r.prezzoAcq)||0)*(1+(parseInt(r.iva)||22)/100)*(1-(parseFloat(r.scontoRef)||0)/100)*(1-sc/100);
+      agg.set(key, { pezzi:0, costo:0, stima:unit, pend:true, fornitori:new Set(o.fornitore?[o.fornitore]:[]), ref:r, cat, ultimo:"" });
+    });
+  });
   const res = [];
   const mk = (key, p, a) => {
     const ref = a?.ref || {}, cat = p?.cat || a?.cat || "spirits";
@@ -110,10 +126,14 @@ function _barProdotti(){
       nome: p?.nome || ref.nomeVino || "", produttore: p?.produttore ?? ref.produttore ?? "",
       fornitore: p?.fornitore || (a? [...a.fornitori].join(", ") : ""),
       unita: p?.unita || d.unita, dosi: parseFloat(p?.dosi) || d.dosi,
-      prezzoProprio: parseFloat(p?.prezzo)||0, prezzo: parseFloat(p?.prezzo) || _barPrezzoDef(cat),
+      prezzoProprio: parseFloat(p?.prezzo)||0,
+      prezzo: parseFloat(p?.prezzo) || ((cat==="birre" && (p?.unita||d.unita)==="bicchiere" && _barSpina())? _barSpina().media.prezzo : _barPrezzoDef(cat)),
+      prezzoPiccolaProprio: parseFloat(p?.prezzoPiccola)||0, prezzoPiccola: parseFloat(p?.prezzoPiccola) || (_barSpina()?.piccola.prezzo||0),
       dosecl: parseFloat(p?.dosecl) || d.dosecl || 0, uso: p?.uso || "vendita",
       eta: p?.eta ?? ref.eta ?? "", gradazione: p?.gradazione ?? ref.gradazione ?? "",
-      costo: parseFloat(p?.costo) || (a&&a.pezzi? a.costo/a.pezzi : 0), // costo medio ponderato a pezzo, IVA incl.
+      costoAuto: a&&a.pezzi? a.costo/a.pezzi : (a?.stima||0), costoFonte: parseFloat(p?.costo)? "manuale" : a&&a.pezzi? "ordini" : a?.stima? "stima" : "",
+      costo: parseFloat(p?.costo) || (a&&a.pezzi? a.costo/a.pezzi : (a?.stima||0)), // costo medio ponderato a pezzo, IVA incl. (stima da ordine se in arrivo)
+      inArrivo: !!a?.pend,
       attivo: p ? p.attivo!==false : true
     };
   };
@@ -145,7 +165,7 @@ function _barGiac(ix, D){
   const after = d => from ? d>from : true;
   let g = base;
   ix.car.forEach(c=>{ if(c.data<=D && after(c.data)) g+=c.pezzi; });
-  ix.mov.forEach(m=>{ if(m.data<=D && after(m.data)) g-=(parseFloat(m.qty)||0)/ix.dosi; });
+  ix.mov.forEach(m=>{ if(m.data<=D && after(m.data)) g-=_barMovU(m,ix.p)/ix.dosi; });
   return { g, conta: from };
 }
 function _barIndex(prods){
@@ -162,14 +182,15 @@ function _barStats(da, a){
     const gi = _barGiac(i, pre), gf = _barGiac(i, a);
     const carP = i.car.filter(c=>c.data>=da&&c.data<=a), car = carP.reduce((s,c)=>s+c.pezzi,0), acq = carP.reduce((s,c)=>s+c.costoTot,0);
     const mv = i.mov.filter(m=>m.data>=da&&m.data<=a);
-    const auto = mv.filter(m=>m.tipo==="auto").reduce((s,m)=>s+(parseFloat(m.qty)||0),0)/i.dosi;
-    const vend = mv.filter(m=>m.tipo==="vend").reduce((s,m)=>s+(parseFloat(m.qty)||0),0)/i.dosi;
+    const auto = mv.filter(m=>m.tipo==="auto").reduce((s,m)=>s+_barMovU(m,p),0)/i.dosi;
+    const vend = mv.filter(m=>m.tipo==="vend").reduce((s,m)=>s+_barMovU(m,p),0)/i.dosi;
+    const ricReg = mv.filter(m=>m.tipo==="vend").reduce((s,m)=>s+_barMovRic(m,p),0);
     const consumo = gi.g + car - gf.g;
     const nonReg = consumo - auto - vend;
     if(!car && !auto && !vend && Math.abs(consumo)<1e-9 && Math.abs(gf.g)<1e-9) return;
     rows.push({ p, gi:gi.g, gf:gf.g, contaFin:gf.conta, car, acq, auto, vend, consumo, nonReg,
       cConsumo: consumo*p.costo, cAuto: auto*p.costo,
-      ricavo: (vend + Math.max(0,nonReg)) * p.dosi * p.prezzo,
+      ricavo: ricReg + Math.max(0,nonReg) * p.dosi * p.prezzo, // non registrato stimato al prezzo dell'unità base (media)
       valFin: Math.max(0,gf.g)*p.costo });
   });
   return rows;
@@ -248,28 +269,27 @@ function _barRiepilogo(catSel){
 
 function _barRegistra(){
   const prods = _barProdotti().filter(p=>p.attivo);
+  const opts = prods.map(p=>`<option value="${h(p.id)}">${h(_barCatLbl(p.cat))} — ${h(p.nome)}${p.produttore?" · "+h(p.produttore):""} (${BAR_UNITA[p.unita]||p.unita})</option>`).join("");
   const movs = bar.filter(x=>x.t==="m").sort((x,y)=>(y.data+y.ts||"").localeCompare(x.data+x.ts||"")).slice(0,60);
   const pById = new Map(prods.map(p=>[p.id,p])); _barProdotti().forEach(p=>pById.set(p.id,p));
   return `<div class="card" style="margin-bottom:16px"><div class="card-header"><span>${ic("plus")} Registra uscita</span><span style="font-size:11px;color:var(--txt4)">quantità in unità di vendita (dosi, bicchieri, bottiglie)</span></div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;align-items:end">
       <div><label class="form-label">Data</label><input type="date" id="bar-m-data" class="form-input" value="${today()}"></div>
-      <div style="grid-column:span 2;position:relative"><label class="form-label">Prodotto</label>
-        <input id="bar-m-q" class="form-input" autocomplete="off" data-t9="off" placeholder="${prods.length?"Scrivi il nome (bastano 2 lettere)…":"Nessun prodotto"}"
-          oninput="_barAcInput(this)" onkeydown="_barAcKey(event)" onfocus="_barAcInput(this)" onblur="setTimeout(_barAcClose,150)">
-        <input type="hidden" id="bar-m-pid" value=""><div id="bar-m-ac" style="display:none;position:absolute;left:0;right:0;top:100%;margin-top:4px;z-index:50;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.35);max-height:280px;overflow-y:auto;font-size:13px"></div></div>
+      <div style="grid-column:span 2"><label class="form-label">Prodotto</label><select id="bar-m-pid" class="form-select" onchange="_barUnHint()">${opts||`<option value="">Nessun prodotto</option>`}</select></div>
       <div><label class="form-label">Tipo</label><select id="bar-m-tipo" class="form-select" onchange="document.getElementById('bar-m-caus-w').style.display=this.value==='auto'?'':'none'">
         <option value="auto">Autoconsumo</option><option value="vend">Vendita (da cassa)</option></select></div>
       <div id="bar-m-caus-w"><label class="form-label">Causale</label><select id="bar-m-caus" class="form-select">${BAR_CAUSALI.map(c=>`<option>${h(c)}</option>`).join("")}</select></div>
+      <div id="bar-m-taglia-w" style="display:none"><label class="form-label">Misura</label><select id="bar-m-taglia" class="form-select"><option value="media">Media</option><option value="piccola">Piccola</option></select></div>
       <div><label class="form-label">Quantità <span id="bar-m-un" style="color:var(--txt4)"></span></label><input type="number" id="bar-m-qty" class="form-input" min="0" step="0.5" value="1"></div>
       <div><label class="form-label">Note</label><input id="bar-m-note" class="form-input"></div>
       <div><button class="btn-primary" onclick="barAddMov()">Registra</button></div>
     </div></div>
     <div class="card" style="overflow-x:auto"><div class="card-header"><span>${ic("clipboard")} Ultime registrazioni</span></div>
     <table style="width:100%;border-collapse:collapse;font-size:12.5px"><tbody>
-    ${movs.length? movs.map(m=>{ const p=pById.get(m.pid); const v=p?(parseFloat(m.qty)||0)/(p.dosi||1)*p.costo:0;
+    ${movs.length? movs.map(m=>{ const p=pById.get(m.pid); const v=p?_barMovU(m,p)/(p.dosi||1)*p.costo:0;
       return `<tr style="border-top:1px solid var(--border)"><td style="padding:6px 8px;white-space:nowrap">${m.data.split("-").reverse().join("/")}</td>
       <td style="padding:6px 8px">${m.tipo==="auto"?`<span style="color:var(--orange)">Autoconsumo</span> · ${h(m.causale||"")}`:`<span style="color:var(--green)">Vendita</span>`}</td>
-      <td style="padding:6px 8px">${p?h(p.nome):"<i>prodotto rimosso</i>"}</td><td style="padding:6px 8px;text-align:right">${fmtN(parseFloat(m.qty)||0,1)} ${p?h((BAR_UNITA[p.unita]||"").toLowerCase()):""}</td>
+      <td style="padding:6px 8px">${p?h(p.nome):"<i>prodotto rimosso</i>"}</td><td style="padding:6px 8px;text-align:right">${fmtN(parseFloat(m.qty)||0,1)} ${m.taglia? (m.taglia==="piccola"?"piccole":"medie") : p?h((BAR_UNITA[p.unita]||"").toLowerCase()):""}</td>
       <td style="padding:6px 8px;text-align:right;color:var(--txt3)">${fmt(v)}</td><td style="padding:6px 8px;color:var(--txt4)">${h(m.note||"")}</td>
       <td style="padding:6px 8px;text-align:right"><button class="btn-outline btn-sm" onclick="barDel('${m.id}')">${ic("trash")}</button></td></tr>`; }).join("")
       : `<tr><td style="padding:20px;text-align:center;color:var(--txt4)">Nessuna registrazione.</td></tr>`}
@@ -277,73 +297,18 @@ function _barRegistra(){
 }
 function _barUnHint(){
   const el=document.getElementById("bar-m-un"), id=document.getElementById("bar-m-pid")?.value;
-  const p=_barProdotti().find(x=>x.id===id); if(el) el.textContent=p?`(${(BAR_UNITA[p.unita]||p.unita).toLowerCase()})`:"";
-}
-// ─── Autocomplete fuzzy prodotto (tollera refusi e parole parziali) ─────────
-var _barAc = { items:[], idx:-1 };
-function _barAcTokScore(tok, words){
-  let best = 0;
-  for(const w of words){
-    if(w.startsWith(tok)) { best = Math.max(best, 3); continue; }
-    if(w.includes(tok)) { best = Math.max(best, 2.5); continue; }
-    if(tok.length<3) continue;
-    const tol = tok.length<=5?1:2;
-    if(_lev(tok, w.slice(0, tok.length)) <= tol) best = Math.max(best, 1.8);
-    else if(_lev(tok, w) <= tol) best = Math.max(best, 1.5);
-  }
-  return best;
-}
-function _barAcMatch(q){
-  const qt = _barNorm(q).replace(/[^a-z0-9 ]/g," ").split(" ").filter(Boolean);
-  if(!qt.length || qt.join("").length<2) return [];
-  const out = [];
-  _barProdotti().filter(p=>p.attivo).forEach(p=>{
-    const hay = _barNorm(`${p.nome} ${p.produttore} ${p.tipo} ${_barCatLbl(p.cat)}`).replace(/[^a-z0-9 ]/g," ");
-    const words = hay.split(" ").filter(Boolean);
-    let s = 0;
-    for(const t of qt){ const v=_barAcTokScore(t, words); if(!v) return; s+=v; }
-    if(_barNorm(p.nome).startsWith(_barNorm(q))) s+=2;
-    out.push({ p, s });
-  });
-  return out.sort((a,b)=>b.s-a.s || a.p.nome.localeCompare(b.p.nome,"it")).slice(0,12);
-}
-function _barAcInput(el){
-  document.getElementById("bar-m-pid").value = ""; _barUnHint();
-  _barAc.items = _barAcMatch(el.value); _barAc.idx = _barAc.items.length?0:-1; _barAcPaint();
-}
-function _barAcPaint(){
-  const box = document.getElementById("bar-m-ac"); if(!box) return;
-  if(!_barAc.items.length){ box.style.display="none"; return; }
-  box.innerHTML = _barAc.items.map(({p},i)=>`<div onmousedown="event.preventDefault();_barAcPick(${i})" onmouseenter="_barAc.idx=${i};_barAcPaint()"
-    style="padding:7px 11px;cursor:pointer;border-bottom:1px solid var(--border);${i===_barAc.idx?"background:var(--bg3)":""}">
-    ${_barCatDot(p.cat)}${h(p.nome)}${p.produttore?` <span style="color:var(--txt4)">· ${h(p.produttore)}</span>`:""}
-    <span style="float:right;color:var(--txt4);font-size:11px">${h(BAR_UNITA[p.unita]||p.unita)}${p.prezzo?" · "+fmt(p.prezzo):""}</span></div>`).join("");
-  box.style.display = "";
-  box.children[_barAc.idx]?.scrollIntoView({ block:"nearest" });
-}
-function _barAcPick(i){
-  const it = _barAc.items[i]; if(!it) return;
-  document.getElementById("bar-m-pid").value = it.p.id;
-  document.getElementById("bar-m-q").value = it.p.nome + (it.p.produttore?" · "+it.p.produttore:"");
-  _barAcClose(); _barUnHint(); document.getElementById("bar-m-qty")?.focus();
-}
-function _barAcClose(){ const b=document.getElementById("bar-m-ac"); if(b) b.style.display="none"; }
-function _barAcKey(e){
-  const n = _barAc.items.length, box = document.getElementById("bar-m-ac"), open = box && box.style.display!=="none";
-  if(e.key==="ArrowDown" && n){ e.preventDefault(); _barAc.idx=(_barAc.idx+1)%n; _barAcPaint(); }
-  else if(e.key==="ArrowUp" && n){ e.preventDefault(); _barAc.idx=(_barAc.idx-1+n)%n; _barAcPaint(); }
-  else if((e.key==="Enter"||e.key==="Tab") && open && _barAc.idx>=0){ e.preventDefault(); _barAcPick(_barAc.idx); }
-  else if(e.key==="Escape") _barAcClose();
+  const p=_barProdotti().find(x=>x.id===id); if(el) el.textContent=p?`(${(_barTaglie(p)?"bicchieri":(BAR_UNITA[p.unita]||p.unita)).toLowerCase()})`:"";
+  const tw=document.getElementById("bar-m-taglia-w"); if(tw) tw.style.display=_barTaglie(p)?"":"none";
 }
 async function barAddMov(){
-  let sel = document.getElementById("bar-m-pid").value; const qty = parseFloat(document.getElementById("bar-m-qty").value)||0;
-  if(!sel){ const q=document.getElementById("bar-m-q")?.value||"", m=_barAcMatch(q); if(m.length===1 || (m.length>1 && m[0].s>m[1].s)) sel=m[0].p.id; }
-  if(!sel){ notify("Scegli un prodotto dai suggerimenti","err"); return; }
+  const sel = document.getElementById("bar-m-pid").value, qty = parseFloat(document.getElementById("bar-m-qty").value)||0;
+  if(!sel){ notify("Scegli un prodotto","err"); return; }
   if(qty<=0){ notify("Quantità non valida","err"); return; }
   const p = _barProdotti().find(x=>x.id===sel); if(!p) return;
   const pid = _barEnsure(p), tipo = document.getElementById("bar-m-tipo").value;
   bar.push({ id:uid(), t:"m", ts:Date.now(), data:document.getElementById("bar-m-data").value||today(), pid, tipo,
-    causale: tipo==="auto"? document.getElementById("bar-m-caus").value : "", qty, note:(document.getElementById("bar-m-note").value||"").trim() });
+    causale: tipo==="auto"? document.getElementById("bar-m-caus").value : "", qty,
+    ...(_barTaglie(p)? { taglia: document.getElementById("bar-m-taglia").value } : {}), note:(document.getElementById("bar-m-note").value||"").trim() });
   render(); notify(tipo==="auto"?"Autoconsumo registrato":"Vendita registrata");
   await _barSave(); if(section==="bar") render();
 }
@@ -401,16 +366,17 @@ function _barProdottiUi(catSel){
   const aDose = p => p.unita==="dose"||p.unita==="bicchiere";
   // Colonne: [intestazione, allineamento, cella(p, cu, mg)]
   const C = {
-    prod:  ["Prodotto","left", p=>td(`${_barCatDot(p.cat)}${h(p.nome)}${p.produttore?` <span style="color:var(--txt4)">· ${h(p.produttore)}</span>`:""}<div style="font-size:11px;color:var(--txt4)">${h(_barDett(p))}</div>`)],
+    prod:  ["Prodotto","left", p=>td(`${_barCatDot(p.cat)}${h(p.nome)}${p.inArrivo?` <span style="color:var(--orange);font-size:10px" title="Ordine non ancora ricevuto: giacenza 0 finché non registri l'arrivo">in arrivo</span>`:""}${p.produttore?` <span style="color:var(--txt4)">· ${h(p.produttore)}</span>`:""}<div style="font-size:11px;color:var(--txt4)">${h(_barDett(p))}</div>`)],
     forn:  ["Fornitore","left", p=>td(h(p.fornitore||"—"),"color:var(--txt3)")],
     unita: ["Unità vendita","left", p=>td(sel(p,"unita",Object.entries(BAR_UNITA),p.unita))],
     dosi:  ["Unità/pezzo","left", p=>td(inp(p,"dosi",p.dosi,"0.5",70))],
     servizio:["Servizio","left", p=>td(sel(p,"unita",[["bicchiere","Spina"],["bottiglia","Bottiglia / lattina"]],p.unita==="bicchiere"?"bicchiere":"bottiglia",140))],
-    dosecl:["Dose cl","left", p=>td(aDose(p)? inp(p,"dosecl",p.dosecl||"","0.5",64) : `<span style="color:var(--txt4)">—</span>`)],
-    resa:  [cat==="kegvino"?"Calici/fusto":(cat==="birre"||cat==="kegcocktail")?"Bicchieri/fusto":"Dosi/bottiglia","right", p=>td(aDose(p)? _barPz(p.dosi) : "1","text-align:right")],
+    dosecl:[cat==="birre"&&_barSpina()?"Media cl":"Dose cl","left", p=>td(aDose(p)? inp(p,"dosecl",p.dosecl||"","0.5",64) : `<span style="color:var(--txt4)">—</span>`)],
+    resa:  [cat==="kegvino"?"Calici/fusto":cat==="birre"&&_barSpina()?"Medie/fusto":(cat==="birre"||cat==="kegcocktail")?"Bicchieri/fusto":"Dosi/bottiglia","right", p=>td(aDose(p)? _barPz(p.dosi) : "1","text-align:right")],
     uso:   ["Uso","left", p=>td(sel(p,"uso",[["vendita","Vendita"],["mixer","Mixer"]],p.uso,110))],
-    prezzo:[S?S.prezzoLbl:"Prezzo unità","left", p=>td(cat==="sodati"&&p.uso==="mixer"? `<span style="color:var(--txt4)">—</span>` : inp(p,"prezzo",p.prezzoProprio,"0.5",80,_barPrezzoDef(p.cat)||""))],
-    costo: ["Costo pezzo","left", p=>td(`${inp(p,"costo",p.saved&&bar.find(x=>x.id===p.id)?.costo||"","0.01",80)}<div style="font-size:10px;color:var(--txt4)">${fmt(p.costo)}</div>`)],
+    prezzo:[cat==="birre"&&_barSpina()?"Prezzo media / pezzo":S?S.prezzoLbl:"Prezzo unità","left", p=>td(cat==="sodati"&&p.uso==="mixer"? `<span style="color:var(--txt4)">—</span>` : inp(p,"prezzo",p.prezzoProprio,"0.5",80,p.prezzo||""))],
+    prezzoP:["Prezzo piccola","left", p=>td(_barTaglie(p)? inp(p,"prezzoPiccola",p.prezzoPiccolaProprio,"0.5",80,p.prezzoPiccola||"") : `<span style="color:var(--txt4)">—</span>`)],
+    costo: [`<span title="Quanto paghi un pezzo intero (bottiglia, lattina o fusto), IVA inclusa. Si calcola da solo dagli ordini: scrivilo solo per correggerlo.">Costo acquisto pz ⓘ</span>`,"left", p=>td(`${inp(p,"costo",p.saved&&bar.find(x=>x.id===p.id)?.costo||"","0.01",80,p.costoAuto? p.costoAuto.toFixed(2):"")}<div style="font-size:10px;color:${p.costoFonte==="manuale"?"var(--orange)":"var(--txt4)"}">${p.costoFonte==="ordini"?"media ordini":p.costoFonte==="stima"?"da ordine in arrivo":p.costoFonte==="manuale"?"manuale · auto "+fmt(p.costoAuto):"manca: scrivilo"}</div>`)],
     cu:    [cat==="spirits"?"Costo dose":cat==="birre"?"Costo unità":"Costo unità","right", (p,cu)=>td(fmt(cu),"text-align:right")],
     mg:    ["Margine","right", (p,cu,mg)=>td(mg===null?"—":fmtN(mg,0)+"%",`text-align:right;color:${mg===null?"var(--txt4)":mg<65?"var(--orange)":"var(--green)"}`)],
     giac:  [cat==="birre"?"Giacenza pz":cat.startsWith("keg")?"Giacenza fusti":"Giacenza","right", p=>td(_barPz(_barGiac(ix.get(p.id),t).g),"text-align:right")],
@@ -418,7 +384,7 @@ function _barProdottiUi(catSel){
   };
   const cols = {
     spirits:["prod","forn","dosecl","resa","prezzo","costo","cu","mg","giac","att"],
-    birre:  _barFusti()? ["prod","forn","servizio","dosecl","resa","prezzo","costo","cu","mg","giac","att"] : ["prod","forn","prezzo","costo","mg","giac","att"],
+    birre:  _barFusti()? ["prod","forn","servizio","dosecl","resa","prezzo",...(_barSpina()?["prezzoP"]:[]),"costo","cu","mg","giac","att"] : ["prod","forn","prezzo","costo","mg","giac","att"],
     sodati: ["prod","forn","uso","prezzo","costo","mg","giac","att"],
     kegcocktail:["prod","forn","dosecl","resa","prezzo","costo","cu","mg","giac","att"],
     kegvino:["prod","forn","dosecl","resa","prezzo","costo","cu","mg","giac","att"]
@@ -426,7 +392,7 @@ function _barProdottiUi(catSel){
   return `<div class="card" style="margin-bottom:16px"><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;align-items:end">
       ${catSel}<div><label class="form-label">Cerca</label><input class="form-input" value="${h(barUi.q)}" onchange="barSet('q',this.value)" placeholder="nome, produttore, fornitore"></div>
       <div><button class="btn-outline btn-sm" onclick="barNuovoProd()">+ Prodotto non ordinato</button></div></div>
-    <div style="font-size:12px;color:var(--txt4);margin-top:10px">I prodotti arrivano dagli ordini caricati. ${S? (cat==="birre"&&!_barFusti()? "Vendita a bottiglia/lattina: prezzo al pezzo." : S.hint) : "Scegli una categoria per la scheda dedicata (dose spirits, spina/bottiglia birre, vendita/mixer sodati, calice/bicchiere polykeg)."} ${S&&_barPrezzoDef(cat)? `Prezzo di vendita del locale: ${fmt(_barPrezzoDef(cat))}, vale per tutti i prodotti senza un prezzo proprio. `:""}Il costo è la media ponderata degli acquisti; scrivilo solo per sovrascriverlo.</div></div>
+    <div style="font-size:12px;color:var(--txt4);margin-top:10px">I prodotti arrivano dagli ordini caricati. ${S? (cat==="birre"&&!_barFusti()? "Vendita a bottiglia/lattina: prezzo al pezzo." : S.hint) : "Scegli una categoria per la scheda dedicata (dose spirits, spina/bottiglia birre, vendita/mixer sodati, calice/bicchiere polykeg)."} ${S&&_barPrezzoDef(cat)? `Prezzo di vendita del locale: ${fmt(_barPrezzoDef(cat))}, vale per tutti i prodotti senza un prezzo proprio. `:""}Costo acquisto pz = quanto paghi un pezzo intero (bottiglia, lattina, fusto), IVA inclusa: si compila da solo dagli ordini caricati (o dall'ordine in arrivo); scrivilo solo per correggerlo, svuotalo per tornare al calcolo automatico.${cat==="birre"&&_barSpina()? ` Spina: media ${_barSpina().media.cl} cl a ${fmt(_barSpina().media.prezzo)}, piccola ${_barSpina().piccola.cl} cl a ${fmt(_barSpina().piccola.prezzo)} (modificabili per birra).`:""}</div></div>
     <div class="card" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px;min-width:${cols.length*95}px"><thead><tr>
       ${cols.map(k=>th(C[k][0],C[k][1])).join("")}</tr></thead><tbody>
     ${prods.map(p=>{ const cu = p.dosi? p.costo/p.dosi : 0, mg = p.prezzo&&!(p.cat==="sodati"&&p.uso==="mixer")? (1-cu/p.prezzo)*100 : null;
@@ -440,7 +406,7 @@ async function barSetProd(id, f, v){
   const fL = parseFloat(rec.formato)||0;
   if(f==="unita"){ rec.unita = v; const d=_barDefaults(rec.cat, rec.tipo, rec.formato);
     if(v==="bottiglia"||v==="pezzo") rec.dosi=1;
-    else { rec.dosecl = parseFloat(rec.dosecl) || (v==="bicchiere"?40:4); rec.dosi = fL? Math.round(fL*100/rec.dosecl*10)/10 : (v===d.unita? d.dosi : 1); } }
+    else { rec.dosecl = parseFloat(rec.dosecl) || (v==="bicchiere"?(_barSpina()?.media.cl||40):4); rec.dosi = fL? Math.round(fL*100/rec.dosecl*10)/10 : (v===d.unita? d.dosi : 1); } }
   else if(f==="dosecl"){ const cl=Math.max(0,parseFloat(v)||0); rec.dosecl=cl; if(cl&&fL) rec.dosi=Math.round(fL*100/cl*10)/10; }
   else if(f==="uso") rec.uso = v==="mixer"?"mixer":"vendita";
   else if(f==="attivo") rec.attivo = !!v;
