@@ -554,7 +554,7 @@ function _barProdottiUi(catSel){
   const ix = _barIndex(prods), t = today(), cat = barUi.cat, S = BAR_SCHEDA[cat];
   const th = (l,al) => _barTh(l,al||"left");
   const td = (x,st) => `<td style="padding:6px 8px;${st||""}">${x}</td>`;
-  const inp = (p,f,v,step,w,ph) => `<input type="number" class="form-input" style="width:${w||80}px;padding:4px 6px" min="0" step="${step}" value="${v||""}"${ph?` placeholder="${ph}"`:""} onchange="barSetProd('${h(p.id)}','${f}',this.value)">`;
+  const inp = (p,f,v,step,w,ph) => { const auto = !v && ph!=null && ph!==""; return `<input type="number" class="form-input" style="width:${w||80}px;padding:4px 6px${auto?";color:var(--txt3)":""}" min="0" step="${step}" value="${v||ph||""}"${auto?` title="Calcolato in automatico: scrivi un valore per correggerlo, svuota per tornare all'automatico"`:""} onchange="barSetProd('${h(p.id)}','${f}',this.value)">`; };
   const sel = (p,f,opts,cur,w) => `<select class="form-select" style="width:${w||120}px;padding:4px 6px" onchange="barSetProd('${h(p.id)}','${f}',this.value)">${opts.map(([k,l])=>`<option value="${k}" ${cur===k?"selected":""}>${l}</option>`).join("")}</select>`;
   const aDose = p => p.unita==="dose"||p.unita==="bicchiere";
   const dash = `<span style="color:var(--txt4)">—</span>`;
@@ -573,7 +573,7 @@ function _barProdottiUi(catSel){
     costo: [`<span title="Quanto paghi un pezzo intero (bottiglia, lattina o fusto), IVA esclusa come in fattura. Si calcola da solo dagli ordini: scrivilo solo per correggerlo.">Costo pz IVA escl. ⓘ</span>`,"left", p=>td(`${inp(p,"costoNetto",p.costoProprio? +p.costoProprio.toFixed(2):"","0.01",80,p.costoAuto? p.costoAuto.toFixed(2):"")}<div style="font-size:10px;color:${p.costoFonte==="manuale"?"var(--orange)":"var(--txt4)"}">${p.costoFonte==="ordini"?"media ordini":p.costoFonte==="stima"?"da ordine in arrivo":p.costoFonte==="manuale"?"manuale · auto "+fmt(p.costoAuto):"manca: scrivilo"}</div>`)],
     cu:    [cat==="spirits"?"Costo dose":"Costo unità","right", (p,cu)=>td(fmt(cu),"text-align:right")],
     mg:    [`<span title="Margine sul prezzo di vendita, tutto IVA esclusa.">Margine ⓘ</span>`,"right", (p,cu,mg)=>td(mg===null?"—":fmtN(mg,0)+"%",`text-align:right;color:${mg===null?"var(--txt4)":mg<65?"var(--orange)":"var(--green)"}`)],
-    scorta:[`<span title="Sotto questa giacenza il prodotto compare in &quot;Da riordinare&quot;. Se lasci 0 è automatica: 1 fusto, 1-2 bottiglie di spirits, per gli altri circa un terzo dell'ultimo ordine.">Scorta min. ⓘ</span>`,"left", p=>td(inp(p,"scortaMin",p.scortaMin,"1",60))],
+    scorta:[`<span title="Sotto questa giacenza il prodotto compare in &quot;Da riordinare&quot;. Se lasci 0 è automatica: 1 fusto, 1-2 bottiglie di spirits, per gli altri circa un terzo dell'ultimo ordine.">Scorta min. ⓘ</span>`,"left", p=>td(inp(p,"scortaMin",p.scortaAuto?"":p.scortaMin,"1",60,p.scortaAuto?p.scortaMin:""))],
     giac:  [cat==="birre"?"Giacenza pz":cat.startsWith("keg")?"Giacenza fusti":"Giacenza","right", p=>td(p.inArrivo? dash : _barPz(_barGiac(ix.get(p.id),t).g),"text-align:right")],
     att:   ["","right", p=>td(`<div style="display:flex;gap:4px;justify-content:flex-end">
       <button class="btn-outline btn-sm" title="Modifica scheda" onclick="barModificaProd('${h(p.id)}')">${ic("edit")}</button>
