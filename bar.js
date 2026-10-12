@@ -86,6 +86,13 @@ function _barDefaults(cat, tipo, formato){
   if(cat==="birre") return { unita:"bottiglia", dosi:1 };
   return { unita:"pezzo", dosi:1 };
 }
+// Scorta minima automatica (consegna ~2 gg): fusti 1; spirits 1 (2 se l'ultimo ordine era ≥6 bt); pezzi in base all'ultimo ordine
+function _barScortaAuto(cat, unita, formato, ult){
+  if(_barIsFusto(unita, formato)) return 1;
+  const u = parseFloat(ult)||0;
+  if(cat==="spirits") return u>=6 ? 2 : 1;
+  return u>=24 ? Math.ceil(u/3) : u>=12 ? 6 : u>=6 ? 3 : 1;
+}
 // Costo netto IVA di un pezzo da riga d'ordine (prezzoAcq è già IVA esclusa)
 const _barUnitNet = (r,o) => (parseFloat(r.prezzoAcq)||0)*(1-(parseFloat(r.scontoRef)||0)/100)*(1-(parseFloat(o.sconto)||0)/100);
 // Carichi da ordini bar caricati: [{key,data,pezzi,costoNet,costoLordo,fornitore,ref,cat}]
@@ -109,7 +116,7 @@ function _barProdotti(){
   car.forEach(c=>{
     const a = agg.get(c.key) || { pezzi:0, costo:0, fornitori:new Set(), ref:c.ref, cat:c.cat, ultimo:"" };
     a.pezzi+=c.pezzi; a.costo+=c.costoNet; if(c.fornitore) a.fornitori.add(c.fornitore);
-    if(c.data>=a.ultimo){ a.ultimo=c.data; a.ref=c.ref; a.cat=c.cat; a.forn=c.fornitore; }
+    if(c.data>=a.ultimo){ a.ultQty = c.data===a.ultimo ? (a.ultQty||0)+c.pezzi : c.pezzi; a.ultimo=c.data; a.ref=c.ref; a.cat=c.cat; a.forn=c.fornitore; }
     agg.set(c.key, a);
   });
   // Ordini in attesa: il prodotto compare subito (in arrivo, costo stimato), ma NON entra in conte e uscite
@@ -145,7 +152,7 @@ function _barProdotti(){
       ivaAcq, costoAuto: auto, costoProprio: man,
       costoFonte: man? "manuale" : a&&a.pezzi? "ordini" : a?.stima? "stima" : "",
       costoNet: man || auto,
-      scortaMin: parseFloat(p?.scortaMin)||0,
+      scortaMin: parseFloat(p?.scortaMin) || _barScortaAuto(cat, unita, formato, a?.ultQty), scortaAuto: !(parseFloat(p?.scortaMin)>0),
       inArrivo: !!a?.pend, inOrdine: !!a?.inOrdine,
       attivo: p ? p.attivo!==false : true
     };
@@ -566,7 +573,7 @@ function _barProdottiUi(catSel){
     costo: [`<span title="Quanto paghi un pezzo intero (bottiglia, lattina o fusto), IVA esclusa come in fattura. Si calcola da solo dagli ordini: scrivilo solo per correggerlo.">Costo pz IVA escl. ⓘ</span>`,"left", p=>td(`${inp(p,"costoNetto",p.costoProprio? +p.costoProprio.toFixed(2):"","0.01",80,p.costoAuto? p.costoAuto.toFixed(2):"")}<div style="font-size:10px;color:${p.costoFonte==="manuale"?"var(--orange)":"var(--txt4)"}">${p.costoFonte==="ordini"?"media ordini":p.costoFonte==="stima"?"da ordine in arrivo":p.costoFonte==="manuale"?"manuale · auto "+fmt(p.costoAuto):"manca: scrivilo"}</div>`)],
     cu:    [cat==="spirits"?"Costo dose":"Costo unità","right", (p,cu)=>td(fmt(cu),"text-align:right")],
     mg:    [`<span title="Margine sul prezzo di vendita, tutto IVA esclusa.">Margine ⓘ</span>`,"right", (p,cu,mg)=>td(mg===null?"—":fmtN(mg,0)+"%",`text-align:right;color:${mg===null?"var(--txt4)":mg<65?"var(--orange)":"var(--green)"}`)],
-    scorta:[`<span title="Sotto questa giacenza il prodotto compare in &quot;Da riordinare&quot;.">Scorta min. ⓘ</span>`,"left", p=>td(inp(p,"scortaMin",p.scortaMin,"1",60))],
+    scorta:[`<span title="Sotto questa giacenza il prodotto compare in &quot;Da riordinare&quot;. Se lasci 0 è automatica: 1 fusto, 1-2 bottiglie di spirits, per gli altri circa un terzo dell'ultimo ordine.">Scorta min. ⓘ</span>`,"left", p=>td(inp(p,"scortaMin",p.scortaMin,"1",60))],
     giac:  [cat==="birre"?"Giacenza pz":cat.startsWith("keg")?"Giacenza fusti":"Giacenza","right", p=>td(p.inArrivo? dash : _barPz(_barGiac(ix.get(p.id),t).g),"text-align:right")],
     att:   ["","right", p=>td(`<div style="display:flex;gap:4px;justify-content:flex-end">
       <button class="btn-outline btn-sm" title="Modifica scheda" onclick="barModificaProd('${h(p.id)}')">${ic("edit")}</button>
