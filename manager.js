@@ -1997,6 +1997,7 @@ async function _rebaseOnRemote(){
   fallate     = _merge3(_mergeBase.fallate, fallate, rf ?? []);
   orders      = _merge3(_mergeBase.orders,  orders,  ro ?? []);
   await _rebaseFatture();
+  if(typeof _rebaseBar==="function") await _rebaseBar();
   alertSoglie = _merge3Obj(_mergeBase.soglie, alertSoglie, rs ?? {});
   // Movimenti: il ledger è già delta-safe. Assorbiamo le righe altrui che non
   // conosciamo, così giacenza e storico restano coerenti a schermo.
@@ -2247,6 +2248,7 @@ async function loadData(){
     alertSoglie = val(2,null) ?? alertSoglie ?? {};
     orders      = val(3,null) ?? orders ?? [];
     await _loadFatture(); // tollerante: se cm_fatture manca resta il locale
+    if(typeof _loadBar==="function") await _loadBar(); // modulo Bar (bar.js)
     _riparaReferenzeOrdini();
     _localVersion = val(4,null) ?? 0;
 
@@ -2561,7 +2563,7 @@ const _IC={
  minus:'<path d="M5 12h14"/>'
 };
 function ic(n,cls){ return `<svg class="ic${cls?" "+cls:""}" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${_IC[n]||""}</svg>`; }
-const _NAV_IC={gruppo:"layers",dashboard:"chart",inventario:"bottle",movimenti:"swap",fallate:"alert",ordini:"cart",trasferimenti:"truck",export:"download",amministrazione:"euro",impostazioni:"gear"};
+const _NAV_IC={gruppo:"layers",dashboard:"chart",inventario:"bottle",movimenti:"swap",fallate:"alert",ordini:"cart",trasferimenti:"truck",export:"download",amministrazione:"euro",bar:"glass",impostazioni:"gear"};
 Object.assign(_IC,{
  checkCircle:'<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>',
  clipboard:'<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 10h6M9 14h6M9 18h4"/>',
@@ -2687,7 +2689,7 @@ function _uiPolish(){
   if(lg&&!lg.dataset.ic&&lg.firstChild&&lg.firstChild.nodeType===3){ lg.firstChild.textContent=""; lg.insertAdjacentHTML("afterbegin",ic("glass")); lg.dataset.ic="1"; }
   _iconizeStart();
 }
-var SECTION_TITLES={dashboard:"Plancia",inventario:"Inventario Vini",movimenti:"Movimenti",fallate:"Gestione Fallate",ordini:"Ordini Fornitore",export:"Export & Bilancio",amministrazione:"Amministrazione",impostazioni:"Impostazioni"};
+var SECTION_TITLES={dashboard:"Plancia",inventario:"Inventario Vini",movimenti:"Movimenti",fallate:"Gestione Fallate",ordini:"Ordini Fornitore",export:"Export & Bilancio",amministrazione:"Amministrazione",bar:"Bar — Spirits, Birre, Sodati",impostazioni:"Impostazioni"};
 function go(s){
   if(_isStaff()) return;
   if(s==="analytics") s="dashboard"; // sezioni fuse in "Plancia"
@@ -3149,6 +3151,7 @@ function render(){
   else if(section==="trasferimenti") c.innerHTML=renderTrasferimenti();
   else if(section==="export") c.innerHTML=renderExport();
   else if(section==="amministrazione") c.innerHTML=renderAmministrazione();
+  else if(section==="bar") c.innerHTML=(typeof renderBar==="function")?renderBar():"";
   else if(section==="gruppo") c.innerHTML=renderGruppo();
   else if(section==="impostazioni") c.innerHTML=renderImpostazioni();
   afterRender();
