@@ -248,13 +248,15 @@ function _barRiepilogo(catSel){
 
 function _barRegistra(){
   const prods = _barProdotti().filter(p=>p.attivo);
-  const opts = prods.map(p=>`<option value="${h(p.id)}">${h(_barCatLbl(p.cat))} — ${h(p.nome)}${p.produttore?" · "+h(p.produttore):""} (${BAR_UNITA[p.unita]||p.unita})</option>`).join("");
   const movs = bar.filter(x=>x.t==="m").sort((x,y)=>(y.data+y.ts||"").localeCompare(x.data+x.ts||"")).slice(0,60);
   const pById = new Map(prods.map(p=>[p.id,p])); _barProdotti().forEach(p=>pById.set(p.id,p));
   return `<div class="card" style="margin-bottom:16px"><div class="card-header"><span>${ic("plus")} Registra uscita</span><span style="font-size:11px;color:var(--txt4)">quantità in unità di vendita (dosi, bicchieri, bottiglie)</span></div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;align-items:end">
       <div><label class="form-label">Data</label><input type="date" id="bar-m-data" class="form-input" value="${today()}"></div>
-      <div style="grid-column:span 2"><label class="form-label">Prodotto</label><select id="bar-m-pid" class="form-select" onchange="_barUnHint()">${opts||`<option value="">Nessun prodotto</option>`}</select></div>
+      <div style="grid-column:span 2;position:relative"><label class="form-label">Prodotto</label>
+        <input id="bar-m-q" class="form-input" autocomplete="off" data-t9="off" placeholder="${prods.length?"Scrivi il nome (bastano 2 lettere)…":"Nessun prodotto"}"
+          oninput="_barAcInput(this)" onkeydown="_barAcKey(event)" onfocus="_barAcInput(this)" onblur="setTimeout(_barAcClose,150)">
+        <input type="hidden" id="bar-m-pid" value=""><div id="bar-m-ac" style="display:none;position:absolute;left:0;right:0;top:100%;margin-top:4px;z-index:50;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.35);max-height:280px;overflow-y:auto;font-size:13px"></div></div>
       <div><label class="form-label">Tipo</label><select id="bar-m-tipo" class="form-select" onchange="document.getElementById('bar-m-caus-w').style.display=this.value==='auto'?'':'none'">
         <option value="auto">Autoconsumo</option><option value="vend">Vendita (da cassa)</option></select></div>
       <div id="bar-m-caus-w"><label class="form-label">Causale</label><select id="bar-m-caus" class="form-select">${BAR_CAUSALI.map(c=>`<option>${h(c)}</option>`).join("")}</select></div>
@@ -277,9 +279,66 @@ function _barUnHint(){
   const el=document.getElementById("bar-m-un"), id=document.getElementById("bar-m-pid")?.value;
   const p=_barProdotti().find(x=>x.id===id); if(el) el.textContent=p?`(${(BAR_UNITA[p.unita]||p.unita).toLowerCase()})`:"";
 }
+// ─── Autocomplete fuzzy prodotto (tollera refusi e parole parziali) ─────────
+var _barAc = { items:[], idx:-1 };
+function _barAcTokScore(tok, words){
+  let best = 0;
+  for(const w of words){
+    if(w.startsWith(tok)) { best = Math.max(best, 3); continue; }
+    if(w.includes(tok)) { best = Math.max(best, 2.5); continue; }
+    if(tok.length<3) continue;
+    const tol = tok.length<=5?1:2;
+    if(_lev(tok, w.slice(0, tok.length)) <= tol) best = Math.max(best, 1.8);
+    else if(_lev(tok, w) <= tol) best = Math.max(best, 1.5);
+  }
+  return best;
+}
+function _barAcMatch(q){
+  const qt = _barNorm(q).replace(/[^a-z0-9 ]/g," ").split(" ").filter(Boolean);
+  if(!qt.length || qt.join("").length<2) return [];
+  const out = [];
+  _barProdotti().filter(p=>p.attivo).forEach(p=>{
+    const hay = _barNorm(`${p.nome} ${p.produttore} ${p.tipo} ${_barCatLbl(p.cat)}`).replace(/[^a-z0-9 ]/g," ");
+    const words = hay.split(" ").filter(Boolean);
+    let s = 0;
+    for(const t of qt){ const v=_barAcTokScore(t, words); if(!v) return; s+=v; }
+    if(_barNorm(p.nome).startsWith(_barNorm(q))) s+=2;
+    out.push({ p, s });
+  });
+  return out.sort((a,b)=>b.s-a.s || a.p.nome.localeCompare(b.p.nome,"it")).slice(0,12);
+}
+function _barAcInput(el){
+  document.getElementById("bar-m-pid").value = ""; _barUnHint();
+  _barAc.items = _barAcMatch(el.value); _barAc.idx = _barAc.items.length?0:-1; _barAcPaint();
+}
+function _barAcPaint(){
+  const box = document.getElementById("bar-m-ac"); if(!box) return;
+  if(!_barAc.items.length){ box.style.display="none"; return; }
+  box.innerHTML = _barAc.items.map(({p},i)=>`<div onmousedown="event.preventDefault();_barAcPick(${i})" onmouseenter="_barAc.idx=${i};_barAcPaint()"
+    style="padding:7px 11px;cursor:pointer;border-bottom:1px solid var(--border);${i===_barAc.idx?"background:var(--bg3)":""}">
+    ${_barCatDot(p.cat)}${h(p.nome)}${p.produttore?` <span style="color:var(--txt4)">· ${h(p.produttore)}</span>`:""}
+    <span style="float:right;color:var(--txt4);font-size:11px">${h(BAR_UNITA[p.unita]||p.unita)}${p.prezzo?" · "+fmt(p.prezzo):""}</span></div>`).join("");
+  box.style.display = "";
+  box.children[_barAc.idx]?.scrollIntoView({ block:"nearest" });
+}
+function _barAcPick(i){
+  const it = _barAc.items[i]; if(!it) return;
+  document.getElementById("bar-m-pid").value = it.p.id;
+  document.getElementById("bar-m-q").value = it.p.nome + (it.p.produttore?" · "+it.p.produttore:"");
+  _barAcClose(); _barUnHint(); document.getElementById("bar-m-qty")?.focus();
+}
+function _barAcClose(){ const b=document.getElementById("bar-m-ac"); if(b) b.style.display="none"; }
+function _barAcKey(e){
+  const n = _barAc.items.length, box = document.getElementById("bar-m-ac"), open = box && box.style.display!=="none";
+  if(e.key==="ArrowDown" && n){ e.preventDefault(); _barAc.idx=(_barAc.idx+1)%n; _barAcPaint(); }
+  else if(e.key==="ArrowUp" && n){ e.preventDefault(); _barAc.idx=(_barAc.idx-1+n)%n; _barAcPaint(); }
+  else if((e.key==="Enter"||e.key==="Tab") && open && _barAc.idx>=0){ e.preventDefault(); _barAcPick(_barAc.idx); }
+  else if(e.key==="Escape") _barAcClose();
+}
 async function barAddMov(){
-  const sel = document.getElementById("bar-m-pid").value, qty = parseFloat(document.getElementById("bar-m-qty").value)||0;
-  if(!sel){ notify("Scegli un prodotto","err"); return; }
+  let sel = document.getElementById("bar-m-pid").value; const qty = parseFloat(document.getElementById("bar-m-qty").value)||0;
+  if(!sel){ const q=document.getElementById("bar-m-q")?.value||"", m=_barAcMatch(q); if(m.length===1 || (m.length>1 && m[0].s>m[1].s)) sel=m[0].p.id; }
+  if(!sel){ notify("Scegli un prodotto dai suggerimenti","err"); return; }
   if(qty<=0){ notify("Quantità non valida","err"); return; }
   const p = _barProdotti().find(x=>x.id===sel); if(!p) return;
   const pid = _barEnsure(p), tipo = document.getElementById("bar-m-tipo").value;
