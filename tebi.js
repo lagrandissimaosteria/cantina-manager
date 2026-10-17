@@ -17,27 +17,36 @@ const _tbTags = r => String(r.TAGS||"").split(",").map(s=>s.trim().toLowerCase()
 
 // ─── Prodotti del gestionale da mandare in cassa ─────────────────────────────
 function _tbFmtL(w){ const f=_tbNum(w.formato)||0.75; return f!==0.75? " "+String(f).replace(".",",")+"L" : ""; }
+const _TB_DOSE_TIP = /^(amaro|amari|vermouth|distillato|grappa|liquore|whisky|rum|rhum|gin|brandy|cognac|armagnac|calvados|acquavite|bitter)$/i;
+const _TB_DOSE_NOME = /\b(amaro|vermouth|grappa|genziana|liquore|whisk(e)?y|rhum|cognac|armagnac|calvados|acquavite|mirto|fernet|bitter|china)\b/i;
+function _tbSoloDose(w){ return _TB_DOSE_TIP.test(String(w.tipologia||"").trim()) || (_TB_DOSE_NOME.test(String(w.nome||"")) && !/chinato/i.test(String(w.nome||""))); }
 function _tbProdottiCM(){
   const out = [];
   (typeof wines!=="undefined"? wines : []).forEach(w=>{
     const g = parseInt(w.giacenza)||0, pc = _tbNum(w.prezzoCarta);
-    if(g<=0 || pc<=0) return;                                   // in cassa solo ciò che è in carta e disponibile
+    if(pc<=0) return;                                           // senza prezzo carta non va in cassa
+    const esaurito = g<=0;                                      // esauriti: servono solo per archiviarli in cassa
     const ann = /^\d{4}$/.test(String(w.annata||"").trim())? String(w.annata).trim() : "";
     const base = [w.nome, w.produttore, ann].filter(Boolean).join(" ").replace(/\s+/g," ").trim() + _tbFmtL(w);
-    const sku = w.sku || ("W-"+_tbHash(w.id));
-    out.push({ gid:"w:"+w.id, grp:"vini", sku, nome:base, prezzo:pc, costo:_tbR2(_tbNum(w.prezzoAcq)), fonte:w });
-    const cal = _tbNum(w.prezzoCalice);
-    if(cal>0) out.push({ gid:"wc:"+w.id, grp:"calici", sku:sku+"-C", nome:"Calice "+base, prezzo:cal, costo:0, fonte:w });
+    const sku = w.sku || ("W-"+_tbHash(w.id)), cal = _tbNum(w.prezzoCalice);
+    // Amari, vermouth, distillati in cantina: in cassa SOLO a dose (prezzo calice), mai al prezzo bottiglia.
+    // Senza prezzo calice il prezzo in Tebi resta quello che c'è (prezzo:null).
+    if(_tbSoloDose(w)){ out.push({ gid:"w:"+w.id, grp:"spirits", dose:true, sku, nome:base, prezzo:cal>0? cal : null, costo:0, esaurito, fonte:w }); return; }
+    out.push({ gid:"w:"+w.id, grp:"vini", sku, nome:base, prezzo:pc, costo:_tbR2(_tbNum(w.prezzoAcq)), esaurito, fonte:w });
+    if(cal>0) out.push({ gid:"wc:"+w.id, grp:"calici", sku:sku+"-C", nome:"Calice "+base, prezzo:cal, costo:0, esaurito, fonte:w });
   });
   if(typeof _barProdotti==="function"){
-    _barProdotti().forEach(p=>{
-      if(!p.attivo || p.inArrivo || p.uso==="cocktail" || p.uso==="mixer") return;
+    const prods = _barProdotti(), ix = (typeof _barIndex==="function")? _barIndex(prods) : null;
+    prods.forEach(p=>{
+      if(p.inArrivo || p.uso==="cocktail" || p.uso==="mixer") return;
       const prezzo = _tbNum(p.prezzo); if(prezzo<=0) return;
+      let esaurito = !p.attivo;
+      try{ if(!esaurito && ix && ix.get(p.id)) esaurito = _barGiac(ix.get(p.id), today()).g <= 0.001; }catch{}
       const grp = p.cat==="spirits"? "spirits" : p.cat==="sodati"? "sodati" : "birre"; // birre, kegvino, kegcocktail
       const nome = [p.nome, p.produttore].filter(Boolean).join(" ").replace(/\s+/g," ").trim();
-      out.push({ gid:"b:"+p.key, grp, sku:"BAR-"+_tbHash(p.key), nome, prezzo, costo:_tbR2(_tbNum(p.costoNet)*(p.unita==="dose"||p.unita==="bicchiere"? 1/(p.dosi||1) : 1)), fonte:p });
+      out.push({ gid:"b:"+p.key, grp, sku:"BAR-"+_tbHash(p.key), nome, prezzo, costo:_tbR2(_tbNum(p.costoNet)*(p.unita==="dose"||p.unita==="bicchiere"? 1/(p.dosi||1) : 1)), esaurito, fonte:p });
       if(p.unita==="bicchiere" && _tbNum(p.prezzoPiccola)>0 && p.cat==="birre")
-        out.push({ gid:"bp:"+p.key, grp, sku:"BAR-"+_tbHash(p.key)+"-P", nome:nome+" piccola", prezzo:_tbNum(p.prezzoPiccola), costo:0, fonte:p });
+        out.push({ gid:"bp:"+p.key, grp, sku:"BAR-"+_tbHash(p.key)+"-P", nome:nome+" piccola", prezzo:_tbNum(p.prezzoPiccola), costo:0, esaurito, fonte:p });
     });
   }
   return out;
@@ -62,7 +71,7 @@ const _TB_RESET = { GTIN:null, NAME:null, SHORT_NAME:null, SKU:null, DESCRIPTION
 
 // ─── Abbinamento ─────────────────────────────────────────────────────────────
 function _tbPiano(rows){
-  const cm = _tbProdottiCM(), used = new Set(), match = new Map(), dubbi = [];
+  const cm = _tbProdottiCM().sort((a,b)=>(a.esaurito?1:0)-(b.esaurito?1:0)), used = new Set(), match = new Map(), dubbi = []; // disponibili prima degli esauriti
   const elig = rows.map((r,i)=>({ r, i, n:_tbNorm(r.NAME), tok:_tbTok(r.NAME), sku:String(r.SKU||"").trim() }));
   const take = (c, e, tipo, score) => { used.add(e.i); match.set(c.gid, { i:e.i, tipo, score }); };
   // 1) SKU scritto da un sync precedente  2) nome identico (preferisce le righe attive)
@@ -89,15 +98,23 @@ function _tbFondi(){
   plan.cm.forEach(c=>{
     if(tebiUi.off[c.grp]) return;
     const m = plan.match.get(c.gid), ok = m && (m.tipo!=="simile" || tebiUi.conf[c.gid]);
+    if(c.esaurito){                                             // esaurito: mai creato, mai riprezzato; solo archiviato se confermato
+      if(ok && tebiUi.arch[m.i]!==false && out[m.i].STATUS!=="ARCHIVED"){ out[m.i].STATUS="ARCHIVED"; out[m.i].SKU=c.sku; tocc.add(m.i); log.archiviati.push(out[m.i].NAME); }
+      return;
+    }
     if(ok){
       const r = out[m.i]; tocc.add(m.i);
       const old = _tbNum(r.DISPLAY_SALES_PRICE);
-      if(Math.abs(old-c.prezzo)>0.004) log.prezzi.push({ nome:r.NAME, da:old, a:c.prezzo });
+      // riga venduta a dose in cassa ma prodotto del gestionale a bottiglia: il prezzo bottiglia non entra mai
+      const prezzo = (r.REPORTING_CATEGORY==="Amari e Distillati" && c.grp==="vini")? null : c.prezzo;
+      if(prezzo!=null && Math.abs(old-prezzo)>0.004) log.prezzi.push({ nome:r.NAME, da:old, a:prezzo });
       if(r.STATUS==="ARCHIVED"){ r.STATUS="ACTIVE"; log.riattivati.push(r.NAME); }
       if(String(r.SKU||"")!==c.sku) log.sku++;
-      r.DISPLAY_SALES_PRICE = c.prezzo; r.SKU = c.sku; r.PROMPT_PRICE_AT_SALE_TIME = false;
-      if(c.costo>0) r.NET_PURCHASE_PRICE = c.costo;
+      r.SKU = c.sku;
+      if(prezzo!=null){ r.DISPLAY_SALES_PRICE = prezzo; r.PROMPT_PRICE_AT_SALE_TIME = false; }
+      if(c.costo>0 && prezzo!=null) r.NET_PURCHASE_PRICE = c.costo;
     } else {
+      if(c.prezzo==null) return;                                  // a dose senza prezzo calice: non si crea
       const t = _tbTemplate(rows, c.grp); if(!t) return;
       const r = { ...t, ..._TB_RESET, NAME:c.nome, SKU:c.sku, DISPLAY_SALES_PRICE:c.prezzo, NET_PURCHASE_PRICE:c.costo||0 };
       const cat = (tebiUi.cat[c.grp]||"").trim(); if(cat) r.REPORTING_CATEGORY = cat;
@@ -132,6 +149,7 @@ function tebiCarica(ev){
       Object.assign(tebiUi, { rows, header, file:f.name, conf:{}, arch:{}, cat:{}, off:{} });
       tebiUi.plan = _tbPiano(rows);
       tebiUi.plan.dubbi.forEach(g=>{ tebiUi.conf[g] = (tebiUi.plan.match.get(g).score>=0.99); });
+      tebiUi.plan.cm.forEach(c=>{ const m=tebiUi.plan.match.get(c.gid); if(c.esaurito && m) tebiUi.arch[m.i] = true; });
       render();
     }catch(err){ console.error(err); notify("File non leggibile: "+err.message,"err"); }
   };
@@ -196,8 +214,13 @@ function renderTebiSync(){
   }
   if(log.riattivati.length) html += blocco("Riattivati in cassa", "erano archiviati in Tebi, ora sono di nuovo in carta", `<div style="padding:0 18px;font-size:12.5px;color:var(--txt2)">${log.riattivati.map(h).join(" · ")}</div>`);
 
-  if(plan.orfani.length) html += blocco("Non più disponibili", "in cassa con codice del gestionale, ma esauriti o tolti dalla carta: spunta per archiviarli",
-    tab(plan.orfani.map(i=>tr([[`<input type="checkbox" ${tebiUi.arch[i]?"checked":""} onchange="tebiSet('arch',${i},this.checked)">`],[h(rows[i].NAME)],[fmt(_tbNum(rows[i].DISPLAY_SALES_PRICE)),"right","color:var(--txt3)"]])).join(""), [["Archivia"],["Prodotto"],["Prezzo","right"]]));
+  const esa = plan.cm.filter(c=>{ const m=plan.match.get(c.gid); return c.esaurito && !tebiUi.off[c.grp] && m && (m.tipo!=="simile"||tebiUi.conf[c.gid]) && rows[m.i].STATUS!=="ARCHIVED"; })
+    .map(c=>({ i:plan.match.get(c.gid).i, why:"esaurito nel gestionale", def:true }));
+  const fuori = esa.concat(plan.orfani.map(i=>({ i, why:"non più nel gestionale", def:false })));
+  if(fuori.length) html += blocco("Non più disponibili", "spunta per archiviarli in cassa (restano recuperabili in Tebi); senza spunta restano come sono",
+    tab(fuori.map(x=>{ const on = tebiUi.arch[x.i]!==undefined? tebiUi.arch[x.i]!==false : x.def;
+      return tr([[`<input type="checkbox" ${on?"checked":""} onchange="tebiSet('arch',${x.i},this.checked)">`],[h(rows[x.i].NAME)],[x.why,"left","color:var(--txt4)"],[fmt(_tbNum(rows[x.i].DISPLAY_SALES_PRICE)),"right","color:var(--txt3)"]]); }).join(""),
+      [["Archivia"],["Prodotto"],["Motivo"],["Prezzo","right"]]));
 
   html += `<div style="font-size:12px;color:var(--txt4);margin:4px 0 8px">L'import in Tebi sostituisce l'intera lista prodotti: usa sempre un export appena scaricato e importa il file unito subito dopo. Le voci generiche a prezzo aperto (es. "Bottiglia vino", "Calice rosso") restano come sono.</div>`;
   return html;
