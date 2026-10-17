@@ -51,6 +51,7 @@ function _tbProdottiCM(){
   }
   return out;
 }
+const TB_CAT_DEF = { sodati:"Analcolici artigianali" }; // categoria report di default per i prodotti nuovi
 const TB_GRP = { vini:"Vini (bottiglia)", calici:"Vini al calice", spirits:"Spirits e amari", birre:"Birre e spina", sodati:"Sodati e analcolici" };
 
 // ─── Righe modello per i prodotti nuovi (copiano reparto, portata, IVA, tag) ─
@@ -117,7 +118,7 @@ function _tbFondi(){
       if(c.prezzo==null) return;                                  // a dose senza prezzo calice: non si crea
       const t = _tbTemplate(rows, c.grp); if(!t) return;
       const r = { ...t, ..._TB_RESET, NAME:c.nome, SKU:c.sku, DISPLAY_SALES_PRICE:c.prezzo, NET_PURCHASE_PRICE:c.costo||0 };
-      const cat = (tebiUi.cat[c.grp]||"").trim(); if(cat) r.REPORTING_CATEGORY = cat;
+      const cat = String(tebiUi.cat[c.grp] ?? TB_CAT_DEF[c.grp] ?? "").trim(); if(cat) r.REPORTING_CATEGORY = cat;
       out.push(r); log.nuovi.push({ nome:c.nome, prezzo:c.prezzo, grp:c.grp });
     }
   });
@@ -207,7 +208,7 @@ function renderTebiSync(){
 
   if(log.nuovi.length){
     const grps = [...new Set(log.nuovi.map(n=>n.grp))];
-    const catIn = g => { const t=_tbTemplate(rows,g); return `<input class="form-input" style="width:180px;padding:4px 6px" value="${h(tebiUi.cat[g] ?? (t&&t.REPORTING_CATEGORY) ?? "")}" onchange="tebiSet('cat','${g}',this.value)">`; };
+    const catIn = g => { const t=_tbTemplate(rows,g); return `<input class="form-input" style="width:180px;padding:4px 6px" value="${h(tebiUi.cat[g] ?? TB_CAT_DEF[g] ?? (t&&t.REPORTING_CATEGORY) ?? "")}" onchange="tebiSet('cat','${g}',this.value)">`; };
     html += blocco("Prodotti nuovi in cassa", "reparto, portata, IVA e tag copiati da una voce esistente dello stesso tipo",
       tab(grps.map(g=>tr([[h(TB_GRP[g]||g)],[log.nuovi.filter(n=>n.grp===g).length,"right"],[catIn(g),"right"]])).join(""), [["Gruppo"],["Nuovi","right"],["Categoria report","right"]])
       + `<details style="padding:6px 18px 0"><summary style="font-size:12px;color:var(--txt3);cursor:pointer">Elenco completo</summary>${tab(log.nuovi.slice(0,250).map(n=>tr([[h(n.nome)],[h(TB_GRP[n.grp]||n.grp),"left","color:var(--txt4)"],[fmt(n.prezzo),"right"]])).join(""), [["Prodotto"],["Gruppo"],["Prezzo","right"]])}${log.nuovi.length>250?`<div style="font-size:12px;color:var(--txt4);padding:6px 10px">… e altri ${log.nuovi.length-250}</div>`:""}</details>`);
