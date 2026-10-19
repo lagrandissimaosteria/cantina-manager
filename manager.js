@@ -680,7 +680,29 @@ function calcValoreCarta(w){return (parseFloat(w.prezzoCarta)||0)*(parseInt(w.gi
 // svalutato → vedi diagnostica "Classifica Fornitori" in Plancia). Unico punto
 // di verita': ogni consumer (P&L, plancia, export) deve passare da qui.
 function costoCarico(m,w){ return parseFloat(m?.prezzoAcqLotto)||parseFloat(w?.prezzoAcq)||0; }
+// ── VENDITA AL CALICE ────────────────────────────────────────────────────────
+// Calici per bottiglia: valore in scheda (caliciBt) o, se assente, formato/125 ml
+// (0,75 L → 6). Lo scarico a calice registra il RICAVO dei calici venduti
+// (m.calici × prezzo calice fotografato) e toglie dalla giacenza solo le
+// bottiglie effettivamente APERTE (m.qty, intero): la bottiglia lascia il
+// magazzino quando si stappa, il resto resta in w.caliciAperta (calici già
+// versati dalla bottiglia aperta). Costo merce = bottiglie aperte × costo.
+function _caliciBt(w){
+  const n=parseInt(w&&w.caliciBt); if(n>0) return n;
+  const f=parseFloat(w&&w.formato)||0.75;
+  return Math.max(1, Math.round(f*1000/(parseFloat(CONFIG.mlCalice)||125)));
+}
+function _caliciPiano(w, n){
+  const cpb=_caliciBt(w), prima=Math.max(0,parseInt(w&&w.caliciAperta)||0);
+  let aperta=prima, bt=0;
+  for(let i=0;i<n;i++){ if(aperta<=0||aperta>=cpb){ bt++; aperta=0; } aperta++; }
+  return {cpb, prima, dopo:aperta, bt};
+}
 function calcRicavoMovimento(m,w){
+  if(m && (parseInt(m.calici)||0)>0){
+    const pc = (m.prezzoCaliceSnap!=null) ? (parseFloat(m.prezzoCaliceSnap)||0) : (parseFloat(w?.prezzoCalice)||0);
+    return (parseInt(m.calici)||0)*pc;
+  }
   // Prezzo carta FOTOGRAFATO allo scarico (m.prezzoCartaSnap): i mesi già chiusi
   // non si muovono se domani si ripreza il vino. Fallback al prezzo corrente solo
   // per i movimenti storici privi dello snapshot.
@@ -8405,6 +8427,7 @@ function renderModalBody(wine){
         <div><label class="form-label">Prezzo in Carta €</label><input class="form-input" id="mf-prezzoCarta" type="number" inputmode="decimal" onfocus="this.select()" value="${f.prezzoCarta}" placeholder="0.00" oninput="document.getElementById('mf-prezzoCarta')._userEdited=true;updateModalCalc()">
         </div>
         <div><label class="form-label">Prezzo al Calice € <span style="color:var(--txt4);font-size:11px;text-transform:none;letter-spacing:0">— opzionale</span></label><input class="form-input" id="mf-prezzoCalice" type="number" inputmode="decimal" onfocus="this.select()" value="${f.prezzoCalice||''}" placeholder="es. 8.00"></div>
+        <div><label class="form-label">Calici per bottiglia <span style="color:var(--txt4);font-size:11px;text-transform:none;letter-spacing:0">— vuoto = ${_caliciBt({formato:f.formato})} (125 ml)</span></label><input class="form-input" id="mf-caliciBt" type="number" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" value="${parseInt(f.caliciBt)||''}" placeholder="${_caliciBt({formato:f.formato})}"></div>
         <div><label class="form-label">Giacenza (bottiglie)</label><input class="form-input" id="mf-giacenza" type="number" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" value="${f.giacenza||0}" placeholder="0" oninput="updateModalCalc()" ${wine&&(wine.lots||[]).some(l=>l.qtyRimanente>0)?'title="Vino con lotti FIFO attivi: modifica tramite carico/scarico per non desincronizzare i lotti" style="border-color:rgba(var(--amber3-rgb,180,83,9),.5)"':''} ><\/div>${wine&&(wine.lots||[]).some(l=>l.qtyRimanente>0)?'<div style="font-size:11px;color:rgba(251,146,60,.8);margin-top:3px;letter-spacing:.05em">Lotti FIFO attivi — usa carico/scarico per aggiornare la giacenza<\/div>':''}
       </div>
       ${(()=>{const on=!!f.inFresco;return `<div style="margin-top:12px">
@@ -8551,6 +8574,8 @@ function saveWine(){
     prezzoAcq:parseFloat(get("mf-prezzoAcq"))||0,iva:parseInt(get("mf-iva"))||22,
     prezzoCarta:parseFloat(get("mf-prezzoCarta"))||0,
     prezzoCalice:_pCalice(get("mf-prezzoCalice")),
+    caliciBt:parseInt(get("mf-caliciBt"))||0,
+    caliciAperta:parseInt(modalWine?.caliciAperta)||0,
     giacenza: modalWine ? (parseInt(modalWine.giacenza)||0) : 0, // vedi _rettificaGiacenzaLedger sotto
     inFresco:document.getElementById("mf-infresco")?.checked||false,
     sku:modalWine?.sku,
@@ -9647,7 +9672,7 @@ function _renderMobList(){
   const q = _mobQuery;
   const filtered = wines.filter(w => {
     const giac = parseInt(w.giacenza)||0;
-    if(giac <= 0) return false;
+    if(giac <= 0 && !((parseInt(w.caliciAperta)||0)>0 && (parseInt(w.caliciAperta)||0)<_caliciBt(w))) return false;
     if(!q) return true;
     const hay = w.nome+" "+w.produttore+" "+(w.annata||"")+" "+(w.denominazione||"")+" "+(w.tipologia||"")+" "+(w.vitigni||"")+" "+(w.regione||"")+" "+(w.nazione||"");
     return _fuzzyMatch(q, hay, w.sku);
@@ -9713,6 +9738,8 @@ function _renderMobList(){
               <span class="mob-step-val" id="mob-step-${w.id}">${qty}</span>
               <button class="mob-step-btn" onclick="mobStepChange('${w.id}',1)" aria-label="Aumenta">+</button>
             </div>
+            ${(parseFloat(w.prezzoCalice)||0)>0 ? (()=>{ const cp=_caliciBt(w), ap=parseInt(w.caliciAperta)||0, open=ap>0&&ap<cp, can=open||giac>0;
+              return `<button class="mob-step-btn" style="width:auto;padding:0 10px;font-size:12px;letter-spacing:.04em${can?"":";opacity:.4"}" onclick="registraCaliceMobile('${w.id}')" ${can?"":"disabled"} title="Scarica 1 calice${open?` — aperta ${ap}/${cp}`:""}">Calice${open?` ${ap}/${cp}`:""}</button>`; })() : ""}
             <button class="mob-confirm-btn${canScarica?"":" disabled"}" onclick="mobScaricaConfirm('${w.id}')" ${canScarica?"":"disabled"} aria-label="Scarica" title="Scarica">${ic("check")}</button>
           </div>
         </div>`;
@@ -9835,6 +9862,43 @@ function registraMovimentoMobileQty(wineId, delta){
   updateSidebar();
 }
 
+function registraCaliceMobile(wineId, n){
+  if(!_syncGate("Calice")) return;
+  _hideMobToast();
+  const wine = wines.find(w => w.id === wineId);
+  if(!wine) return;
+  n = Math.max(1, parseInt(n)||1);
+  if(!((parseFloat(wine.prezzoCalice)||0)>0)){ notify("Prezzo al calice mancante in scheda","err"); return; }
+  const p = _caliciPiano(wine, n);
+  if(p.bt > (parseInt(wine.giacenza)||0)){ notify(`Nessuna bottiglia da aprire per ${wine.nome}`,"err"); return; }
+  const prevGiacenza = wine.giacenza, prevLots = JSON.parse(JSON.stringify(wine.lots||[])), prevCalici = p.prima;
+  const dateStr = today(), dataMov = _dataServizioDefault(), fattura = `MOB-${dateStr}`, movId = uid();
+  const costo = calcCostoIvaBottiglia(wine);
+  wines = wines.map(w => {
+    if(w.id !== wineId) return w;
+    let rem = p.bt;
+    const updLots = (w.lots||[]).map(l => { if(rem<=0||l.qtyRimanente<=0) return l; const c=Math.min(rem,l.qtyRimanente); rem-=c; return {...l, qtyRimanente:l.qtyRimanente-c}; });
+    _fifoShort(w.id, w.nome, rem);
+    return {...w, giacenza:(parseInt(w.giacenza)||0)-p.bt, lots:updLots, caliciAperta:p.dopo};
+  });
+  const newMov = {id:movId, wineId, wineName:wine.nome, produttore:wine.produttore, tipo:"scarico", qty:p.bt,
+    calici:n, caliciBt:p.cpb, caliciPrima:p.prima, caliciDopo:p.dopo,
+    data:dataMov, fattura, fornitore:"", note:`[mobile] ${n} calic${n>1?"i":"e"}${p.bt?` · aperta ${p.bt} bt`:""}`, ts:Date.now(), nazione:wine.nazione||"",
+    costoUnitarioIva:costo, servizio:0, prezzoCartaSnap:parseFloat(wine.prezzoCarta)||0, prezzoCaliceSnap:parseFloat(wine.prezzoCalice)||0};
+  movements = [newMov, ...movements];
+  _saveLocalBackup();
+  scheduleSave();
+  const ts = new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"});
+  const desc = `Calice ${wine.nome}${wine.annata?" "+wine.annata:""} · ${p.dopo}/${p.cpb}${p.bt?" (bottiglia aperta)":""}`;
+  _mobLog = [{ts, desc, movId, wineId, qty:p.bt, calici:n, annullato:false, prevGiacenza, prevLots, prevCalici}, ..._mobLog];
+  _renderMobLog();
+  _mobUndoData = {wineId, delta:-p.bt, movId, prevGiacenza, prevLots, prevCalici};
+  _showMobToast(desc);
+  _renderMobList();
+  _renderMobStorico();
+  updateSidebar();
+}
+
 function _renderMobLog(){
   const el = document.getElementById("mob-log");
   if(!el) return;
@@ -9952,11 +10016,11 @@ function _hideMobToast(){
 async function mobUndo(){
   if(!_mobUndoData || Date.now() > _mobUndoDeadline){ _mobUndoData = null; _hideMobToast(); return; }
   _hideMobToast();
-  const {wineId, prevGiacenza, prevLots, movId} = _mobUndoData;
+  const {wineId, prevGiacenza, prevLots, movId, prevCalici} = _mobUndoData;
   _mobUndoData = null;
 
   // Restore wine
-  wines = wines.map(w => w.id===wineId ? {...w, giacenza:prevGiacenza, lots:prevLots} : w);
+  wines = wines.map(w => w.id===wineId ? {...w, giacenza:prevGiacenza, lots:prevLots, ...(prevCalici!=null?{caliciAperta:prevCalici}:{})} : w);
   // Remove movement
   movements = movements.filter(m => m.id !== movId);
 
@@ -10190,10 +10254,10 @@ function _renderMobStorico(){
         <div class="mob-stor-name">${h(wineName)}</div>
         <div class="mob-stor-meta">${meta}</div>
       </div>
-      <div class="mob-stor-qty">${parseInt(m.qty)||0}</div>
+      <div class="mob-stor-qty">${(parseInt(m.calici)||0)>0 ? `${parseInt(m.calici)} cal.` : (parseInt(m.qty)||0)}</div>
       <div class="mob-stor-actions">
         ${annullabile
-          ? `<button class="mob-stor-btn mob-stor-btn-edit" onclick="mobOpenSheet('${m.id}')" title="Modifica">${ic("edit")}</button>
+          ? `${(parseInt(m.calici)||0)>0 ? "" : `<button class="mob-stor-btn mob-stor-btn-edit" onclick="mobOpenSheet('${m.id}')" title="Modifica">${ic("edit")}</button>`}
              <button class="mob-stor-btn mob-stor-btn-del" onclick="mobAnnullaStorico('${m.id}')" title="Annulla">${ic("x")}</button>`
           : ``}
       </div>
@@ -10218,12 +10282,14 @@ function _movEta(m){ const t=parseInt(m&&m.ts)||0; return t ? (Date.now()-t) : I
 function _stornoMovimento(mov, motivo){
   if(!mov) return null;
   const q=Math.abs(parseInt(mov.qty)||0);
-  if(!q) return null;
+  if(!q && !((parseInt(mov.calici)||0)>0 && mov.tipo==="scarico")) return null;
   if(_periodoChiuso(mov.data)) return null; // periodo contabile chiuso
   if(mov.tipo==="scarico"){
     const st={...mov, tipo:"scarico-stornato", stornatoIl:today(),
       note:[mov.note,(motivo||"Storno")+" il "+_fmtDataIT(today())].filter(Boolean).join(" · ")};
-    wines=wines.map(w=>w.id===mov.wineId?_reverseMovEffect(w,mov):w);
+    wines=wines.map(w=>{ if(w.id!==mov.wineId) return w; const r=_reverseMovEffect(w,mov);
+      if((parseInt(mov.calici)||0)>0 && mov.caliciPrima!=null && (parseInt(w.caliciAperta)||0)===(parseInt(mov.caliciDopo)||0)) r.caliciAperta=parseInt(mov.caliciPrima)||0;
+      return r; });
     movements=movements.map(m=>m.id===mov.id?st:m);
     return st;
   }
@@ -10243,7 +10309,7 @@ async function mobAnnullaStorico(movId){
   const entry = _mobLog.find(e => e.movId === movId);
   if(!entry || entry.annullato) return;
 
-  const {wineId, prevGiacenza, prevLots} = entry;
+  const {wineId, prevGiacenza, prevLots, prevCalici} = entry;
   const _mov = movements.find(m => m.id === movId);
   if(_mov && _bloccaChiuso(_mov.data,"Annullo")) return;
   const _nomeW = (wines.find(w => w.id === wineId)||{}).nome || "questo vino";
@@ -10253,7 +10319,7 @@ async function mobAnnullaStorico(movId){
     _stornoMovimento(_mov, "Annullo scarico da mobile");
   } else {
     // Restore wine state
-    wines = wines.map(w => w.id === wineId ? {...w, giacenza:prevGiacenza, lots:prevLots} : w);
+    wines = wines.map(w => w.id === wineId ? {...w, giacenza:prevGiacenza, lots:prevLots, ...(prevCalici!=null?{caliciAperta:prevCalici}:{})} : w);
     movements = movements.filter(m => m.id !== movId);
   }
 
