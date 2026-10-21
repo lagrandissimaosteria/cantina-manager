@@ -3,7 +3,7 @@ Flusso: export prodotti da Tebi (.xlsx) → caricato qui → fusione con vini in
 riepilogo e conferma abbinamenti dubbi → scarica il file completo da reimportare in Tebi (Prodotti → Importa).
 Regole: le righe Tebi non abbinate (cibo, coperto, voci generiche) escono IDENTICHE, colonna per colonna;
 le righe abbinate cambiano solo prezzo, costo netto, SKU e (se archiviate) stato. Nessun dato del gestionale viene modificato.
-Dipende da manager.js (wines, CONFIG, h, fmt, fmtN, ic, notify, render, today, XLSX) e, se presente, bar.js (_barProdotti, ORD_CAT). */
+Dipende da manager.js (wines, movements, CONFIG, h, fmt, fmtN, ic, notify, render, today, XLSX; per le vendite: uid, calcCostoIvaBottiglia, _caliciPiano, _applyMovEffect, _fifoShort, _servizioSnap, scheduleSave, _flushSave) e, se presente, bar.js (_barProdotti, ORD_CAT). */
 "use strict";
 var tebiUi = { rows:null, header:null, file:"", plan:null, conf:{}, arch:{}, cat:{}, off:{} };
 
@@ -227,12 +227,180 @@ function renderTebiSync(){
   return html;
 }
 
+// ═══ VENDITE TEBI → SCARICHI ════════════════════════════════════════════════
+// Report "Ordini di prodotti" di Tebi (CSV o XLSX, uno o più giorni insieme) → scarichi nel ledger.
+// Abbinamento solo per SKU (lo stesso scritto dalla sincronizzazione prodotti): bottiglie = scarico,
+// SKU "-C" = calici (stessa logica del mobile: la bottiglia esce quando si apre). Amari/distillati a dose
+// e prodotti bar non sono tracciati qui. Ogni scarico porta m.tebi.key: lo stesso giorno non si importa due volte.
+var tebiV = { files:[], righe:null, sel:{} };
+const _tvH = s => _tbNorm(s).replace(/ /g,"");
+function _tvData(v){
+  if(v instanceof Date && !isNaN(v)) return v.toISOString().slice(0,10);
+  const s = String(v??"").trim(); let m;
+  if((m = s.match(/^(\d{4})-(\d{2})-(\d{2})/))) return `${m[1]}-${m[2]}-${m[3]}`;
+  if((m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/))) return `${m[3].length===2?"20"+m[3]:m[3]}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`;
+  return "";
+}
+// Legge un foglio (CSV: colonna "Business day"; XLSX: riga-data sopra l'intestazione per ogni gruppo)
+function _tvLeggi(aoa){
+  const hi = aoa.findIndex(r=>r && r.some(c=>_tvH(c)==="sku") && r.some(c=>_tvH(c)==="quantita"));
+  if(hi<0) return null;
+  const H = aoa[hi].map(_tvH), col = k => H.indexOf(k);
+  const cSku=col("sku"), cQ=col("quantita"), cDay=col("businessday"), cChiu=col("datadichiusura"), cNome=col("nomeproduct"), cInc=col("revenuetotaleinclvat"), cInv=col("idinvoice");
+  // XLSX: i totali sono formule ("=SUM(...)") → l'incasso si ricostruisce da imponibile + imposta
+  const cParti = H.map((k,j)=>/^(importonetiva|importodellimpostaiva)\d+$/.test(k)? j : -1).filter(j=>j>=0);
+  const num = v => typeof v==="number"? v : ((v==null || v==="" || /^=/.test(String(v)))? NaN : _tbNum(v));
+  const out = []; let gruppo = "";
+  for(let i=hi+1;i<aoa.length;i++){
+    const r = aoa[i]; if(!r) continue;
+    const c0 = String(r[0]??"").trim();
+    if(/^\d{4}-\d{2}-\d{2}$/.test(c0) && r.slice(1).every(v=>v==null||v==="")){ gruppo = c0; continue; } // XLSX: inizio gruppo giorno
+    if(r.map(_tvH).includes("sku")) continue;                                                           // intestazione ripetuta
+    if(/^(grand )?total$/i.test(c0)) continue;
+    const sku = String(r[cSku]??"").trim(), q = _tbNum(r[cQ]);
+    if(!sku || !q) continue;
+    const day = (cDay>=0 && _tvData(r[cDay])) || gruppo || _tvData(r[cChiu]);
+    if(!day) continue;
+    out.push({ sku, q, day, nome:String(r[cNome]??""), incasso:(cInc>=0 && isFinite(num(r[cInc])))? num(r[cInc]) : cParti.reduce((t,j)=>t+(isFinite(num(r[j]))? num(r[j]) : 0),0), inv:cInv>=0? String(r[cInv]??"") : "" });
+  }
+  return out;
+}
+function _tvIndice(){
+  const ix = new Map();
+  wines.forEach(w=>{
+    [w.sku, "W-"+_tbHash(w.id)].filter(Boolean).forEach(s=>{
+      if(!ix.has(s)) ix.set(s, { w, cal:false });
+      if(!ix.has(s+"-C")) ix.set(s+"-C", { w, cal:true });
+    });
+  });
+  return ix;
+}
+// Piano: righe aggregate per giorno+vino+tipo, con esito simulato in ordine cronologico
+function _tvPiano(){
+  const ix = _tvIndice(), agg = new Map(), extra = { bar:0, dose:new Map(), ignoti:new Map() };
+  (tebiV.righe||[]).forEach(r=>{
+    if(/^BAR-/.test(r.sku)){ extra.bar += r.q; return; }
+    const hit = ix.get(r.sku);
+    if(!hit){ const k=r.sku+" · "+r.nome; extra.ignoti.set(k,(extra.ignoti.get(k)||0)+r.q); return; }
+    if(!hit.cal && _tbSoloDose(hit.w)){ extra.dose.set(hit.w.nome,(extra.dose.get(hit.w.nome)||0)+r.q); return; }
+    const key = `${r.day}|${hit.w.id}|${hit.cal?"C":"B"}`;
+    const a = agg.get(key) || { key, day:r.day, w:hit.w, cal:hit.cal, q:0, incasso:0, nome:r.nome };
+    a.q += r.q; a.incasso += r.incasso; agg.set(key, a);
+  });
+  const fatti = new Set(movements.filter(m=>m.tebi && m.tebi.key).map(m=>m.tebi.key));
+  const manuali = new Set(movements.filter(m=>m.tipo==="scarico" && !m.tebi).map(m=>`${m.data}|${m.wineId}`));
+  const stato = new Map(); // simulazione giacenza e calici aperti per vino
+  const righe = [...agg.values()].filter(a=>a.q>0).sort((a,b)=>a.day.localeCompare(b.day) || String(a.w.nome).localeCompare(String(b.w.nome)));
+  righe.forEach(a=>{
+    const w = wines.find(x=>x.id===a.w.id) || a.w; a.w = w;
+    if(!stato.has(w.id)) stato.set(w.id, { g:parseInt(w.giacenza)||0, ap:parseInt(w.caliciAperta)||0 });
+    const st = stato.get(w.id);
+    if(fatti.has(a.key)){ a.esito="fatto"; return; }
+    if(typeof _periodoChiuso==="function" && _periodoChiuso(a.day)){ a.esito="chiuso"; return; }
+    if(a.cal){ a.piano = _caliciPiano({ ...w, caliciAperta:st.ap }, a.q); a.bt = a.piano.bt; } else a.bt = a.q;
+    if(a.bt > st.g){ a.esito="giacenza"; a.giac=st.g; return; }
+    a.esito = manuali.has(`${a.day}|${w.id}`)? "manuale" : "ok";
+    if(tebiV.sel[a.key]===undefined) tebiV.sel[a.key] = a.esito==="ok";
+    if(tebiV.sel[a.key]){ st.g -= a.bt; if(a.cal) st.ap = a.piano.dopo; }
+  });
+  return { righe, extra };
+}
+function tebiVCarica(ev){
+  const fs = [...(ev.target.files||[])]; if(!fs.length) return;
+  if(typeof XLSX==="undefined"){ notify("Libreria Excel non caricata: ricarica la pagina","err"); return; }
+  Promise.all(fs.map(f=>new Promise((ok,ko)=>{
+    const rd = new FileReader(), csv = /\.csv$/i.test(f.name);
+    rd.onload = e=>{ try{
+      const wb = csv? XLSX.read(e.target.result, { type:"string", raw:true }) : XLSX.read(e.target.result, { type:"array", cellDates:true });
+      const aoa = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header:1, defval:null, raw:true });
+      const r = _tvLeggi(aoa); if(!r) throw new Error(`${f.name}: non è un report "Ordini di prodotti" di Tebi (mancano SKU/Quantità)`);
+      ok({ nome:f.name, righe:r });
+    }catch(err){ ko(err); } };
+    rd.onerror = ()=>ko(new Error(f.name+": lettura fallita"));
+    csv? rd.readAsText(f, "utf-8") : rd.readAsArrayBuffer(f);
+  }))).then(res=>{
+    // stesso giorno in due file (es. CSV + XLSX dello stesso report): si tiene il primo, niente doppioni
+    const giorni = new Set(), righe = [];
+    res.forEach(x=>{ const gg = new Set(x.righe.map(r=>r.day)); const nuovi = x.righe.filter(r=>!giorni.has(r.day)); [...gg].forEach(d=>giorni.add(d)); righe.push(...nuovi); });
+    Object.assign(tebiV, { files:res.map(x=>x.nome), righe, sel:{} });
+    ev.target.value = ""; render();
+  }).catch(err=>{ console.error(err); notify(err.message,"err"); ev.target.value = ""; });
+}
+function tebiVReset(){ Object.assign(tebiV, { files:[], righe:null, sel:{} }); render(); }
+function tebiVSet(k, v){ tebiV.sel[k] = v; render(); }
+function tebiVRegistra(){
+  if(typeof _syncGate==="function" && !_syncGate("Scarico vendite Tebi")) return;
+  const { righe } = _tvPiano(), da = righe.filter(a=>tebiV.sel[a.key] && (a.esito==="ok"||a.esito==="manuale"));
+  if(!da.length){ notify("Nessuna riga selezionata","err"); return; }
+  const ts = Date.now(), nuovi = [], fonte = tebiV.files.join(", ");
+  da.forEach(a=>{
+    const w = wines.find(x=>x.id===a.w.id); if(!w) return;
+    const base = { id:uid(), wineId:w.id, wineName:w.nome, produttore:w.produttore, nazione:w.nazione||"", tipo:"scarico",
+      data:a.day, fattura:`TEBI-${a.day}`, fornitore:"", costoUnitarioIva:calcCostoIvaBottiglia(w), prezzoCartaSnap:parseFloat(w.prezzoCarta)||0, ts,
+      tebi:{ key:a.key, q:a.q, incasso:_tbR2(a.incasso), file:fonte } };
+    if(a.cal){
+      const p = _caliciPiano(w, a.q);
+      if(p.bt > (parseInt(w.giacenza)||0)) return;
+      const m = { ...base, qty:p.bt, calici:a.q, caliciBt:p.cpb, caliciPrima:p.prima, caliciDopo:p.dopo, servizio:0,
+        prezzoCaliceSnap:(parseFloat(w.prezzoCalice)||0) || _tbR2(a.incasso/a.q), note:`[Tebi] ${a.q} calic${a.q>1?"i":"e"}${p.bt?` · aperta ${p.bt} bt`:""}` };
+      let rem = p.bt;
+      const lots = (w.lots||[]).map(l=>{ if(rem<=0||l.qtyRimanente<=0) return l; const c=Math.min(rem,l.qtyRimanente); rem-=c; return {...l, qtyRimanente:l.qtyRimanente-c}; });
+      _fifoShort(w.id, w.nome, rem);
+      wines = wines.map(x=>x.id===w.id? {...x, giacenza:(parseInt(x.giacenza)||0)-p.bt, lots, caliciAperta:p.dopo} : x);
+      nuovi.push(m);
+    } else {
+      if(a.q > (parseInt(w.giacenza)||0)) return;
+      const m = { ...base, qty:a.q, servizio:_servizioSnap(a.day), note:"[Tebi] vendita in cassa" };
+      const disp = (w.lots||[]).reduce((s,l)=>s+Math.max(0,parseInt(l.qtyRimanente)||0),0);
+      _fifoShort(w.id, w.nome, Math.max(0,a.q-disp));
+      wines = wines.map(x=>x.id===w.id? _applyMovEffect(x,m) : x);
+      nuovi.push(m);
+    }
+  });
+  if(!nuovi.length){ notify("Nessuno scarico registrato: giacenze insufficienti","err"); return; }
+  movements = [...nuovi, ...movements];
+  scheduleSave(); clearTimeout(saveTimer); _flushSave();
+  const bt = nuovi.reduce((s,m)=>s+m.qty,0), cal = nuovi.reduce((s,m)=>s+(parseInt(m.calici)||0),0);
+  notify(`Vendite Tebi registrate: ${nuovi.length} scarichi · ${bt} bottigli${bt===1?"a":"e"}${cal?` · ${cal} calici`:""}`);
+  tebiV.sel = {}; render();
+}
+function renderTebiVendite(){
+  const head = `<div class="pl-h">Cassa Tebi · vendite → scarichi</div>`;
+  if(!tebiV.righe) return `${head}<div class="ex-list"><div class="ex-row"><div class="ex-main"><div class="ex-t">Scarica le bottiglie vendute in cassa</div>
+    <div class="ex-d">In Tebi: Insights → Elenco report → Report ordini di prodotti → un giorno → Esporta (CSV o Excel). Puoi caricare più giorni insieme. Abbinamento per SKU; i giorni già importati vengono saltati.</div></div>
+    <label class="btn-outline btn-sm ex-btn" style="cursor:pointer">${ic("list")} Carica report<input type="file" accept=".csv,.xlsx" multiple onchange="tebiVCarica(event)" style="display:none"></label></div></div>`;
+  const { righe, extra } = _tvPiano();
+  const ES = { ok:["","da registrare"], manuale:["var(--amber,#c90)","già scaricato a mano quel giorno"], fatto:["var(--txt4)","già importato"], chiuso:["var(--txt4)","periodo chiuso"], giacenza:["var(--red)","giacenza insufficiente"] };
+  const sel = righe.filter(a=>tebiV.sel[a.key] && (a.esito==="ok"||a.esito==="manuale"));
+  const giorni = [...new Set((tebiV.righe||[]).map(r=>r.day))].sort();
+  const tr = cells => `<tr style="border-top:1px solid var(--border)">${cells.map(([v,al,st])=>`<td style="padding:6px 10px;text-align:${al||"left"};${st||""}">${v}</td>`).join("")}</tr>`;
+  let html = `${head}<div class="ex-list"><div class="ex-row"><div class="ex-main"><div class="ex-t">${h(tebiV.files.join(" · "))}</div>
+    <div class="ex-d">${giorni.length} giorn${giorni.length===1?"o":"i"} (${giorni.map(d=>_fmtDataIT? _fmtDataIT(d) : d).join(", ")}) · ${righe.length} righe vino · ${sel.length} selezionate · ${sel.reduce((s,a)=>s+a.bt,0)} bottiglie in uscita</div></div>
+    <button class="btn-outline btn-sm ex-btn" onclick="tebiVReset()">${ic("x")} Annulla</button>
+    <button class="btn-primary btn-sm ex-btn" onclick="tebiVRegistra()" ${sel.length?"":"disabled"}>${ic("download")} Registra scarichi</button></div></div>`;
+  if(righe.length) html += `<div class="ex-list" style="padding:8px 0"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="color:var(--txt4);font-size:11px;text-transform:uppercase;letter-spacing:.06em"><td style="padding:6px 10px"></td><td style="padding:6px 10px">Giorno</td><td style="padding:6px 10px">Vino</td><td style="padding:6px 10px;text-align:right">Venduto</td><td style="padding:6px 10px;text-align:right">Bt in uscita</td><td style="padding:6px 10px;text-align:right">Giac.</td><td style="padding:6px 10px">Stato</td></tr></thead><tbody>${
+    righe.map(a=>{ const [col,txt] = ES[a.esito], on = !!tebiV.sel[a.key], can = a.esito==="ok"||a.esito==="manuale";
+      return tr([[can? `<input type="checkbox" ${on?"checked":""} onchange="tebiVSet('${h(a.key)}',this.checked)">` : ""],
+        [_fmtDataIT? _fmtDataIT(a.day) : a.day,"left","white-space:nowrap"],
+        [`${h(a.w.nome)} <span style="color:var(--txt4)">${h(a.w.produttore||"")}${a.w.annata?" "+h(a.w.annata):""}</span>`],
+        [a.cal? `${a.q} calic${a.q>1?"i":"e"}` : `${a.q} bt`,"right"], [a.bt!=null? a.bt : "–","right"],
+        [parseInt(a.w.giacenza)||0,"right","color:var(--txt3)"], [txt + (a.esito==="giacenza"? ` (${a.giac})` : ""),"left",`color:${col||"var(--txt2)"}`]]); }).join("")
+  }</tbody></table></div>`;
+  const note = [];
+  if(extra.dose.size) note.push(`Non tracciati (a dose): ${[...extra.dose].map(([n,q])=>`${h(n)} ×${q}`).join(", ")}`);
+  if(extra.bar) note.push(`Prodotti bar: ${extra.bar} pezzi, gestiti nella sezione Bar`);
+  if(extra.ignoti.size) note.push(`<span style="color:var(--red)">SKU non trovati nel gestionale</span>: ${[...extra.ignoti].map(([n,q])=>`${h(n)} ×${q}`).join(", ")}`);
+  if(note.length) html += `<div style="font-size:12px;color:var(--txt3);margin:4px 0 8px;line-height:1.6">${note.join("<br>")}</div>`;
+  html += `<div style="font-size:12px;color:var(--txt4);margin:4px 0 8px">Le voci senza SKU (es. "Bottiglia vino" a prezzo aperto) non si possono abbinare e vanno scaricate a mano. Data dello scarico = giornata di servizio di Tebi.</div>`;
+  return html;
+}
+
 // Aggancio alla pagina Export senza modificare manager.js
 (function(){
   if(typeof renderExport!=="function") return;
   const _orig = renderExport;
   renderExport = function(){
-    const base = _orig.apply(this, arguments), sync = renderTebiSync(), cut = base.lastIndexOf("</div>");
+    const base = _orig.apply(this, arguments), sync = renderTebiVendite() + renderTebiSync(), cut = base.lastIndexOf("</div>");
     return cut<0? base+sync : base.slice(0,cut)+sync+base.slice(cut);
   };
 })();
