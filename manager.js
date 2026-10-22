@@ -5740,7 +5740,7 @@ function renderOrdini(){
             <td style="padding:4px 8px;color:var(--txt2)">${r.qty}</td>
             <td style="padding:4px 8px;color:${(r.qtyArr!==undefined&&r.qtyArr!==r.qty)?"#fb923c":"#30D158"}">${r.qtyArr??r.qty}</td>
             <td style="padding:4px 8px;color:var(--amber)">${fmtN(r.prezzoAcq)}</td>
-            ${(()=>{const w=_ordRefWine(r), pc=parseFloat(w?.prezzoCarta)||0;return `<td style="padding:4px 8px;color:var(--txt2);white-space:nowrap">${pc?fmtN(pc):'<span style="color:var(--txt4)">—</span>'}</td>`;})()}
+            ${(()=>{const w=_ordRefWine(r), pc=parseFloat(w?.prezzoCarta)||0, po=parseFloat(r.prezzoCarta)||0;return `<td style="padding:4px 8px;color:var(--txt2);white-space:nowrap">${pc?fmtN(pc):po?`<span style="color:var(--txt4)" title="Vino non trovato in inventario: prezzo indicato nell'ordine">${fmtN(po)}</span>`:'<span style="color:var(--txt4)" title="Vino non trovato in inventario">—</span>'}</td>`;})()}
           </tr>`).join("")}
         </table>
       </td>
@@ -5973,13 +5973,26 @@ function saveFattura(id,val){
   const inp=document.getElementById("fatt-inp-"+id);
   if(inp) inp.style.display="none";
 }
-// Vino in inventario collegato a una riga d'ordine: wineId (stessa annata/formato), poi produttore+nome+annata+formato
+// Vino in inventario collegato a una riga d'ordine. Ordine: wineId valido (stessa annata/formato),
+// poi produttore+nome normalizzati (accenti, maiuscole, punteggiatura, SA=NV=vuoto, annata ripetuta nel nome),
+// poi nome contenuto, poi parole in comune >=75% — sempre a match UNICO, altrimenti null.
+function _ordNorm(s){ return String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g," ").trim(); }
+function _ordAnn(s){ const x=_ordNorm(s).replace(/ /g,""); return /^(|sa|nv|sanv|na|sansannee)$/.test(x)?"nv":x; }
 function _ordRefWine(r){
-  const f=String(parseFloat(r.formato)||0.75), a=(r.annata||"").toLowerCase().trim();
-  const ok=w=>String(parseFloat(w.formato)||0.75)===f&&(w.annata||"").toLowerCase().trim()===a;
-  if(r.wineId){ const w=wines.find(x=>x.id===r.wineId); if(w&&(ok(w)||!a)) return w; }
-  const n=(r.nomeVino||"").toLowerCase().trim(), pr=(r.produttore||"").toLowerCase().trim();
-  return n ? wines.find(w=>(w.nome||"").toLowerCase().trim()===n&&(w.produttore||"").toLowerCase().trim()===pr&&ok(w))||null : null;
+  const fm=v=>String(parseFloat(v)||0.75), a=_ordAnn(r.annata);
+  let f=fm(r.formato), n=_ordNorm(r.nomeVino);
+  if(f==="0.75" && /\bmagnum\b/.test(n)) f="1.5";
+  if(r.wineId){ const w=wines.find(x=>x.id===r.wineId); if(w && fm(w.formato)===f && (_ordAnn(w.annata)===a || a==="nv")) return w; }
+  if(!n) return null;
+  if(a!=="nv") n=n.replace(new RegExp("\\b"+a+"\\b","g"),"").replace(/\s+/g," ").trim();
+  const p=_ordNorm(r.produttore);
+  const c=wines.filter(w=>fm(w.formato)===f && _ordAnn(w.annata)===a && (!p || _ordNorm(w.produttore)===p));
+  const uno=L=>L.length===1?L[0]:null;
+  const ex=uno(c.filter(w=>_ordNorm(w.nome)===n)); if(ex) return ex;
+  const inc=uno(c.filter(w=>{const wn=_ordNorm(w.nome); return wn && (wn.includes(n)||n.includes(wn));})); if(inc) return inc;
+  const nt=n.split(" ").filter(t=>t.length>2); if(!nt.length) return null;
+  const sc=c.map(w=>{const wt=new Set(_ordNorm(w.nome).split(" ").filter(t=>t.length>2)); return [nt.filter(t=>wt.has(t)).length/Math.max(nt.length,wt.size), w];}).sort((x,y)=>y[0]-x[0]);
+  return sc[0] && sc[0][0]>=0.75 && (!sc[1] || sc[1][0]<sc[0][0]) ? sc[0][1] : null;
 }
 function mostraDettaglioOrdine(id){
   const el=document.getElementById("det-"+id);
