@@ -5730,7 +5730,7 @@ function renderOrdini(){
     <tr id="det-${o.id}" class="hidden" style="background:rgba(28,28,30,.6)">
       <td colspan="9" style="padding:0 14px 10px">
         <table style="width:100%;font-size:12px;border-collapse:collapse">
-          <tr style="color:var(--txt4)">${["Produttore","Vino","Annata","Vitigni","Tipo","Ord.","Arriv.","P.Acq"].map(c=>`<td style="padding:4px 8px">${c}</td>`).join("")}</tr>
+          <tr style="color:var(--txt4)">${["Produttore","Vino","Annata","Vitigni","Tipo","Ord.","Arriv.","P.Acq","P.Carta"].map(c=>`<td style="padding:4px 8px">${c}</td>`).join("")}</tr>
           ${ref.map(r=>`<tr style="border-top:1px solid var(--border)">
             <td style="padding:4px 8px;color:var(--txt3)">${h(r.produttore||'—')}</td>
             <td style="padding:4px 8px">${h(r.nomeVino)}</td>
@@ -5740,6 +5740,7 @@ function renderOrdini(){
             <td style="padding:4px 8px;color:var(--txt2)">${r.qty}</td>
             <td style="padding:4px 8px;color:${(r.qtyArr!==undefined&&r.qtyArr!==r.qty)?"#fb923c":"#30D158"}">${r.qtyArr??r.qty}</td>
             <td style="padding:4px 8px;color:var(--amber)">${fmtN(r.prezzoAcq)}</td>
+            ${(()=>{const w=_ordRefWine(r), pc=parseFloat(w?.prezzoCarta)||0;return `<td style="padding:4px 8px;color:var(--txt2);white-space:nowrap">${pc?fmtN(pc):'<span style="color:var(--txt4)">—</span>'}</td>`;})()}
           </tr>`).join("")}
         </table>
       </td>
@@ -5971,6 +5972,14 @@ function saveFattura(id,val){
   if(span){span.innerHTML=val.trim()||'<span style="color:var(--txt4)">— modifica</span>';span.style.display="";}
   const inp=document.getElementById("fatt-inp-"+id);
   if(inp) inp.style.display="none";
+}
+// Vino in inventario collegato a una riga d'ordine: wineId (stessa annata/formato), poi produttore+nome+annata+formato
+function _ordRefWine(r){
+  const f=String(parseFloat(r.formato)||0.75), a=(r.annata||"").toLowerCase().trim();
+  const ok=w=>String(parseFloat(w.formato)||0.75)===f&&(w.annata||"").toLowerCase().trim()===a;
+  if(r.wineId){ const w=wines.find(x=>x.id===r.wineId); if(w&&(ok(w)||!a)) return w; }
+  const n=(r.nomeVino||"").toLowerCase().trim(), pr=(r.produttore||"").toLowerCase().trim();
+  return n ? wines.find(w=>(w.nome||"").toLowerCase().trim()===n&&(w.produttore||"").toLowerCase().trim()===pr&&ok(w))||null : null;
 }
 function mostraDettaglioOrdine(id){
   const el=document.getElementById("det-"+id);
@@ -8579,6 +8588,7 @@ function saveWine(){
     giacenza: modalWine ? (parseInt(modalWine.giacenza)||0) : 0, // vedi _rettificaGiacenzaLedger sotto
     inFresco:document.getElementById("mf-infresco")?.checked||false,
     sku:modalWine?.sku,
+    frescoRicTs:modalWine?.frescoRicTs,
     lots:modalWine?.lots||[]
   };
   if(!wine.nome||!wine.produttore){ notify("Nome e Produttore sono obbligatori","err"); return; }
@@ -9611,6 +9621,15 @@ function exportMovimentiCSV(){
 }
 .mob-fresco-toggle.on .fx { color: #4fc3f7; text-shadow: 0 0 6px rgba(79,195,247,.7); }
 .mob-fresco-toggle:active { transform: scale(.96); }
+.mob-ric-box { margin: 10px 12px 6px; border: 1px solid rgba(79,195,247,.45); border-radius: 12px; background: rgba(79,195,247,.07); overflow: hidden; }
+.mob-ric-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; font-size: 13px; font-weight: 700; color: #4fc3f7; }
+.mob-ric-head .sp { flex: 1; }
+.mob-ric-all { background: none; border: 1px solid rgba(79,195,247,.5); color: #4fc3f7; border-radius: 8px; padding: 5px 9px; font-size: 12px; font-weight: 600; }
+.mob-ric-row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-top: 1px solid var(--border); }
+.mob-ric-info { flex: 1; min-width: 0; }
+.mob-ric-sub { font-size: 12px; color: var(--txt4); margin-top: 2px; }
+.mob-ric-ok { flex-shrink: 0; display: flex; align-items: center; gap: 5px; background: var(--bg3); border: 1px solid var(--border2); color: var(--txt2); border-radius: 9px; padding: 8px 10px; font-size: 12px; font-weight: 600; }
+.mob-ric-ok:active { transform: scale(.96); }
   `;
   document.head.appendChild(style);
 })();
@@ -10176,7 +10195,7 @@ function _renderMobFrescoList(){
     el.innerHTML = `<div class="mob-stor-empty">${q ? "Nessun vino trovato per «"+h(q)+"»" : "Nessun vino disponibile in cantina"}</div>`;
     return;
   }
-  el.innerHTML = list.map(w => {
+  el.innerHTML = (q ? "" : _frescoRicaricaHTML()) + list.map(w => {
     const on = !!w.inFresco;
     return `<div class="mob-fresco-row">
       <div class="mob-fresco-info">
@@ -10194,13 +10213,56 @@ function mobToggleFresco(id){
   const w = wines.find(x => x.id === id);
   if(!w) return;
   const nv = !w.inFresco;
-  wines = wines.map(x => x.id === id ? {...x, inFresco: nv} : x);
+  wines = wines.map(x => x.id === id ? (nv ? {...x, inFresco: true, frescoRicTs: Date.now()} : {...x, inFresco: false}) : x);
   scheduleSave();
   _renderMobFrescoList();
   _renderMobList(); // sincronizza il flag nella lista scarico
 }
 
+/* Promemoria frigo: vini "in fresco" venduti (bottiglie uscite) dopo l'ultima ricarica, con giacenza residua.
+   frescoRicTs = timestamp dell'ultima ricarica confermata (sincronizzato con la scheda vino). Senza conferma: ultimi 3 giorni. */
+function _frescoDaRicaricare(){
+  const lim = Date.now() - 3*864e5, byW = new Map();
+  wines.forEach(w => { if(w.inFresco && (parseInt(w.giacenza)||0) > 0) byW.set(w.id, { w, since: Math.max(lim, +w.frescoRicTs||0), bt: 0, last: 0 }); });
+  if(!byW.size) return [];
+  movements.forEach(m => {
+    if(m.deleted || m.tipo !== "scarico") return;
+    const r = byW.get(m.wineId); if(!r) return;
+    const q = parseInt(m.qty)||0; if(q <= 0) return;
+    const t = +m.ts || Date.parse(String(m.data||"").slice(0,10)+"T23:00") || 0;
+    if(t <= r.since) return;
+    r.bt += q; if(t > r.last) r.last = t;
+  });
+  return [...byW.values()].filter(r => r.bt > 0).sort((a,b) => b.last - a.last);
+}
+function _frescoRicaricaHTML(){
+  const L = _frescoDaRicaricare();
+  if(!L.length) return "";
+  return `<div class="mob-ric-box">
+    <div class="mob-ric-head">${ic("snow")}<span>Da ricaricare in frigo (${L.length})</span><span class="sp"></span>
+      ${L.length > 1 ? `<button class="mob-ric-all" onclick="mobFrescoRicaricato()">Tutti fatti</button>` : ""}</div>
+    ${L.map(r => `<div class="mob-ric-row">
+      <div class="mob-ric-info">
+        <div class="mob-fresco-name">${h(r.w.nome)}${r.w.annata ? ` <span style="color:var(--txt4);font-weight:400;font-size:12px">${h(r.w.annata)}</span>` : ""}</div>
+        <div class="mob-ric-sub">${r.w.produttore ? h(r.w.produttore)+" · " : ""}vendute ${r.bt} bt · in cantina ${parseInt(r.w.giacenza)||0}</div>
+      </div>
+      <button class="mob-ric-ok" onclick="mobFrescoRicaricato('${r.w.id}')">${ic("check")} Ricaricato</button>
+    </div>`).join("")}
+  </div>`;
+}
+function mobFrescoRicaricato(id){
+  const ids = new Set(id ? [id] : _frescoDaRicaricare().map(r => r.w.id));
+  if(!ids.size) return;
+  const now = Date.now();
+  wines = wines.map(x => ids.has(x.id) ? {...x, frescoRicTs: now} : x);
+  scheduleSave();
+  _renderMobFrescoList();
+  _updateStoricoBadge();
+}
+
 function _updateStoricoBadge(){
+  const tabFr = document.getElementById("mob-tab-fresco");
+  if(tabFr){ const n = _frescoDaRicaricare().length; tabFr.innerHTML = `${ic("snow")} Fresco${n ? ` (${n})` : ""}`; }
   const tabStor = document.getElementById("mob-tab-storico");
   if(!tabStor) return;
   const count = _mobLog.filter(e => e.movId && !e.annullato).length;
