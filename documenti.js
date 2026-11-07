@@ -243,17 +243,30 @@ function dcElimina(id){
 }
 function dcPagata(id){ const d=docs.find(x=>x.id===id); if(!d) return; d.pagata=!d.pagata; d.dataPag=d.pagata?today():""; _docsSave(); render(); }
 function dcToggleSel(id,on){ on?docUi.sel.add(id):docUi.sel.delete(id); render(); }
-function dcFatturaDaDdt(){
-  const sel=[...docUi.sel].map(id=>docs.find(x=>x.id===id)).filter(d=>d&&d.tipo==="ddt"&&!d.fattId);
+function dcFatturaDaDdt(ids){
+  const sel=(ids||[...docUi.sel]).map(id=>docs.find(x=>x.id===id)).filter(d=>d&&d.tipo==="ddt"&&!d.fattId);
   if(!sel.length){ notify("Seleziona uno o più DDT da fatturare","err"); return; }
   const k=d=>(d.cli?.piva||_dcCliNome(d.cli)).toLowerCase();
   if(new Set(sel.map(k)).size>1){ alert("I DDT selezionati sono intestati a clienti diversi."); return; }
   sel.sort((a,b)=>String(a.data).localeCompare(String(b.data)));
   const righe=[]; sel.forEach(d=>(d.righe||[]).forEach(r=>righe.push({ ...r, rid:uid(), ddt:_dcNumLbl(d) })));
-  dcDraft=_dcNuovoDoc("diff",{ cli:{...sel[0].cli}, righe, ddtRif:sel.map(d=>({ id:d.id, num:_dcNumLbl(d), data:d.data })),
+  // Anagrafica, destinazione e pagamento ereditati: rubrica > DDT > default
+  const cli={...sel[0].cli}, rub=docs.find(x=>x.t==="cli"&&(x.id===cli._id||(cli.piva&&x.piva===cli.piva)))||{};
+  const dests=[...new Set(sel.filter(d=>d.destDiv&&d.dest).map(d=>d.dest))], c=_dcCfg();
+  dcDraft=_dcNuovoDoc("diff",{ cli, righe, ddtRif:sel.map(d=>({ id:d.id, num:_dcNumLbl(d), data:d.data })),
+    destDiv:dests.length===1, dest:dests.length===1?dests[0]:"",
+    pagMod:rub.pagMod||cli.pagMod||c.pagMod||"MP05", pagTerm:rub.pagTerm||cli.pagTerm||c.pagTerm||"30df",
     causale:"Fattura differita rif. DDT "+sel.map(d=>`n. ${_dcNumLbl(d)} del ${_fmtDataIT(d.data)}`).join(", ") });
-  docUi.sel.clear(); render(); _dcTop();
-  if(righe.some(r=>!_dcNum(r.prezzo))) notify("Alcune righe dei DDT non hanno prezzo: completale","err");
+  docUi.sel.clear(); docUi.tab="emessi"; render(); _dcTop();
+  if(righe.some(r=>!_dcNum(r.prezzo))) notify("Alcune righe dei DDT non hanno prezzo: completale o usa «Riprezza righe»","err");
+  else if(sel.some(d=>!d.prezziDdt)) notify("Prezzi ripresi dal DDT non valorizzato (costo + ricarico all'inserimento): verifica prima di salvare");
+}
+function dcRiprezza(){
+  if(!dcDraft) return; const refs=_dcRefs(), ric=_dcNum(docUi.ricarico), ivaDef=_dcNum(_dcCfg().ivaDef??22); let n=0;
+  dcDraft.righe.forEach(r=>{ const x=r.ref&&refs.find(y=>y.v===r.ref); if(!x) return;
+    const iva=_dcNum(r.iva)||ivaDef;
+    r.prezzo = docUi.listino==="carta" ? _dcR2(x.carta/(1+iva/100)) : docUi.listino==="acq" ? _dcR2(x.acq*(1+ric/100)) : r.prezzo; n++; });
+  notify(n?`${n} righe riprezzate`:"Nessuna riga collegata a una referenza"); render();
 }
 
 // ─── Render ──────────────────────────────────────────────────────────────────
@@ -312,6 +325,7 @@ function _dcRenderForm(){
       ${docUi.listino==="acq"?`<div style="width:86px"><label class="form-label">Ricarico %</label><input class="form-input" inputmode="decimal" value="${h(docUi.ricarico)}" oninput="docUi.ricarico=this.value"></div>`:""}`:""}
       <button class="btn-primary" onclick="dcAggiungiRef()">${ic("plus")} Aggiungi</button>
       <button class="btn-outline btn-sm" onclick="dcRigaLibera()">Riga libera</button>
+      ${!ddt&&d.righe.some(r=>r.ref)?`<button class="btn-outline btn-sm" onclick="dcRiprezza()" title="Applica «Prezzo da» e ricarico a tutte le righe collegate a una referenza">Riprezza righe</button>`:""}
     </div>
     <div class="tbl-wrap"><table><thead><tr><th>Descrizione</th><th>Q.tà</th><th>U.M.</th>${!ddt||d.prezziDdt?`<th>Prezzo unit. (IVA escl.)</th><th>Sc. %</th><th>IVA</th><th class="r">Importo</th>`:""}<th></th></tr></thead>
       <tbody>${righe||`<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--txt4)">Seleziona le referenze dal menù qui sopra</td></tr>`}</tbody></table></div>
@@ -440,6 +454,7 @@ function _dcRenderEmessi(){
         <td class="r" style="font-family:'Montserrat',sans-serif">${isD?(d.prezziDdt?fmt(c.totale):fmtN(c.pezzi,0)+" pz"):(d.tipo==="nc"?"−":"")+fmt(c.totale)}</td>
         <td style="font-size:12px;text-transform:uppercase;letter-spacing:.06em">${st}</td>
         <td style="white-space:nowrap">
+          ${isD&&!d.fattId?`<button class="btn-outline btn-sm" style="border-color:var(--amber);color:var(--amber)" onclick="dcFatturaDaDdt(['${d.id}'])" title="Crea la fattura differita da questo DDT">${ic("receipt")} Fattura</button>`:""}
           <button class="btn-outline btn-sm" onclick="dcStampa('${d.id}')" title="Stampa / PDF">${ic("print")}</button>
           ${!isD?`<button class="btn-outline btn-sm" onclick="dcXml('${d.id}')" title="Scarica XML FatturaPA">XML</button>`:""}
           ${!isD&&d.tipo!=="nc"?`<button class="btn-outline btn-sm" onclick="dcPagata('${d.id}')" title="${d.pagata?"Segna da incassare":"Segna incassata"}">${ic(d.pagata?"x":"check")}</button>
