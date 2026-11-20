@@ -265,9 +265,32 @@ const FORMATI_BOTTIGLIA=[
   {v:"1.0",l:"1L Litro"},{v:"1.5",l:"1.5L Magnum"},{v:"2.0",l:"2.0L Jeroboam"},
   {v:"3.0",l:"3.0L Doppia Magnum"},{v:"4.5",l:"4.5L Rehoboam"},{v:"6.0",l:"6.0L Mathusalem"}
 ];
-function _formatoOptsHtml(sel){
-  const s=parseFloat(sel||"0.75")||0.75;
-  return FORMATI_BOTTIGLIA.map(x=>`<option value="${x.v}" ${parseFloat(x.v)===s?"selected":""}>${x.l}</option>`).join("");
+// ── SFUSO (bag-in-box / fusto) ───────────────────────────────────────────────
+// w.sfuso=true + w.formato = litri del contenitore. Nei <select> l'opzione vale
+// "sfuso:<litri>": ogni lettura del valore DEVE passare da _fmtParse, altrimenti
+// parseFloat("sfuso:3") → NaN → 0,75 e la referenza diventa una bottiglia.
+// In giacenza 1 unità = 1 contenitore; si vende a calice e a quartino.
+const FORMATI_SFUSO=[3,5,10,20];
+function _fmtParse(v){
+  const t=String(v==null?"":v), sf=t.indexOf("sfuso:")===0;
+  return {formato:parseFloat(sf?t.slice(6):t)||0.75, sfuso:sf};
+}
+function _fmtVal(w){ return (w&&w.sfuso?"sfuso:":"")+(parseFloat(w&&w.formato)||0.75); }
+function _sfusoOpts(sel){
+  const p=_fmtParse(sel);
+  return `<optgroup label="Sfuso (bag-in-box / fusto)">`+FORMATI_SFUSO.map(l=>
+    `<option value="sfuso:${l}" ${p.sfuso&&p.formato===l?"selected":""}>Sfuso · ${String(l).replace(".",",")} L</option>`).join("")+`</optgroup>`;
+}
+function _formatoOptsHtml(sel, withSfuso){
+  const p=_fmtParse(sel||"0.75"), s=p.formato;
+  return FORMATI_BOTTIGLIA.map(x=>`<option value="${x.v}" ${!p.sfuso&&parseFloat(x.v)===s?"selected":""}>${x.l}</option>`).join("")
+    +(withSfuso?_sfusoOpts(sel):"");
+}
+// Quartino (CONFIG.mlQuartino, default 250 ml) espresso in "calici" del
+// contenitore: è l'unità con cui _caliciPiano scala w.caliciAperta.
+function _quartinoUnits(w){
+  const f=parseFloat(w&&w.formato)||0.75, ml=f*1000/_caliciBt(w);
+  return Math.max(1, Math.round((parseFloat(CONFIG.mlQuartino)||250)/ml));
 }
 function _formatoLabel(f){
   const v=parseFloat(f)||0.75;
@@ -277,7 +300,7 @@ function _formatoLabel(f){
 // Suffisso mostrato solo quando il formato non è la 0,75: senza, magnum e
 // bottiglia standard dello stesso vino avrebbero etichetta identica nel datalist
 // e il match esatto ne sceglierebbe una a caso.
-function _fmtSuffix(w){ const v=parseFloat(w&&w.formato)||0.75; return v!==0.75?" \u00b7 "+v+"L":""; }
+function _fmtSuffix(w){ const v=parseFloat(w&&w.formato)||0.75; return w&&w.sfuso?" \u00b7 sfuso "+v+"L":(v!==0.75?" \u00b7 "+v+"L":""); }
 function _movWineLabel(w){
   return w.nome+" \u2014 "+w.produttore+(w.annata?" ("+w.annata+")":"")+" ["+w.tipologia+"]"+_fmtSuffix(w);
 }
@@ -699,6 +722,11 @@ function _caliciPiano(w, n){
   return {cpb, prima, dopo:aperta, bt};
 }
 function calcRicavoMovimento(m,w){
+  // Quartino: m.calici = volume scalato (in calici), il ricavo è a quartino.
+  if(m && (parseInt(m.quartini)||0)>0){
+    const pq = (m.prezzoQuartinoSnap!=null) ? (parseFloat(m.prezzoQuartinoSnap)||0) : (parseFloat(w?.prezzoQuartino)||0);
+    return (parseInt(m.quartini)||0)*pq;
+  }
   if(m && (parseInt(m.calici)||0)>0){
     const pc = (m.prezzoCaliceSnap!=null) ? (parseFloat(m.prezzoCaliceSnap)||0) : (parseFloat(w?.prezzoCalice)||0);
     return (parseInt(m.calici)||0)*pc;
@@ -5102,7 +5130,7 @@ function _renderMovCarico(){
             ${selW.vitigni?('<span style="color:var(--txt4);font-size:12px">\ud83c\udf47 '+h(selW.vitigni)+'</span>'):''}
             <span style="margin-left:auto;color:var(--amber);font-family:'Montserrat',sans-serif;font-size:1.1rem">${selW.giacenza} bt</span>
           </div>
-          ${movForm.tipo!=="scarico"?('<div style="margin-top:6px"><button onclick="movForm._newMode=true;movForm.wineId=\'\';movForm._newProduttore=\''+h(selW.produttore)+'\';movForm._newTipologia=\''+selW.tipologia+'\';movForm._newVitigni=\''+h(selW.vitigni||'')+'\';movForm._newRegione=\''+h(selW.regione||'')+'\';movForm._newNazione=\''+h(selW.nazione||'Italia')+'\';movForm._newZona=\''+h(selW.zona||'')+'\';movForm._newFormato=\''+(parseFloat(selW.formato)||0.75)+'\';movForm._wineText=\'\';render()" style="font-size:12px;font-weight:600;padding:4px 12px;border:1px solid rgba(var(--amber-rgb,255,159,10),.4);color:var(--amber);background:rgba(var(--amber-rgb,255,159,10),.1);cursor:pointer;font-family:inherit;border-radius:6px">Nuova annata / variante di questo vino</button></div>'):''}`:''
+          ${movForm.tipo!=="scarico"?('<div style="margin-top:6px"><button onclick="movForm._newMode=true;movForm.wineId=\'\';movForm._newProduttore=\''+h(selW.produttore)+'\';movForm._newTipologia=\''+selW.tipologia+'\';movForm._newVitigni=\''+h(selW.vitigni||'')+'\';movForm._newRegione=\''+h(selW.regione||'')+'\';movForm._newNazione=\''+h(selW.nazione||'Italia')+'\';movForm._newZona=\''+h(selW.zona||'')+'\';movForm._newFormato=\''+_fmtVal(selW)+'\';movForm._wineText=\'\';render()" style="font-size:12px;font-weight:600;padding:4px 12px;border:1px solid rgba(var(--amber-rgb,255,159,10),.4);color:var(--amber);background:rgba(var(--amber-rgb,255,159,10),.1);cursor:pointer;font-family:inherit;border-radius:6px">Nuova annata / variante di questo vino</button></div>'):''}`:''
         }
         ${(!selW&&movForm._wineText&&!movForm.wineId&&!movForm._newMode)?
           ('<div style="margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-size:12px;color:var(--txt3)">Vino non trovato in cantina.</span>'
@@ -5135,7 +5163,7 @@ function _renderMovCarico(){
           </div>
           <div><label class="form-label">Formato *</label>
             <select class="form-select" onchange="movForm._newFormato=this.value;_movUpdateCartaPreview()">
-              ${_formatoOptsHtml(movForm._newFormato)}
+              ${_formatoOptsHtml(movForm._newFormato,true)}
             </select>
           </div>
           <div><label class="form-label">Vitigni</label>
@@ -5372,7 +5400,7 @@ function _movNewCartaHint(){
   const box=document.getElementById("mov-new-carta-hint");
   if(!box) return;
   const base={prezzoAcq:parseFloat(movForm.prezzoAcqLotto)||0,iva:parseInt(movForm._newIva)||22,
-    nome:movForm._wineText||"",formato:parseFloat(movForm._newFormato)||0.75};
+    nome:movForm._wineText||"",formato:_fmtParse(movForm._newFormato).formato};
   const sug=_calcPrezzoCartaSuggerito(base);
   if(!sug){ box.style.display="none"; return; }
   box.style.display="flex";
@@ -5400,7 +5428,7 @@ function _movUpdateCartaPreview(){
   const pAcq = parseFloat(movForm.prezzoAcqLotto)||0;
   const iva = movForm._newIva||22;
   const pCarta = parseFloat(movForm._newPrezzoCarta)||0;
-  const formato = parseFloat(movForm._newFormato)||0.75;
+  const formato = _fmtParse(movForm._newFormato).formato, sfusoNew = _fmtParse(movForm._newFormato).sfuso;
   const costoIva = pAcq*(1+iva/100);
   // Il moltiplicatore dipende dal formato (grandi formati ×2.0): passarlo fisso
   // a 0.75 sovrastimava il prezzo carta suggerito su ogni magnum.
@@ -5412,7 +5440,7 @@ function _movUpdateCartaPreview(){
     <div style="font-size:12px;color:var(--txt3);margin-top:2px">${h(prod)}${zona?' · <span style="color:var(--txt4)">'+h(zona)+'</span>':''}</div>
     <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;align-items:center">
       ${badge(tipo)}
-      ${formato!==0.75?`<span style="font-size:11px;font-weight:600;padding:1px 6px;border:1px solid rgba(0,122,255,.35);color:#60a5fa;background:rgba(0,122,255,.1);border-radius:3px">${h(_formatoLabel(formato))}</span>`:''}
+      ${formato!==0.75||sfusoNew?`<span style="font-size:11px;font-weight:600;padding:1px 6px;border:1px solid rgba(0,122,255,.35);color:#60a5fa;background:rgba(0,122,255,.1);border-radius:3px">${h(sfusoNew?"Sfuso · "+formato+" L":_formatoLabel(formato))}</span>`:''}
       ${vitigni?`<span style="font-size:12px;color:var(--txt4)">${ic("grape")} ${h(vitigni)}</span>`:''}
       ${regione?`<span style="font-size:12px;color:var(--txt3)">${h(regione)}</span>`:''}
     </div>
@@ -5465,7 +5493,8 @@ function registraMovimento(){
       regione:_regioneCanon(movForm._newRegione),
       nazione:(movForm._newNazione||"Italia").trim(),
       zona:(movForm._newZona||"").trim(),
-      formato:parseFloat(movForm._newFormato)||0.75,
+      formato:_fmtParse(movForm._newFormato).formato,
+      ...(_fmtParse(movForm._newFormato).sfuso?{sfuso:true}:{}),
       prezzoAcq:parseFloat(prezzoAcqLotto)||0,
       iva:movForm._newIva||22,
       prezzoCarta:parseFloat(movForm._newPrezzoCarta)||0,
@@ -8413,7 +8442,8 @@ function renderModalBody(wine){
     {v:"1.0",l:"1.0 L (Litro)"},{v:"1.5",l:"1.5 L (Magnum)"},
     {v:"2.0",l:"2.0 L (Jeroboam)"},{v:"3.0",l:"3.0 L (Double Magnum)"},{v:"4.5",l:"4.5 L (Réhoboam)"},
     {v:"6.0",l:"6.0 L (Mathusalem)"},{v:"altro",l:"Altro formato"}
-  ].map(x=>{const sel=(x.v!=="altro"&&parseFloat(f.formato||"0.75")===parseFloat(x.v));return `<option value="${x.v}" ${sel?"selected":""}>${x.l}</option>`;}).join("");
+  ].map(x=>{const sel=(!f.sfuso&&x.v!=="altro"&&parseFloat(f.formato||"0.75")===parseFloat(x.v));return `<option value="${x.v}" ${sel?"selected":""}>${x.l}</option>`;}).join("")
+    +_sfusoOpts(_fmtVal(f));
   return `
     <div class="modal-section">
       <div class="modal-section-label">${ic("glass")} Identità del Vino</div>
@@ -8424,7 +8454,7 @@ function renderModalBody(wine){
         <div><label class="form-label">Annata</label><input class="form-input" id="mf-annata" value="${h(f.annata)}" placeholder="es. 2019 o N.V."></div>
         <div><label class="form-label">Vitigni</label><input class="form-input" id="mf-vitigni" data-ac-src="vitigni" data-ac-multi="1" autocomplete="off" value="${h(f.vitigni)}" placeholder="es. Nebbiolo, Barbera"></div>
         <div><label class="form-label">Tipologia</label><select class="form-select" id="mf-tipologia" data-prev="${f.tipologia}" onchange="_addTipologiaInline(this);if(this.value!=='__new__'){this.dataset.prev=this.value}">${TIPOLOGIE.map(t=>`<option value="${t}" ${f.tipologia===t?"selected":""}>${t}</option>`).join("")+'<option value="__new__">+ Nuova tipologia…</option>'}</select></div>
-        <div><label class="form-label">Formato <span style="color:var(--txt4);font-size:11px;text-transform:none;letter-spacing:0">— lascia vuoto per 750ml standard</span></label><select class="form-select" id="mf-formato" onchange="updateModalCalc()">${FORMATI_OPTS}</select></div>
+        <div><label class="form-label">Formato <span style="color:var(--txt4);font-size:11px;text-transform:none;letter-spacing:0">— lascia vuoto per 750ml standard</span></label><select class="form-select" id="mf-formato" onchange="_mfSfusoToggle();updateModalCalc()">${FORMATI_OPTS}</select></div>
       </div>
     </div>
     <div class="modal-section">
@@ -8450,6 +8480,7 @@ function renderModalBody(wine){
         </div>
         <div><label class="form-label">Prezzo al Calice € <span style="color:var(--txt4);font-size:11px;text-transform:none;letter-spacing:0">— opzionale</span></label><input class="form-input" id="mf-prezzoCalice" type="number" inputmode="decimal" onfocus="this.select()" value="${f.prezzoCalice||''}" placeholder="es. 8.00"></div>
         <div><label class="form-label">Calici per bottiglia <span style="color:var(--txt4);font-size:11px;text-transform:none;letter-spacing:0">— vuoto = ${_caliciBt({formato:f.formato})} (125 ml)</span></label><input class="form-input" id="mf-caliciBt" type="number" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" value="${parseInt(f.caliciBt)||''}" placeholder="${_caliciBt({formato:f.formato})}"></div>
+        <div id="mf-quartino-wrap" style="display:${f.sfuso?"":"none"}"><label class="form-label">Prezzo al Quartino € <span style="color:var(--txt4);font-size:11px;text-transform:none;letter-spacing:0">— ${parseFloat(CONFIG.mlQuartino)||250} ml, solo sfuso</span></label><input class="form-input" id="mf-prezzoQuartino" type="number" inputmode="decimal" onfocus="this.select()" value="${parseFloat(f.prezzoQuartino)||''}" placeholder="es. 10.00"></div>
         <div><label class="form-label">Giacenza (bottiglie)</label><input class="form-input" id="mf-giacenza" type="number" inputmode="numeric" pattern="[0-9]*" onfocus="this.select()" value="${f.giacenza||0}" placeholder="0" oninput="updateModalCalc()" ${wine&&(wine.lots||[]).some(l=>l.qtyRimanente>0)?'title="Vino con lotti FIFO attivi: modifica tramite carico/scarico per non desincronizzare i lotti" style="border-color:rgba(var(--amber3-rgb,180,83,9),.5)"':''} ><\/div>${wine&&(wine.lots||[]).some(l=>l.qtyRimanente>0)?'<div style="font-size:11px;color:rgba(251,146,60,.8);margin-top:3px;letter-spacing:.05em">Lotti FIFO attivi — usa carico/scarico per aggiornare la giacenza<\/div>':''}
       </div>
       ${(()=>{const on=!!f.inFresco;return `<div style="margin-top:12px">
@@ -8506,7 +8537,7 @@ function updateModalCalc(){
   const giac=parseInt(document.getElementById("mf-giacenza")?.value)||0;
   const costoIva=pAcq*(1+iva/100);
   // formula suggerita: fascia su prezzoAcq con IVA inclusa
-  const _wTmp = {prezzoAcq: pAcq, iva, nome: document.getElementById("mf-nome")?.value||"", formato: document.getElementById("mf-formato")?.value||""};
+  const _wTmp = {prezzoAcq: pAcq, iva, nome: document.getElementById("mf-nome")?.value||"", formato: _fmtParse(document.getElementById("mf-formato")?.value).formato};
   const molt = _getMolt(_wTmp);
   const cartaSuggerita = pAcq>0 ? Math.ceil(costoIva * molt) : null;
   const cartaSuggeritaLabel = pAcq>0 ? _getMoltLabel(_wTmp) : "";
@@ -8541,11 +8572,15 @@ function updateModalCalc(){
   const prod=document.getElementById("mf-produttore")?.value.trim()||"";
   document.getElementById("modal-save").disabled=!nome||!prod;
 }
+function _mfSfusoToggle(){
+  const sf=_fmtParse(document.getElementById("mf-formato")?.value).sfuso, el=document.getElementById("mf-quartino-wrap");
+  if(el) el.style.display=sf?"":"none";
+}
 function applyCartaSuggerita(){
   const pAcq=parseFloat(document.getElementById("mf-prezzoAcq")?.value)||0;
   const iva=parseInt(document.getElementById("mf-iva")?.value)||22;
   const nome=document.getElementById("mf-nome")?.value||"";
-  const formato=document.getElementById("mf-formato")?.value||"";
+  const formato=_fmtParse(document.getElementById("mf-formato")?.value).formato;
   // S3+S4: usa _calcPrezzoCartaSuggerito (Math.ceil, euro intero) — formula unica coerente
   // con _applyPrezzoCartaSuggerito globale; String() evita virgola locale di fmtN
   const suggerito=_calcPrezzoCartaSuggerito({prezzoAcq:pAcq,iva,nome,formato});
@@ -8591,12 +8626,13 @@ function saveWine(){
     ...(modalWine||{}),   // preserva i campi fuori dal form (noteVeloce, priceHistory, …)
     id:modalWine?.id||uid(),
     nome:get("mf-nome").trim(),produttore:get("mf-produttore").trim(),distributore:get("mf-distributore"),
-    annata:get("mf-annata"),vitigni:_normVitigni(get("mf-vitigni")),tipologia:get("mf-tipologia"),formato:parseFloat(get("mf-formato"))||0.75,
+    annata:get("mf-annata"),vitigni:_normVitigni(get("mf-vitigni")),tipologia:get("mf-tipologia"),formato:_fmtParse(get("mf-formato")).formato,sfuso:_fmtParse(get("mf-formato")).sfuso,
     regione:get("mf-regione"),nazione:get("mf-nazione"),zona:get("mf-zona"),
     prezzoAcq:parseFloat(get("mf-prezzoAcq"))||0,iva:parseInt(get("mf-iva"))||22,
     prezzoCarta:parseFloat(get("mf-prezzoCarta"))||0,
     prezzoCalice:_pCalice(get("mf-prezzoCalice")),
     caliciBt:parseInt(get("mf-caliciBt"))||0,
+    prezzoQuartino:_fmtParse(get("mf-formato")).sfuso?_pCalice(get("mf-prezzoQuartino")):0,
     caliciAperta:parseInt(modalWine?.caliciAperta)||0,
     giacenza: modalWine ? (parseInt(modalWine.giacenza)||0) : 0, // vedi _rettificaGiacenzaLedger sotto
     inFresco:document.getElementById("mf-infresco")?.checked||false,
@@ -9772,6 +9808,8 @@ function _renderMobList(){
             </div>
             ${(parseFloat(w.prezzoCalice)||0)>0 ? (()=>{ const cp=_caliciBt(w), ap=parseInt(w.caliciAperta)||0, open=ap>0&&ap<cp, can=open||giac>0;
               return `<button class="mob-step-btn" style="width:auto;padding:0 10px;font-size:12px;letter-spacing:.04em${can?"":";opacity:.4"}" onclick="registraCaliceMobile('${w.id}')" ${can?"":"disabled"} title="Scarica 1 calice${open?` — aperta ${ap}/${cp}`:""}">Calice${open?` ${ap}/${cp}`:""}</button>`; })() : ""}
+            ${w.sfuso && (parseFloat(w.prezzoQuartino)||0)>0 ? (()=>{ const cp=_caliciBt(w), ap=parseInt(w.caliciAperta)||0, open=ap>0&&ap<cp, can=open||giac>0;
+              return `<button class="mob-step-btn" style="width:auto;padding:0 10px;font-size:12px;letter-spacing:.04em${can?"":";opacity:.4"}" onclick="registraCaliceMobile('${w.id}',1,true)" ${can?"":"disabled"} title="Scarica 1 quartino${open?` — aperta ${ap}/${cp} calici`:""}">Quartino</button>`; })() : ""}
             <button class="mob-confirm-btn${canScarica?"":" disabled"}" onclick="mobScaricaConfirm('${w.id}')" ${canScarica?"":"disabled"} aria-label="Scarica" title="Scarica">${ic("check")}</button>
           </div>
         </div>`;
@@ -9894,13 +9932,17 @@ function registraMovimentoMobileQty(wineId, delta){
   updateSidebar();
 }
 
-function registraCaliceMobile(wineId, n){
+function registraCaliceMobile(wineId, n, quartino){
   if(!_syncGate("Calice")) return;
   _hideMobToast();
   const wine = wines.find(w => w.id === wineId);
   if(!wine) return;
   n = Math.max(1, parseInt(n)||1);
-  if(!((parseFloat(wine.prezzoCalice)||0)>0)){ notify("Prezzo al calice mancante in scheda","err"); return; }
+  const qrt = !!quartino, nq = qrt ? n : 0;
+  if(qrt){
+    if(!wine.sfuso || !((parseFloat(wine.prezzoQuartino)||0)>0)){ notify("Prezzo al quartino mancante in scheda","err"); return; }
+    n = nq * _quartinoUnits(wine);
+  } else if(!((parseFloat(wine.prezzoCalice)||0)>0)){ notify("Prezzo al calice mancante in scheda","err"); return; }
   const p = _caliciPiano(wine, n);
   if(p.bt > (parseInt(wine.giacenza)||0)){ notify(`Nessuna bottiglia da aprire per ${wine.nome}`,"err"); return; }
   const prevGiacenza = wine.giacenza, prevLots = JSON.parse(JSON.stringify(wine.lots||[])), prevCalici = p.prima;
@@ -9915,13 +9957,14 @@ function registraCaliceMobile(wineId, n){
   });
   const newMov = {id:movId, wineId, wineName:wine.nome, produttore:wine.produttore, tipo:"scarico", qty:p.bt,
     calici:n, caliciBt:p.cpb, caliciPrima:p.prima, caliciDopo:p.dopo,
-    data:dataMov, fattura, fornitore:"", note:`[mobile] ${n} calic${n>1?"i":"e"}${p.bt?` · aperta ${p.bt} bt`:""}`, ts:Date.now(), nazione:wine.nazione||"",
-    costoUnitarioIva:costo, servizio:0, prezzoCartaSnap:parseFloat(wine.prezzoCarta)||0, prezzoCaliceSnap:parseFloat(wine.prezzoCalice)||0};
+    data:dataMov, fattura, fornitore:"", note:`[mobile] ${qrt?`${nq} quartin${nq>1?"i":"o"}`:`${n} calic${n>1?"i":"e"}`}${p.bt?` · aperta ${p.bt} bt`:""}`, ts:Date.now(), nazione:wine.nazione||"",
+    costoUnitarioIva:costo, servizio:0, prezzoCartaSnap:parseFloat(wine.prezzoCarta)||0, prezzoCaliceSnap:parseFloat(wine.prezzoCalice)||0,
+    ...(qrt?{quartini:nq, prezzoQuartinoSnap:parseFloat(wine.prezzoQuartino)||0}:{})};
   movements = [newMov, ...movements];
   _saveLocalBackup();
   scheduleSave();
   const ts = new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"});
-  const desc = `Calice ${wine.nome}${wine.annata?" "+wine.annata:""} · ${p.dopo}/${p.cpb}${p.bt?" (bottiglia aperta)":""}`;
+  const desc = `${qrt?"Quartino":"Calice"} ${wine.nome}${wine.annata?" "+wine.annata:""} · ${p.dopo}/${p.cpb}${p.bt?(wine.sfuso?" (nuovo contenitore aperto)":" (bottiglia aperta)"):""}`;
   _mobLog = [{ts, desc, movId, wineId, qty:p.bt, calici:n, annullato:false, prevGiacenza, prevLots, prevCalici}, ..._mobLog];
   _renderMobLog();
   _mobUndoData = {wineId, delta:-p.bt, movId, prevGiacenza, prevLots, prevCalici};
@@ -10329,7 +10372,7 @@ function _renderMobStorico(){
         <div class="mob-stor-name">${h(wineName)}</div>
         <div class="mob-stor-meta">${meta}</div>
       </div>
-      <div class="mob-stor-qty">${(parseInt(m.calici)||0)>0 ? `${parseInt(m.calici)} cal.` : (parseInt(m.qty)||0)}</div>
+      <div class="mob-stor-qty">${(parseInt(m.quartini)||0)>0 ? `${parseInt(m.quartini)} qrt.` : (parseInt(m.calici)||0)>0 ? `${parseInt(m.calici)} cal.` : (parseInt(m.qty)||0)}</div>
       <div class="mob-stor-actions">
         ${annullabile
           ? `${(parseInt(m.calici)||0)>0 ? "" : `<button class="mob-stor-btn mob-stor-btn-edit" onclick="mobOpenSheet('${m.id}')" title="Modifica">${ic("edit")}</button>`}
