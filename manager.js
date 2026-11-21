@@ -257,7 +257,7 @@ let fallForm = {wineId:"",_wineText:"",qty:1,motivo:"Tappo difettoso (TCA)",data
 //   €12–18       → ×2.85
 //   €18–25       → ×2.5
 //   > €25        → ×2.3
-// Magnum (rilevata da nome/formato) → ×2.0
+// Magnum e grandi formati: stessa scala delle bottiglie (regola Osteria, 21/11/2026)
 // Risultato arrotondato al mezzo euro superiore, IVA inclusa.
 // ── FORMATI BOTTIGLIA: unica sorgente di verità per select e label ───────────
 const FORMATI_BOTTIGLIA=[
@@ -306,8 +306,6 @@ function _movWineLabel(w){
 }
 
 function _getMolt(w){
-  const fmt = parseFloat(w.formato)||0.75;
-  if(fmt >= 1.5) return 2.0; // grandi formati (magnum e oltre) → ×2.0
   const p = parseFloat(w.prezzoAcq)||0;
   if(p < 12)  return 3.0;
   if(p < 18)  return 2.85;
